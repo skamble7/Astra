@@ -1,0 +1,43 @@
+services:
+  renova-artifact-service:
+    build:
+      context: ..
+      dockerfile: services/artifact-service/Dockerfile
+    container_name: renova-artifact-service
+    restart: unless-stopped
+    env_file:
+      - ../services/artifact-service/.env.example
+    environment:
+      MONGO_URI: ${MONGO_URI:-mongodb+srv://sandeepk:sandeep@cluster0.tnbpi.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0}
+      MONGO_DB: ${MONGO_DB:-renova}
+      RABBITMQ_URI: ${RABBITMQ_URI:-amqp://raina:raina@host.docker.internal:5672/}
+      RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-raina.events}
+      EVENTS_ORG: ${EVENTS_ORG:-renova}
+      PLATFORM_EVENTS_ORG: ${PLATFORM_EVENTS_ORG:-platform}
+      CONSUMER_QUEUE_WORKSPACE: ${CONSUMER_QUEUE_WORKSPACE:-platform.workspace.v1.renova}
+      SERVICE_NAME: artifact-service
+    ports:
+      - "9011:9011"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  renova-capability-service:
+    build:
+      context: ..
+      dockerfile: services/capability-service/Dockerfile
+    container_name: renova-capability-service
+    restart: unless-stopped
+    env_file:
+      - ../services/capability-service/.env.example
+    environment:
+      MONGO_URI: ${MONGO_URI:-mongodb+srv://sandeepk:sandeep@cluster0.tnbpi.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0}
+      MONGO_DB: ${MONGO_DB:-renova}
+      RABBITMQ_URI: ${RABBITMQ_URI:-amqp://raina:raina@host.docker.internal:5672/}
+      RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-raina.events}
+      EVENTS_ORG: ${EVENTS_ORG:-renova}
+      PLATFORM_EVENTS_ORG: ${PLATFORM_EVENTS_ORG:-platform}
+      SERVICE_NAME: capability-service
+    ports:
+      - "9012:9012"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
