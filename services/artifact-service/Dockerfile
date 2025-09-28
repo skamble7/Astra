@@ -14,7 +14,7 @@ RUN pip install --no-cache-dir -e /tmp/libs
 # (optional) sanity check
 RUN python - <<'PY'
 import importlib
-m = importlib.import_module("libs.renova_common.events")
+m = importlib.import_module("libs.astra_common.events")
 print("OK:", m.__file__)
 PY
 

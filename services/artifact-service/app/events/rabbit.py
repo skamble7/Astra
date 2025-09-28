@@ -7,7 +7,7 @@ import time
 from typing import Optional, Dict
 
 from ..config import settings
-from libs.renova_common.events import EXCHANGE, rk, Service, Version  # ← Renova lib
+from libs.astra_common.events import EXCHANGE, rk, Service, Version  # ← astra lib
 
 # Optional: pull correlation/request IDs from middleware if present
 try:

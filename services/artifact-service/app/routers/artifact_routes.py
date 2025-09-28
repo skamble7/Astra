@@ -20,8 +20,8 @@ from ..models.artifact import (
     ArtifactItemPatchIn,
     WorkspaceArtifactsDoc,
 )
-# Renova common events (same API shape as Raina)
-from libs.renova_common.events import Service
+# astra common events (same API shape as Raina)
+from libs.astra_common.events import Service
 from ..services.registry_service import KindRegistryService, SchemaValidationError
 
 logger = logging.getLogger("app.routes.artifact")
@@ -36,7 +36,7 @@ def _set_event_header(response: Response, published: bool) -> None:
     response.headers["X-Event-Published"] = "true" if published else "false"
 
 def _org() -> str:
-    return settings.events_org  # default should be "renova"
+    return settings.events_org  # default should be "astra"
 
 # ─────────────────────────────────────────────────────────────
 # Create/Upsert single artifact (versioned + lineage)

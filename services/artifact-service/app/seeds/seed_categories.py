@@ -10,7 +10,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 CATEGORY_KEYS: List[str] = [
     # Generic CAM categories
     "diagram","contract","catalog","workflow","data","ops","asset",
-    # Renova-specific
+    # astra-specific
     "domain","code","mapping","cobol","jcl",
 ]
 

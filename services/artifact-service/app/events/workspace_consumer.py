@@ -7,7 +7,7 @@ import aio_pika
 from ..config import settings
 from ..dal import artifact_dal as dal
 from ..models.artifact import WorkspaceSnapshot
-from libs.renova_common.events import rk  # ✅ use only rk, not Service
+from libs.astra_common.events import rk  # ✅ use only rk, not Service
 
 log = logging.getLogger("app.events.workspace_consumer")
 

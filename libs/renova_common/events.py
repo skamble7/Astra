@@ -1,8 +1,8 @@
-#libs/renova_common/events.py
+#libs/astra_common/events.py
 from __future__ import annotations
 from enum import Enum
 
-# Canonical exchange for all Renova services
+# Canonical exchange for all astra services
 EXCHANGE = "raina.events"
 
 class Service(str, Enum):

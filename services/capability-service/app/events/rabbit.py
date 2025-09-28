@@ -10,7 +10,7 @@ import aio_pika
 from aio_pika import ExchangeType, Message
 
 from app.config import settings
-from libs.renova_common.events import rk  # canonical RK helper
+from libs.astra_common.events import rk  # canonical RK helper
 
 logger = logging.getLogger("app.events")
 

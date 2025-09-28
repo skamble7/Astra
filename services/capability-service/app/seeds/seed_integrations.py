@@ -26,7 +26,7 @@ async def seed_integrations() -> None:
     Reseat integrations to the NEW transport-based MCPIntegration shape.
     - Deletes existing known IDs (old http-based + any prior variants).
     - Recreates stdio-based integrations.
-    - mcp.git and mcp.cobol.parser are configured to inherit volumes from renova-learning-service.
+    - mcp.git and mcp.cobol.parser are configured to inherit volumes from astra-learning-service.
     """
     log.info("[capability.seeds.integrations] Begin")
     svc = IntegrationService()
@@ -71,11 +71,11 @@ async def seed_integrations() -> None:
                     "run",
                     "--rm",
                     "-i",
-                    "--volumes-from", "renova-learning-service",  # inherit /workspace bind
-                    "-w", "/opt/renova/tools/git",
+                    "--volumes-from", "astra-learning-service",  # inherit /workspace bind
+                    "-w", "/opt/astra/tools/git",
                     "-e", "LOG_LEVEL=info",
-                    "-e", "REPO_WORK_ROOT=/workspace/.renova/src",
-                    "-e", "REPO_CACHE=/workspace/.renova/cache",
+                    "-e", "REPO_WORK_ROOT=/workspace/.astra/src",
+                    "-e", "REPO_CACHE=/workspace/.astra/cache",
                     "-e", "GIT_ALLOWED_HOSTS=github.com,git.example.com",
                     "-e", "GIT_DISABLE_REFERENCE=1",
                     "git-mcp:dev",
@@ -103,8 +103,8 @@ async def seed_integrations() -> None:
                     "run",
                     "--rm",
                     "-i",
-                    "--volumes-from", "renova-learning-service",  # inherit /workspace bind
-                    "-w", "/opt/renova/tools/cobol-parser",
+                    "--volumes-from", "astra-learning-service",  # inherit /workspace bind
+                    "-w", "/opt/astra/tools/cobol-parser",
                     "-e", "LOG_LEVEL=info",
                     "-e", "COBOL_DIALECT=COBOL85",
                     "-e", "WORKSPACE_HOST=/workspace",
@@ -112,8 +112,8 @@ async def seed_integrations() -> None:
                     "-e", "CB2XML_CLASSPATH=/opt/cb2xml/lib/*",
                     "-e", "CB2XML_MAIN=net.sf.cb2xml.Cb2Xml",
                     "-e", "PROLEAP_CLASSPATH=/opt/proleap/lib/proleap-cli-bridge.jar",
-                    "-e", "PROLEAP_MAIN=com.renova.proleap.CLI",
-                    "-e", "RAW_AST_DUMP_DIR=/workspace/.renova/debug/raw-ast",
+                    "-e", "PROLEAP_MAIN=com.astra.proleap.CLI",
+                    "-e", "RAW_AST_DUMP_DIR=/workspace/.astra/debug/raw-ast",
                     "cobol-parser-mcp:dev",
                     "--stdio",
                 ],
@@ -136,7 +136,7 @@ async def seed_integrations() -> None:
                 kind="stdio",
                 command="jcl-parser-mcp",
                 args=["--stdio"],
-                cwd="/opt/renova/tools/jcl-parser",
+                cwd="/opt/astra/tools/jcl-parser",
                 env={"LOG_LEVEL": "info"},
                 env_aliases={},
                 restart_on_exit=True,
@@ -153,7 +153,7 @@ async def seed_integrations() -> None:
                 kind="stdio",
                 command="cics-catalog-mcp",
                 args=["--stdio"],
-                cwd="/opt/renova/tools/cics-catalog",
+                cwd="/opt/astra/tools/cics-catalog",
                 env={"LOG_LEVEL": "info"},
                 env_aliases={"CICS_TOKEN": "alias.cics.token"},
                 restart_on_exit=True,
@@ -170,7 +170,7 @@ async def seed_integrations() -> None:
                 kind="stdio",
                 command="db2-catalog-mcp",
                 args=["--stdio"],
-                cwd="/opt/renova/tools/db2-catalog",
+                cwd="/opt/astra/tools/db2-catalog",
                 env={"LOG_LEVEL": "info"},
                 env_aliases={
                     "DB2_CONN": "alias.db2.conn",
@@ -191,7 +191,7 @@ async def seed_integrations() -> None:
                 kind="stdio",
                 command="dataset-scanner-mcp",
                 args=["--stdio"],
-                cwd="/opt/renova/tools/dataset-scanner",
+                cwd="/opt/astra/tools/dataset-scanner",
                 env={"LOG_LEVEL": "info"},
                 env_aliases={"MAINFRAME_TOKEN": "alias.mf.token"},
                 restart_on_exit=True,
@@ -208,7 +208,7 @@ async def seed_integrations() -> None:
                 kind="stdio",
                 command="graph-indexer-mcp",
                 args=["--stdio"],
-                cwd="/opt/renova/tools/graph-indexer",
+                cwd="/opt/astra/tools/graph-indexer",
                 env={"LOG_LEVEL": "info"},
                 env_aliases={},
                 restart_on_exit=True,
@@ -225,7 +225,7 @@ async def seed_integrations() -> None:
                 kind="stdio",
                 command="lineage-engine-mcp",
                 args=["--stdio"],
-                cwd="/opt/renova/tools/lineage-engine",
+                cwd="/opt/astra/tools/lineage-engine",
                 env={"LOG_LEVEL": "info"},
                 env_aliases={},
                 restart_on_exit=True,
@@ -242,7 +242,7 @@ async def seed_integrations() -> None:
                 kind="stdio",
                 command="workflow-miner-mcp",
                 args=["--stdio"],
-                cwd="/opt/renova/tools/workflow-miner",
+                cwd="/opt/astra/tools/workflow-miner",
                 env={"LOG_LEVEL": "info"},
                 env_aliases={},
                 restart_on_exit=True,
@@ -259,7 +259,7 @@ async def seed_integrations() -> None:
                 kind="stdio",
                 command="diagram-exporter-mcp",
                 args=["--stdio"],
-                cwd="/opt/renova/tools/diagram-exporter",
+                cwd="/opt/astra/tools/diagram-exporter",
                 env={"LOG_LEVEL": "info"},
                 env_aliases={},
                 restart_on_exit=True,

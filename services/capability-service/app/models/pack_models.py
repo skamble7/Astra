@@ -39,7 +39,7 @@ class CapabilitySnapshot(BaseModel):
     produces_kinds: List[str] = Field(default_factory=list)
     agent: Optional[str] = None
 
-    # Renova extensions (frozen at pack time)
+    # astra extensions (frozen at pack time)
     integration: Optional[MCPIntegrationBinding] = None
     llm_config: Optional[LLMConfig] = None
 

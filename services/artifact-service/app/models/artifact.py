@@ -17,7 +17,7 @@ ArtifactKind = str
 class Provenance(BaseModel):
     """
     Single, structured provenance record stamped on writes.
-    In Renova, runs are 'relearning runs' mined from legacy code,
+    In astra, runs are 'relearning runs' mined from legacy code,
     but we keep fields generic to match RainaV2 parity.
     """
     run_id: Optional[str] = None           # relearning run id
@@ -153,7 +153,7 @@ class WorkspaceArtifactsDoc(BaseModel):
     """
     Single MongoDB document per workspace aggregating all artifacts + baseline.
     Kept RainaV2-compatible, but the 'baseline' here usually represents a
-    *source snapshot* (e.g., repo/commit + config) for Renova.
+    *source snapshot* (e.g., repo/commit + config) for astra.
     """
     model_config = ConfigDict(populate_by_name=True)
 
@@ -161,7 +161,7 @@ class WorkspaceArtifactsDoc(BaseModel):
     workspace_id: str                          # convenience for querying
     workspace: WorkspaceSnapshot
 
-    # Baseline snapshot (Renova): source/repo state or mined-input snapshot
+    # Baseline snapshot (astra): source/repo state or mined-input snapshot
     baseline: Dict[str, Any] = Field(default_factory=dict)
     baseline_fingerprint: Optional[str] = None     # sha256 over canonical(baseline)
     baseline_version: int = 1

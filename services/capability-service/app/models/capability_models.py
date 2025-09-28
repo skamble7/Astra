@@ -93,7 +93,7 @@ class GlobalCapability(BaseModel):
         default=None, description="Optional semantic hint (e.g., 'copybook.parser.v1')."
     )
 
-    # Renova extensions
+    # astra extensions
     integration: Optional[MCPIntegrationBinding] = None
     llm_config: Optional[LLMConfig] = Field(
         default=None, description="Ignored if 'integration' is present."
