@@ -26,4 +26,4 @@ RUN pip install --no-cache-dir .
 COPY services/capability-service/app /app/app
 
 # 4) Run (expose internal port 9012 to match docker-compose)
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9012"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9021"]

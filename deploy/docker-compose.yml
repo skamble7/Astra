@@ -17,7 +17,7 @@ services:
       CONSUMER_QUEUE_WORKSPACE: ${CONSUMER_QUEUE_WORKSPACE:-platform.workspace.v1.astra}
       SERVICE_NAME: artifact-service
     ports:
-      - "9011:9011"
+      - "9020:9020"
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -38,6 +38,6 @@ services:
       PLATFORM_EVENTS_ORG: ${PLATFORM_EVENTS_ORG:-platform}
       SERVICE_NAME: capability-service
     ports:
-      - "9012:9012"
+      - "9021:9021"
     extra_hosts:
       - "host.docker.internal:host-gateway"
