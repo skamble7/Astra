@@ -62,7 +62,8 @@ async def upsert_artifact(
             kind=env["kind"],
             name=env["name"],
             data=env["data"],
-            diagrams=body.diagrams,               # NEW: pass diagrams through
+            diagrams=body.diagrams,               # pass through
+            narratives=body.narratives,           # NEW: pass through
             natural_key=env["natural_key"],
             fingerprint=env["fingerprint"],
             provenance=body.provenance,
@@ -127,7 +128,8 @@ async def upsert_batch(
                 kind=env["kind"],
                 name=env["name"],
                 data=env["data"],
-                diagrams=item.diagrams,             # NEW: pass diagrams through
+                diagrams=item.diagrams,             # pass through
+                narratives=item.narratives,         # NEW
                 natural_key=env["natural_key"],
                 fingerprint=env["fingerprint"],
                 provenance=item.provenance,
@@ -154,7 +156,10 @@ async def upsert_batch(
             results.append({"error": str(e) or repr(e), "kind": item.kind, "name": item.name})
         except Exception as e:
             counts["failed"] += 1
-            logger.exception("batch_upsert_failed_item", extra={"workspace_id": workspace_id, "kind": getattr(item, "kind", None)})
+            logger.exception(
+                "batch_upsert_failed_item",
+                extra={"workspace_id": workspace_id, "kind": getattr(item, "kind", None)}
+            )
             results.append({"error": str(e) or repr(e), "kind": item.kind, "name": item.name})
 
     summary = {"counts": counts, "results": results}
@@ -207,8 +212,8 @@ async def set_baseline_inputs(
             org=_org(), service=Service.ARTIFACT, event="baseline_inputs.set",
             payload={
                 "workspace_id": workspace_id,
-                "version": parent.baseline_version,
-                "fingerprint": parent.baseline_fingerprint,
+                "version": parent.inputs_baseline_version,
+                "fingerprint": parent.inputs_baseline_fingerprint,
                 "op": op,
             },
         )
@@ -217,15 +222,15 @@ async def set_baseline_inputs(
             org=_org(), service=Service.ARTIFACT, event="baseline_inputs.replaced",
             payload={
                 "workspace_id": workspace_id,
-                "version": parent.baseline_version,
-                "fingerprint": parent.baseline_fingerprint,
+                "version": parent.inputs_baseline_version,
+                "fingerprint": parent.inputs_baseline_fingerprint,
                 "op": op,
             },
         )
 
     _set_event_header(response, published)
     response.headers["X-Op"] = op
-    response.headers["X-Baseline-Version"] = str(parent.baseline_version)
+    response.headers["X-Baseline-Version"] = str(parent.inputs_baseline_version)
     return parent.model_dump(by_alias=True)
 
 
@@ -256,15 +261,15 @@ async def patch_baseline_inputs(
         org=_org(), service=Service.ARTIFACT, event="baseline_inputs.merged",
         payload={
             "workspace_id": workspace_id,
-            "version": updated.baseline_version,
-            "fingerprint": updated.baseline_fingerprint,
+            "version": updated.inputs_baseline_version,
+            "fingerprint": updated.inputs_baseline_fingerprint,
             "upserts": len(body.fss_stories_upsert or []),
             "replaced_avc": body.avc is not None,
             "replaced_pss": body.pss is not None,
         },
     )
     _set_event_header(response, published)
-    response.headers["X-Baseline-Version"] = str(updated.baseline_version)
+    response.headers["X-Baseline-Version"] = str(updated.inputs_baseline_version)
     return updated.model_dump(by_alias=True)
 
 
@@ -375,14 +380,15 @@ async def replace_artifact(
     expected = _parse_if_match(if_match)
     _guard_if_match(expected, art.version)
 
-    # Allow replacing data and/or diagrams
+    # Allow replacing data, diagrams, and/or narratives
     updated = await dal.replace_artifact(
         db,
         workspace_id,
         artifact_id,
         new_data=body.data,
         prov=body.provenance,
-        new_diagrams=body.diagrams,          # NEW: optional diagrams
+        new_diagrams=body.diagrams,
+        new_narratives=body.narratives,          # NEW
     )
 
     published = publish_event_v1(org=_org(), service=Service.ARTIFACT, event="updated", payload=updated.model_dump())
@@ -418,7 +424,7 @@ async def patch_artifact(
         artifact_id,
         new_data=new_data,
         prov=body.provenance,
-        # diagrams not patched here
+        # diagrams/narratives not patched here
     )
     await dal.record_patch(
         db,

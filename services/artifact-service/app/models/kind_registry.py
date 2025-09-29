@@ -12,15 +12,12 @@ from pydantic import BaseModel, Field, field_validator
 
 class PromptVariantSpec(BaseModel):
     name: str
-    when: Optional[Dict[str, Any]] = None  # e.g., {"stack": "cobol", "flow": "batch"}
+    when: Optional[Dict[str, Any]] = None
     system: Optional[str] = None
     user_template: Optional[str] = None
 
 
 class PromptSpec(BaseModel):
-    """
-    Canonical prompt content for the kind+schema_version.
-    """
     system: str
     user_template: Optional[str] = None
     variants: List[PromptVariantSpec] = Field(default_factory=list)
@@ -40,38 +37,36 @@ DiagramView = Literal[
 ]
 
 class DiagramPromptSpec(BaseModel):
-    """
-    Prompt to produce diagram *instructions* (plain text in the target language),
-    not JSON. Agents use this when no static template is sufficient.
-    """
     system: str
     user_template: Optional[str] = None
     variants: List[PromptVariantSpec] = Field(default_factory=list)
     strict_text: bool = True
     prompt_rev: int = 1
-    io_hints: Optional[Dict[str, Any]] = None  # e.g., {"max_tokens": 1500}
+    io_hints: Optional[Dict[str, Any]] = None
 
 class DiagramRecipeSpec(BaseModel):
-    """
-    A single diagram representation ("recipe") for a schema version.
-    An agent can emit diagram instructions using either the `template`
-    (deterministic) and/or the `prompt` (LLM-generated).
-    """
-    id: str                                  # e.g., "program.sequence", unique per schema version
-    title: str                               # e.g., "Program Call Sequence"
-    view: DiagramView                        # e.g., "sequence", "flowchart", "mindmap"
-    language: DiagramLanguage = "mermaid"    # default → Mermaid
+    id: str
+    title: str
+    view: DiagramView
+    language: DiagramLanguage = "mermaid"
     description: Optional[str] = None
-
-    # One or both may be provided:
-    template: Optional[str] = None           # Jinja/format template -> diagram instructions
+    template: Optional[str] = None
     prompt: Optional[DiagramPromptSpec] = None
-
-    renderer_hints: Optional[Dict[str, Any]] = None  # width, theme, direction, etc.
-    examples: List[Dict[str, Any]] = Field(default_factory=list)  # {"data": <valid data>, "diagram": "<instructions>"}
-
-    # Optional dependencies/context the recipe needs to consider (overrides or adds to SchemaVersionSpec.depends_on)
+    renderer_hints: Optional[Dict[str, Any]] = None
+    examples: List[Dict[str, Any]] = Field(default_factory=list)
     depends_on: Optional["DependsOnSpec"] = None
+
+
+# ─────────────────────────────────────────────────────────────
+# Narratives spec (NEW, schema-level constraints)
+# ─────────────────────────────────────────────────────────────
+
+class NarrativesSpec(BaseModel):
+    allowed_formats: List[str] = Field(default_factory=lambda: ["markdown", "asciidoc"])
+    default_format: str = "markdown"
+    max_length_chars: int = 20000
+    allowed_locales: List[str] = Field(default_factory=lambda: ["en-US"])
+    renderer_hints: Optional[Dict[str, Any]] = None
 
 
 # ─────────────────────────────────────────────────────────────
@@ -80,7 +75,7 @@ class DiagramRecipeSpec(BaseModel):
 
 class IdentitySpec(BaseModel):
     natural_key: Optional[Any] = None
-    summary_rule: Optional[str] = None
+    summary_rule: Optional[str] = None           # kept for backward compat; unused now
     category: Optional[str] = None
 
 
@@ -134,6 +129,9 @@ class SchemaVersionSpec(BaseModel):
     # Diagram recipes for this schema version
     diagram_recipes: List[DiagramRecipeSpec] = Field(default_factory=list)
 
+    # NEW: narratives spec (constraints & defaults for instance narratives)
+    narratives_spec: Optional[NarrativesSpec] = None
+
     identity: Optional[IdentitySpec] = None
     adapters: List[AdapterSpec] = Field(default_factory=list)
     migrators: List[MigratorSpec] = Field(default_factory=list)
@@ -162,7 +160,7 @@ class SchemaVersionSpec(BaseModel):
 class KindRegistryDoc(BaseModel):
     id: str = Field(alias="_id")
     title: Optional[str] = None
-    summary: Optional[str] = None
+    # REMOVED: summary
     category: Optional[str] = None
     aliases: List[str] = Field(default_factory=list)
     status: Literal["active", "deprecated"] = "active"
@@ -175,10 +173,6 @@ class KindRegistryDoc(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-
-# ─────────────────────────────────────────────────────────────
-# NEW: Registry meta model (used by DAL)
-# ─────────────────────────────────────────────────────────────
 
 class RegistryMetaDoc(BaseModel):
     id: str = Field(alias="_id")

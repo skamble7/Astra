@@ -45,8 +45,10 @@ class SchemaValidationError(Exception):
 def _canonical(obj: Dict[str, Any]) -> str:
     return json.dumps(obj, sort_keys=True, separators=(",", ":"))
 
+
 def _sha256(s: str) -> str:
     return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
 
 def _dot_get(obj: Any, path: str, default: Any = "") -> Any:
     cur = obj
@@ -70,6 +72,7 @@ def _dot_get(obj: Any, path: str, default: Any = "") -> Any:
         else:
             return default
     return cur
+
 
 def _dot_set(obj: Dict[str, Any], path: str, value: Any) -> None:
     parts = path.split(".")
@@ -99,6 +102,7 @@ def _dot_set(obj: Dict[str, Any], path: str, value: Any) -> None:
             else:
                 raise ValueError(f"Cannot traverse into non-container at '{p}'")
             cur = nxt
+
 
 def _dot_delete(obj: Dict[str, Any], path: str) -> None:
     parts = path.split(".")
@@ -175,11 +179,13 @@ def _compile_validator(kind_id: str, version: str, json_schema: Dict[str, Any]):
         validator = fastjsonschema.compile(json_schema)
     elif Draft202012Validator is not None:
         v = Draft202012Validator(json_schema)
+
         def validator(instance: Any) -> None:
             v.validate(instance)
     else:
         def validator(instance: Any) -> None:
             return None
+
         if not _warned_no_validator:
             log.warning(
                 "JSON Schema validation is DISABLED (no validator libs found). "
@@ -218,6 +224,7 @@ def _render_template(rule: str, ctx: Dict[str, Any]) -> str:
             except Exception:
                 return ""
         return str(val)
+
     return _JINJA_RX.sub(repl, rule).strip()
 
 
@@ -238,13 +245,6 @@ def _compute_natural_key(kind_id: str, name: str, ident_spec: Optional[Dict[str,
     return f"{kind_id}:{name}".lower().strip()
 
 
-def _compute_summary(name: str, ident_spec: Optional[Dict[str, Any]], data: Dict[str, Any]) -> str:
-    rule = (ident_spec or {}).get("summary_rule")
-    if isinstance(rule, str) and rule.strip():
-        return _render_template(rule, {"data": data, "name": name}) or name
-    return name
-
-
 def _compute_category(kind_id: str, kind_doc: Optional[KindRegistryDoc]) -> str:
     if kind_doc and kind_doc.category:
         return kind_doc.category
@@ -258,6 +258,7 @@ _DEPLOYMENT_KIND_MAP = {
     "svc": "server",
     "ms": "server",
 }
+
 
 def _normalize_diagram_payload(kind_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
     out = json.loads(json.dumps(data))
@@ -490,7 +491,6 @@ class KindRegistryService:
         entry = await get_schema_version_entry(self.db, kd.id, version=at_version) or {}
         ident_spec = (entry or {}).get("identity") or {}
         natural_key = _compute_natural_key(kd.id, name, ident_spec, adapted)
-        summary = _compute_summary(name, ident_spec, adapted)
         category = _compute_category(kd.id, kd)
         fingerprint = _sha256(_canonical(adapted))
 
@@ -501,6 +501,6 @@ class KindRegistryService:
             "natural_key": natural_key,
             "fingerprint": fingerprint,
             "schema_version": at_version,
-            "summary": summary,
+            # REMOVED: "summary"
             "category": category,
         }

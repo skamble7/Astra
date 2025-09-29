@@ -10,36 +10,28 @@ from pydantic import BaseModel, Field, ConfigDict
 # ─────────────────────────────────────────────────────────────
 # Types
 # ─────────────────────────────────────────────────────────────
-# Accept any registered kind; runtime validation will verify against registry
 ArtifactKind = str
 
 
 class Provenance(BaseModel):
-    """
-    Single, structured provenance record stamped on writes.
-    In astra, runs are 'relearning runs' mined from legacy code,
-    but we keep fields generic to match RainaV2 parity.
-    """
-    run_id: Optional[str] = None           # relearning run id
-    playbook_id: Optional[str] = None      # which playbook/capability pipeline
-    model_id: Optional[str] = None         # LLM/tooling identity if applicable
-    step: Optional[str] = None             # pipeline step/stage
+    run_id: Optional[str] = None
+    playbook_id: Optional[str] = None
+    model_id: Optional[str] = None
+    step: Optional[str] = None
     pack_key: Optional[str] = None
     pack_version: Optional[str] = None
-    inputs_fingerprint: Optional[str] = None  # canonicalized inputs snapshot
-    author: Optional[str] = None           # human author (if manual)
-    agent: Optional[str] = None            # e.g., "learning_service"
-    reason: Optional[str] = None           # short note
-    source_repo: Optional[str] = None      # e.g., git URL
-    source_ref: Optional[str] = None       # branch/tag
-    source_commit: Optional[str] = None    # commit hash used for mining
+    inputs_fingerprint: Optional[str] = None
+    author: Optional[str] = None
+    agent: Optional[str] = None
+    reason: Optional[str] = None
+    source_repo: Optional[str] = None
+    source_ref: Optional[str] = None
+    source_commit: Optional[str] = None
 
 
 class WorkspaceSnapshot(BaseModel):
-    """Denormalized snapshot of the workspace, as known to artifact-service."""
     model_config = ConfigDict(extra="allow", populate_by_name=True)
-
-    id: str = Field(..., alias="_id")      # allow Mongo-style _id alias
+    id: str = Field(..., alias="_id")
     name: str
     description: Optional[str] = None
     created_by: Optional[str] = None
@@ -50,50 +42,45 @@ class WorkspaceSnapshot(BaseModel):
 class Lineage(BaseModel):
     first_seen_run_id: Optional[str] = None
     last_seen_run_id: Optional[str] = None
-    supersedes: List[str] = Field(default_factory=list)  # prior artifact_ids
+    supersedes: List[str] = Field(default_factory=list)
     superseded_by: Optional[str] = None
 
 
 # ─────────────────────────────────────────────────────────────
-# NEW: embedded diagram representations for an artifact
+# Diagrams
 # ─────────────────────────────────────────────────────────────
 class DiagramInstance(BaseModel):
-    """
-    A single diagram representation for this artifact.
-    Multiple entries are allowed (e.g., flowchart, sequence, mindmap), possibly in different languages.
-    """
-    # Identity / classification
-    recipe_id: Optional[str] = Field(
-        default=None,
-        description="Registry recipe id if applicable (e.g., 'program.sequence')."
-    )
-    view: Optional[str] = Field(
-        default=None,
-        description="High-level view type (e.g., 'flowchart','sequence','mindmap','activity','er')."
-    )
-    language: str = Field(
-        default="mermaid",
-        description="Diagram language to render with (e.g., mermaid, plantuml, d2, graphviz)."
-    )
+    recipe_id: Optional[str] = Field(default=None)
+    view: Optional[str] = Field(default=None)
+    language: str = Field(default="mermaid")
+    instructions: str
+    renderer_hints: Optional[Dict[str, Any]] = None
+    generated_from_fingerprint: Optional[str] = None
+    prompt_rev: Optional[int] = None
+    provenance: Optional[Provenance] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-    # The actual diagram text to render
-    instructions: str = Field(
-        ...,
-        description="Plain-text diagram instructions in the given language."
-    )
 
-    # Optional rendering hints (direction, theme, width/height, etc.)
+# ─────────────────────────────────────────────────────────────
+# Narratives  (NEW)
+# ─────────────────────────────────────────────────────────────
+class NarrativeInstance(BaseModel):
+    """
+    Human-readable explanation for an artifact instance (e.g., Markdown).
+    Multiple variants allowed for audience/locale/tone.
+    """
+    id: Optional[str] = None                         # stable within artifact
+    title: Optional[str] = None                      # e.g., "Architect view"
+    format: str = Field(default="markdown")          # markdown | asciidoc
+    locale: str = Field(default="en-US")
+    audience: Optional[str] = None                   # architect | developer | ...
+    tone: Optional[str] = None                       # explanatory | concise | ...
+    body: str                                        # the narrative text
     renderer_hints: Optional[Dict[str, Any]] = None
 
-    # Traceability (for staleness checks)
-    generated_from_fingerprint: Optional[str] = Field(
-        default=None,
-        description="Fingerprint of the artifact data this diagram was generated from."
-    )
-    prompt_rev: Optional[int] = Field(
-        default=None,
-        description="If produced by an LLM prompt recipe, record its prompt_rev."
-    )
+    generated_from_fingerprint: Optional[str] = None
+    prompt_rev: Optional[int] = None
     provenance: Optional[Provenance] = None
 
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -107,13 +94,15 @@ class ArtifactItem(BaseModel):
     name: str
     data: Dict[str, Any]
 
-    # NEW: embedded diagram representations for this artifact
+    # Diagrams & Narratives
     diagrams: List[DiagramInstance] = Field(default_factory=list)
+    narratives: List[NarrativeInstance] = Field(default_factory=list)   # NEW
 
     # Identity & versioning
-    natural_key: Optional[str] = None          # per-kind deterministic key
-    fingerprint: Optional[str] = None          # sha256 over normalized *data only*
-    diagram_fingerprint: Optional[str] = None  # sha256 over normalized diagrams array
+    natural_key: Optional[str] = None
+    fingerprint: Optional[str] = None              # data-only
+    diagram_fingerprint: Optional[str] = None
+    narrative_fingerprint: Optional[str] = None    # NEW: narratives array
     version: int = 1
     lineage: Optional[Lineage] = None
 
@@ -130,40 +119,34 @@ class ArtifactItemCreate(BaseModel):
     kind: ArtifactKind
     name: str
     data: Dict[str, Any]
-    diagrams: Optional[List[DiagramInstance]] = None  # NEW
+    diagrams: Optional[List[DiagramInstance]] = None
+    narratives: Optional[List[NarrativeInstance]] = None               # NEW
     natural_key: Optional[str] = None
-    fingerprint: Optional[str] = None                # remains data-only
+    fingerprint: Optional[str] = None
     provenance: Optional[Provenance] = None
 
 
 class ArtifactItemReplace(BaseModel):
-    # Allow replacing either data, diagrams, or both
     data: Optional[Dict[str, Any]] = None
     diagrams: Optional[List[DiagramInstance]] = None
+    narratives: Optional[List[NarrativeInstance]] = None               # NEW
     provenance: Optional[Provenance] = None
 
 
 class ArtifactItemPatchIn(BaseModel):
-    # RFC 6902 JSON Patch (applies to `.data` only)
     patch: List[Dict[str, Any]]
     provenance: Optional[Provenance] = None
 
 
 class WorkspaceArtifactsDoc(BaseModel):
-    """
-    Single MongoDB document per workspace aggregating all artifacts + baseline.
-    Kept RainaV2-compatible, but the 'baseline' here usually represents a
-    *source snapshot* (e.g., repo/commit + config) for astra.
-    """
     model_config = ConfigDict(populate_by_name=True)
 
-    id: str = Field(alias="_id")               # Mongo _id for this doc
-    workspace_id: str                          # convenience for querying
+    id: str = Field(alias="_id")
+    workspace_id: str
     workspace: WorkspaceSnapshot
 
-    # Baseline snapshot (astra): source/repo state or mined-input snapshot
     baseline: Dict[str, Any] = Field(default_factory=dict)
-    baseline_fingerprint: Optional[str] = None     # sha256 over canonical(baseline)
+    baseline_fingerprint: Optional[str] = None
     baseline_version: int = 1
     last_promoted_run_id: Optional[str] = None
 
