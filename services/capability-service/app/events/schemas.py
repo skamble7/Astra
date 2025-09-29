@@ -30,9 +30,3 @@ class PackEvent(BaseModel):
     key: str
     version: str
     status: Optional[str] = None
-
-
-class IntegrationEvent(BaseModel):
-    id: str
-    name: str
-    endpoint: str

@@ -23,7 +23,6 @@ def _strip_none(d: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _pack_id_from_key_version(key: str, version: str) -> str:
-    # Stable, human-friendly primary key
     return f"{key}@{version}"
 
 
@@ -45,7 +44,6 @@ class PackDAL:
             "title": payload.title,
             "description": payload.description,
             "capability_ids": payload.capability_ids or [],
-            "capabilities": [],  # snapshots will be injected by service layer
             "playbooks": [pb.model_dump() for pb in (payload.playbooks or [])],
             "status": PackStatus.draft.value,
             "created_at": _utcnow(),
@@ -81,29 +79,12 @@ class PackDAL:
         )
         return CapabilityPack.model_validate(doc) if doc else None
 
-    async def set_capability_snapshots(self, pack_id: str, snapshots: List[Dict[str, Any]]) -> Optional[CapabilityPack]:
-        """
-        Service layer should build 'snapshots' (CapabilitySnapshot dicts).
-        This DAL method just persists them.
-        """
-        doc = await self.col.find_one_and_update(
-            {"_id": pack_id},
-            {"$set": {"capabilities": snapshots, "updated_at": _utcnow()}},
-            return_document=ReturnDocument.AFTER,
-        )
-        return CapabilityPack.model_validate(doc) if doc else None
-
     async def publish(self, pack_id: str) -> Optional[CapabilityPack]:
-        """
-        Set status=published and stamp published_at (idempotent if already published).
-        No immutability enforcement here—leave that to the service/router layer.
-        """
         doc = await self.col.find_one({"_id": pack_id})
         if not doc:
             return None
 
         if doc.get("status") == PackStatus.published.value and doc.get("published_at"):
-            # Already published; still return the model for convenience
             return CapabilityPack.model_validate(doc)
 
         upd = {

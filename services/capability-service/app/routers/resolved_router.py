@@ -1,3 +1,4 @@
+# services/capability-service/app/routers/resolved_router.py
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException

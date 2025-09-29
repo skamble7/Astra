@@ -4,18 +4,14 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from .pack_models import Playbook
-from .capability_models import MCPToolCallSpec
-
+from .capability_models import ToolCallSpec, GlobalCapability
 
 ExecutionMode = Literal["mcp", "llm"]
 
 
 class ResolvedPlaybookStep(BaseModel):
     """
-    Read-optimized projection for executors or UI previews.
-    Capability-service may populate 'produces_kinds' from snapshots;
-    'required_kinds' is typically computed by learning-service using CAM.
+    A step annotated with execution mode, produced kinds, and (for MCP) tool_calls.
     """
     id: str
     name: str
@@ -24,8 +20,8 @@ class ResolvedPlaybookStep(BaseModel):
 
     execution_mode: ExecutionMode
     produces_kinds: List[str] = Field(default_factory=list)
-    required_kinds: List[str] = Field(default_factory=list)  # derived via CAM in learning-service
-    tool_calls: Optional[List[MCPToolCallSpec]] = None       # only in MCP mode
+    required_kinds: List[str] = Field(default_factory=list)  # reserved for learning-service enrichment
+    tool_calls: Optional[List[ToolCallSpec]] = None          # only for MCP
 
 
 class ResolvedPlaybook(BaseModel):
@@ -37,13 +33,18 @@ class ResolvedPlaybook(BaseModel):
 
 class ResolvedPackView(BaseModel):
     """
-    High-level “resolved” view. The capability-service can serve this
-    directly by projecting pack + snapshots (without CAM deps).
-    Learning-service can re-emit an augmented view with 'required_kinds'.
+    Full resolved view for executors/UI:
+      - pack header
+      - capability_ids (as stored on the pack)
+      - capabilities: full GlobalCapability documents for those ids (ordered)
+      - playbooks: steps annotated with execution metadata derived from capabilities
     """
     pack_id: str
     key: str
     version: str
     title: str
     description: str
+
+    capability_ids: List[str] = Field(default_factory=list)
+    capabilities: List[GlobalCapability] = Field(default_factory=list)
     playbooks: List[ResolvedPlaybook] = Field(default_factory=list)

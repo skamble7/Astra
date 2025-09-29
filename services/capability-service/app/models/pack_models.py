@@ -6,16 +6,15 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-from .capability_models import LLMConfig, MCPIntegrationBinding
-
 
 # ─────────────────────────────────────────────────────────────
 # Playbooks
 # ─────────────────────────────────────────────────────────────
+
 class PlaybookStep(BaseModel):
-    id: str = Field(..., description="Stable step id (uuid or semantic id).")
+    id: str
     name: str
-    capability_id: str = Field(..., description="Global capability id this step invokes.")
+    capability_id: str
     description: Optional[str] = None
     params: Dict[str, Any] = Field(default_factory=dict)
 
@@ -28,21 +27,8 @@ class Playbook(BaseModel):
 
 
 # ─────────────────────────────────────────────────────────────
-# Snapshot of a capability, embedded in a pack for reproducibility
+# Pack
 # ─────────────────────────────────────────────────────────────
-class CapabilitySnapshot(BaseModel):
-    id: str
-    name: str
-    description: Optional[str] = None
-    tags: List[str] = Field(default_factory=list)
-    parameters_schema: Optional[Dict[str, Any]] = None
-    produces_kinds: List[str] = Field(default_factory=list)
-    agent: Optional[str] = None
-
-    # astra extensions (frozen at pack time)
-    integration: Optional[MCPIntegrationBinding] = None
-    llm_config: Optional[LLMConfig] = None
-
 
 class PackStatus(str, Enum):
     draft = "draft"
@@ -51,20 +37,13 @@ class PackStatus(str, Enum):
 
 
 class CapabilityPack(BaseModel):
-    id: str = Field(..., alias="_id")
+    id: str = Field(..., alias="_id")  # key@version
     key: str
     version: str
     title: str
     description: str
 
-    capability_ids: List[str] = Field(
-        default_factory=list,
-        description="Refs to global capabilities used by the pack."
-    )
-    capabilities: List[CapabilitySnapshot] = Field(
-        default_factory=list,
-        description="Denormalized snapshots for reproducibility."
-    )
+    capability_ids: List[str] = Field(default_factory=list)
     playbooks: List[Playbook] = Field(default_factory=list)
 
     status: PackStatus = PackStatus.draft

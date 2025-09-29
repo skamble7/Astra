@@ -14,7 +14,6 @@ from app.db.mongo import init_indexes
 from app.events import get_bus
 from app.routers import (
     capability_router,
-    integration_router,
     pack_router,
     resolved_router,
     health_router,
@@ -36,7 +35,6 @@ async def lifespan(app: FastAPI):
         logger.info("Mongo indexes initialized")
     except Exception as e:
         logger.exception("Failed to initialize Mongo indexes: %s", e)
-        # Let the service start; routers may still function if collections exist.
 
     # Connect RabbitMQ (non-fatal if broker is temporarily unavailable)
     try:
@@ -72,7 +70,6 @@ add_error_handlers(app)
 app.include_router(health_router)
 app.include_router(pack_router)
 app.include_router(resolved_router)
-app.include_router(integration_router)
 app.include_router(capability_router)
 
 

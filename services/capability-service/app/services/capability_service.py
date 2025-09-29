@@ -1,6 +1,7 @@
+# services/capability-service/app/services/capability_service.py
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from app.dal.capability_dal import CapabilityDAL
 from app.events import get_bus
@@ -25,6 +26,9 @@ class CapabilityService:
 
     async def get(self, capability_id: str) -> Optional[GlobalCapability]:
         return await self.dal.get(capability_id)
+
+    async def get_many(self, capability_ids: List[str]) -> List[GlobalCapability]:
+        return await self.dal.get_many(capability_ids)
 
     async def update(self, capability_id: str, patch: GlobalCapabilityUpdate, *, actor: Optional[str] = None) -> Optional[GlobalCapability]:
         cap = await self.dal.update(capability_id, patch)
@@ -51,11 +55,12 @@ class CapabilityService:
         *,
         tag: Optional[str] = None,
         produces_kind: Optional[str] = None,
+        mode: Optional[str] = None,   # "mcp" | "llm"
         q: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
     ) -> Tuple[List[GlobalCapability], int]:
-        return await self.dal.search(tag=tag, produces_kind=produces_kind, q=q, limit=limit, offset=offset)
+        return await self.dal.search(tag=tag, produces_kind=produces_kind, mode=mode, q=q, limit=limit, offset=offset)
 
     async def list_all_ids(self) -> List[str]:
         return await self.dal.list_all_ids()

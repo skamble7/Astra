@@ -1,4 +1,4 @@
-#services/capability-service/app/routers/pack_router.py
+# services/capability-service/app/routers/pack_router.py
 from __future__ import annotations
 
 from typing import List, Optional
@@ -52,14 +52,6 @@ async def delete_pack(pack_id: str, actor: Optional[str] = None):
     if not ok:
         raise HTTPException(status_code=404, detail="Pack not found")
     return {"deleted": True}
-
-
-@router.post("/{pack_id}/refresh-snapshots", response_model=CapabilityPack)
-async def refresh_snapshots(pack_id: str):
-    pack = await svc.refresh_snapshots(pack_id)
-    if not pack:
-        raise HTTPException(status_code=404, detail="Pack not found")
-    return pack
 
 
 @router.post("/{pack_id}/publish", response_model=CapabilityPack)

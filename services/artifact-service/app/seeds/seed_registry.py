@@ -8,14 +8,20 @@ from app.dal.kind_registry_dal import upsert_kind
 
 LATEST = "1.0.0"
 
+DEFAULT_NARRATIVES_SPEC: Dict[str, Any] = {
+    "allowed_formats": ["markdown", "asciidoc"],
+    "default_format": "markdown",
+    "max_length_chars": 20000,
+    "allowed_locales": ["en-US"],
+}
+
 # ─────────────────────────────────────────────────────────────
-# Canonical seed docs (with diagram_recipes)
+# Canonical seed docs (with diagram_recipes + narratives_spec)
 # ─────────────────────────────────────────────────────────────
 KIND_DOCS: List[Dict[str, Any]] = [
     {
         "_id": "cam.asset.repo_snapshot",
         "title": "Repository Snapshot",
-        "summary": "Commit-level trace for the cloned source repo used in a learning run.",
         "category": "generic",
         "aliases": ["cam.asset.git_snapshot"],
         "status": "active",
@@ -62,13 +68,13 @@ KIND_DOCS: List[Dict[str, Any]] = [
       {% for t in (data.tags or []) %}{{ t }}
       {% endfor %}"""
                 }
-            ]
+            ],
+            "narratives_spec": DEFAULT_NARRATIVES_SPEC
         }]
     },
     {
         "_id": "cam.asset.source_index",
         "title": "Source Index",
-        "summary": "Inventory of files in the cloned repo with type detection for COBOL/JCL/etc.",
         "category": "generic",
         "aliases": ["cam.asset.repo_index"],
         "status": "active",
@@ -134,13 +140,13 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     },
                     "renderer_hints": {"direction": "LR"}
                 }
-            ]
+            ],
+            "narratives_spec": DEFAULT_NARRATIVES_SPEC
         }]
     },
     {
         "_id": "cam.cobol.program",
         "title": "COBOL Program",
-        "summary": "Parsed COBOL program structure (divisions, paragraphs, CALL/PERFORM, IO ops).",
         "category": "cobol",
         "aliases": [],
         "status": "active",
@@ -275,13 +281,13 @@ classDef divisions fill:#eee,stroke:#999;"""
   {% endfor %}
   END([END])"""
                 }
-            ]
+            ],
+            "narratives_spec": DEFAULT_NARRATIVES_SPEC
         }]
     },
     {
         "_id": "cam.cobol.copybook",
         "title": "COBOL Copybook",
-        "summary": "Structured data items parsed from COPY members.",
         "category": "cobol",
         "status": "active",
         "latest_schema_version": LATEST,
@@ -341,13 +347,13 @@ classDef divisions fill:#eee,stroke:#999;"""
     {% endfor %}
   {% endfor %}"""
                 }
-            ]
+            ],
+            "narratives_spec": DEFAULT_NARRATIVES_SPEC
         }]
     },
     {
         "_id": "cam.jcl.job",
         "title": "JCL Job",
-        "summary": "Job metadata and ordered step graph extracted from JCL.",
         "category": "cobol",
         "status": "active",
         "latest_schema_version": LATEST,
@@ -429,13 +435,13 @@ classDef divisions fill:#eee,stroke:#999;"""
   {% endfor %}
   END([END])"""
                 }
-            ]
+            ],
+            "narratives_spec": DEFAULT_NARRATIVES_SPEC
         }]
     },
     {
         "_id": "cam.jcl.step",
         "title": "JCL Step",
-        "summary": "A single JCL step extracted for cross-referencing with programs and datasets.",
         "category": "cobol",
         "status": "active",
         "latest_schema_version": LATEST,
@@ -494,13 +500,13 @@ classDef divisions fill:#eee,stroke:#999;"""
     {% endif %}
   {% endfor %}"""
                 }
-            ]
+            ],
+            "narratives_spec": DEFAULT_NARRATIVES_SPEC
         }]
     },
     {
         "_id": "cam.cics.transaction",
         "title": "CICS Transaction Map",
-        "summary": "Online transaction → program dispatch mapping.",
         "category": "cobol",
         "status": "active",
         "latest_schema_version": LATEST,
@@ -550,13 +556,13 @@ classDef divisions fill:#eee,stroke:#999;"""
   {% endfor %}
   end"""
                 }
-            ]
+            ],
+            "narratives_spec": DEFAULT_NARRATIVES_SPEC
         }]
     },
     {
         "_id": "cam.data.model",
         "title": "Data Model",
-        "summary": "Logical and physical data structures (entities, tables, datasets).",
         "category": "data",
         "status": "active",
         "latest_schema_version": LATEST,
@@ -651,13 +657,13 @@ classDef divisions fill:#eee,stroke:#999;"""
   }
   {% endfor %}"""
                 }
-            ]
+            ],
+            "narratives_spec": DEFAULT_NARRATIVES_SPEC
         }]
     },
     {
         "_id": "cam.data.dictionary",
         "title": "Domain Data Dictionary",
-        "summary": "Business terms and definitions mined from copybooks/columns.",
         "category": "domain",
         "status": "active",
         "latest_schema_version": LATEST,
@@ -709,13 +715,13 @@ classDef divisions fill:#eee,stroke:#999;"""
     {% endfor %}
   {% endfor %}"""
                 }
-            ]
+            ],
+            "narratives_spec": DEFAULT_NARRATIVES_SPEC
         }]
     },
     {
         "_id": "cam.data.lineage",
         "title": "Data Lineage",
-        "summary": "Field-level read/write lineage across programs, steps, and datasets.",
         "category": "data",
         "status": "active",
         "latest_schema_version": LATEST,
@@ -765,13 +771,13 @@ classDef divisions fill:#eee,stroke:#999;"""
                     },
                     "renderer_hints": {"direction": "LR"}
                 }
-            ]
+            ],
+            "narratives_spec": DEFAULT_NARRATIVES_SPEC
         }]
     },
     {
         "_id": "cam.asset.service_inventory",
         "title": "Service/Asset Inventory",
-        "summary": "Catalog of programs, jobs, transactions, datasets discovered in the run.",
         "category": "generic",
         "status": "active",
         "latest_schema_version": LATEST,
@@ -820,13 +826,13 @@ classDef divisions fill:#eee,stroke:#999;"""
       {% for t in data.transactions %}{{ t }}
       {% endfor %}"""
                 }
-            ]
+            ],
+            "narratives_spec": DEFAULT_NARRATIVES_SPEC
         }]
     },
     {
         "_id": "cam.asset.dependency_inventory",
         "title": "Dependency Inventory",
-        "summary": "Call graph, job flow, and dataset dependencies as adjacency lists.",
         "category": "generic",
         "status": "active",
         "latest_schema_version": LATEST,
@@ -925,13 +931,13 @@ classDef divisions fill:#eee,stroke:#999;"""
   {{ d.producer | replace("-", "_") }} --> {{ d.dataset | replace(".", "_") }}([{{ d.dataset }}]) --> {{ d.consumer | replace("-", "_") }}
   {% endfor %}"""
                 }
-            ]
+            ],
+            "narratives_spec": DEFAULT_NARRATIVES_SPEC
         }]
     },
     {
         "_id": "cam.workflow.process",
         "title": "Workflow Process",
-        "summary": "BPMN/UML-Activity-like process describing batch or entity-centric flows.",
         "category": "workflow",
         "status": "active",
         "latest_schema_version": LATEST,
@@ -1023,13 +1029,13 @@ classDef divisions fill:#eee,stroke:#999;"""
   {{ e.from }} -->{% if e.condition %}|{{ e.condition }}|{% endif %} {{ e.to }}
   {% endfor %}"""
                 }
-            ]
+            ],
+            "narratives_spec": DEFAULT_NARRATIVES_SPEC
         }]
     },
     {
         "_id": "cam.diagram.activity",
         "title": "Activity Diagram",
-        "summary": "Activity/flow rendering of a workflow process.",
         "category": "diagram",
         "status": "active",
         "latest_schema_version": LATEST,
@@ -1062,13 +1068,13 @@ classDef divisions fill:#eee,stroke:#999;"""
                         "strict_text": True
                     }
                 }
-            ]
+            ],
+            "narratives_spec": DEFAULT_NARRATIVES_SPEC
         }]
     },
     {
         "_id": "cam.domain.dictionary",
         "title": "Domain Dictionary",
-        "summary": "Normalized business vocabulary used across artifacts.",
         "category": "domain",
         "status": "active",
         "latest_schema_version": LATEST,
@@ -1128,7 +1134,8 @@ classDef divisions fill:#eee,stroke:#999;"""
     {% endfor %}
   {% endfor %}"""
                 }
-            ]
+            ],
+            "narratives_spec": DEFAULT_NARRATIVES_SPEC
         }]
     },
 ]

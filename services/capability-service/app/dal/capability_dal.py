@@ -39,15 +39,25 @@ class CapabilityDAL:
         doc = await self.col.find_one({"id": capability_id})
         return GlobalCapability.model_validate(doc) if doc else None
 
+    async def get_many(self, capability_ids: List[str]) -> List[GlobalCapability]:
+        """
+        Fetch multiple capabilities by id and return them in the SAME ORDER
+        as the input list (missing ids are skipped).
+        """
+        if not capability_ids:
+            return []
+        cursor = self.col.find({"id": {"$in": capability_ids}})
+        docs = [d async for d in cursor]
+        by_id: Dict[str, Dict[str, Any]] = {d["id"]: d for d in docs if "id" in d}
+        ordered = [GlobalCapability.model_validate(by_id[cid]) for cid in capability_ids if cid in by_id]
+        return ordered
+
     async def delete(self, capability_id: str) -> bool:
         res = await self.col.delete_one({"id": capability_id})
         return res.deleted_count == 1
 
     async def update(self, capability_id: str, patch: GlobalCapabilityUpdate) -> Optional[GlobalCapability]:
         update_dict = _strip_none(patch.model_dump())
-        if not update_dict:
-            # No-op update; still update timestamp for idempotency if the doc exists
-            update_dict = {}
         update_doc = {"$set": {**update_dict, "updated_at": _utcnow()}}
         doc = await self.col.find_one_and_update(
             {"id": capability_id},
@@ -61,6 +71,7 @@ class CapabilityDAL:
         *,
         tag: Optional[str] = None,
         produces_kind: Optional[str] = None,
+        mode: Optional[str] = None,  # "mcp" | "llm"
         q: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
@@ -70,8 +81,9 @@ class CapabilityDAL:
             filt["tags"] = tag
         if produces_kind:
             filt["produces_kinds"] = produces_kind
+        if mode in ("mcp", "llm"):
+            filt["execution.mode"] = mode
         if q:
-            # simple contains on name/description
             filt["$or"] = [
                 {"name": {"$regex": q, "$options": "i"}},
                 {"description": {"$regex": q, "$options": "i"}},

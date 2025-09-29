@@ -1,3 +1,3 @@
+# services/capability-service/app/services/__init__.py
 from .capability_service import CapabilityService
-from .integration_service import IntegrationService
 from .pack_service import PackService

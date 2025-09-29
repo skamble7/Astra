@@ -1,3 +1,4 @@
+# services/capability-service/app/services/pack_service.py
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
@@ -9,12 +10,12 @@ from app.models import (
     CapabilityPack,
     CapabilityPackCreate,
     CapabilityPackUpdate,
-    CapabilitySnapshot,
     ResolvedPackView,
     ResolvedPlaybook,
     ResolvedPlaybookStep,
+    GlobalCapability,
 )
-from app.services.validation import ensure_pack_capabilities_exist, snapshot_from_capability_doc
+from app.services.validation import ensure_pack_capabilities_exist
 
 
 class PackService:
@@ -61,38 +62,13 @@ class PackService:
         return ok
 
     # ─────────────────────────────────────────────────────────────
-    # Snapshots & publish
+    # Publish (snapshots removed in new design; publish remains status-only)
     # ─────────────────────────────────────────────────────────────
-    async def refresh_snapshots(self, pack_id: str) -> Optional[CapabilityPack]:
-        """
-        Build capability snapshots from the current GlobalCapability docs
-        referenced by the pack's capability_ids, then persist.
-        """
-        pack = await self.packs.get(pack_id)
-        if not pack:
-            return None
-
-        all_ids = await self.caps.list_all_ids()
-        ensure_pack_capabilities_exist(pack, all_ids)
-
-        # Load full docs and convert to snapshots
-        snapshots: List[Dict[str, Any]] = []
-        for cap_id in pack.capability_ids:
-            cap_doc = await self.caps.col.find_one({"id": cap_id})
-            if not cap_doc:
-                continue
-            snap = snapshot_from_capability_doc(cap_doc)
-            snapshots.append(snap.model_dump())
-
-        return await self.packs.set_capability_snapshots(pack_id, snapshots)
-
     async def publish(self, pack_id: str, *, actor: Optional[str] = None) -> Optional[CapabilityPack]:
         """
-        Refresh snapshots, then set status=published.
+        In the new design, packs no longer embed capability snapshots.
+        Publishing simply updates status and published_at.
         """
-        refreshed = await self.refresh_snapshots(pack_id)
-        if not refreshed:
-            return None
         published = await self.packs.publish(pack_id)
         if published:
             await get_bus().publish(
@@ -113,36 +89,53 @@ class PackService:
         return await self.packs.list_versions(key)
 
     # ─────────────────────────────────────────────────────────────
-    # Resolved view (projection; no CAM dependency math here)
+    # Resolved view (now fetches full GlobalCapability docs by ids)
     # ─────────────────────────────────────────────────────────────
     async def resolved_view(self, pack_id: str) -> Optional[ResolvedPackView]:
         pack = await self.packs.get(pack_id)
         if not pack:
             return None
 
-        # Map cap_id -> snapshot (if present)
-        id_to_snap: Dict[str, CapabilitySnapshot] = {snap.id: snap for snap in pack.capabilities}
+        # Validate that referenced capabilities exist
+        all_ids = await self.caps.list_all_ids()
+        ensure_pack_capabilities_exist(pack, all_ids)
+
+        # Fetch full capability docs in the same order as capability_ids
+        capability_ids: List[str] = pack.capability_ids or []
+        capabilities: List[GlobalCapability] = await self.caps.get_many(capability_ids)
+
+        # Map for quick lookup while keeping playbook steps cheap to build
+        by_id: Dict[str, GlobalCapability] = {c.id: c for c in capabilities}
 
         resolved_playbooks: List[ResolvedPlaybook] = []
         for pb in pack.playbooks:
             steps: List[ResolvedPlaybookStep] = []
             for step in pb.steps:
-                snap = id_to_snap.get(step.capability_id)
-                produces = snap.produces_kinds if snap else []
-                mode = "mcp" if (snap and snap.integration is not None) else "llm"
-                tool_calls = snap.integration.tool_calls if (snap and snap.integration is not None) else None
+                cap = by_id.get(step.capability_id)
+                if cap:
+                    mode = getattr(cap.execution, "mode", "llm")
+                    produces = cap.produces_kinds or []
+                    tool_calls = getattr(cap.execution, "tool_calls", None) if mode == "mcp" else None
+                else:
+                    # If a referenced capability is missing (shouldn't happen after validation),
+                    # fall back to empty projections.
+                    mode = "llm"
+                    produces = []
+                    tool_calls = None
+
                 steps.append(
                     ResolvedPlaybookStep(
                         id=step.id,
                         name=step.name,
                         capability_id=step.capability_id,
                         params=step.params or {},
-                        execution_mode=mode,               # "mcp" | "llm"
+                        execution_mode=mode,        # "mcp" | "llm"
                         produces_kinds=produces,
-                        required_kinds=[],                 # learning-service will compute from CAM
+                        required_kinds=[],          # reserved for learning-service
                         tool_calls=tool_calls,
                     )
                 )
+
             resolved_playbooks.append(
                 ResolvedPlaybook(
                     id=pb.id,
@@ -158,5 +151,7 @@ class PackService:
             version=pack.version,
             title=pack.title,
             description=pack.description,
+            capability_ids=capability_ids,
+            capabilities=capabilities,
             playbooks=resolved_playbooks,
         )

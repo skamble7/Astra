@@ -38,17 +38,11 @@ async def _delete_pack_if_exists(svc: PackService, key: str, version: str) -> No
     log.warning("[capability.seeds.packs] Could not delete existing pack %s@%s; continuing with create()", key, version)
 
 
-async def _create_refresh_publish(svc: PackService, payload: CapabilityPackCreate, publish_on_seed: bool) -> None:
+async def _create_and_maybe_publish(svc: PackService, payload: CapabilityPackCreate, publish_on_seed: bool) -> None:
     key = payload.key
     version = payload.version
     created = await svc.create(payload, actor="seed")
     log.info("[capability.seeds.packs] created: %s@%s (id=%s)", key, version, getattr(created, "id", None))
-    refreshed = await svc.refresh_snapshots(f"{key}@{version}")
-    if refreshed:
-        log.info("[capability.seeds.packs] snapshots refreshed: %s", refreshed.id)
-    else:
-        log.warning("[capability.seeds.packs] pack not found for snapshot refresh: %s@%s", key, version)
-        return
     if publish_on_seed:
         published = await svc.publish(f"{key}@{version}", actor="seed")
         if published:
@@ -69,8 +63,6 @@ async def seed_packs() -> None:
     full_version = "v1.0.1"
     mini_version = "v1.0.2"
 
-    LONG_TIMEOUT = 3600  # seconds
-
     # -------------------------------
     # Pack #1: Full-flow v1.0.1
     # -------------------------------
@@ -86,54 +78,25 @@ async def seed_packs() -> None:
                 name="Clone Repo",
                 capability_id="cap.repo.clone",
                 description="Clone source repository; records commit and paths_root.",
-                execution_mode="mcp",
                 params={
                     "url": "${git.url}",
                     "branch": "${git.branch:-main}",
                     "depth": 0,
                 },
-                tool_calls=[
-                    {
-                        "tool": "clone_repo",
-                        "args": {
-                            "url": "${git.url}",
-                            "branch": "${git.branch:-main}",
-                            "depth": 0,
-                        },
-                        "timeout_sec": LONG_TIMEOUT,
-                        "retries": 1,
-                    }
-                ],
             ),
             PlaybookStep(
                 id="s2.cobol",
                 name="Parse COBOL",
                 capability_id="cap.cobol.parse",
                 description="ProLeap/cb2xml parse of programs and copybooks into normalized CAM kinds.",
-                execution_mode="mcp",
-                # ⬇️ add file_limit & budget_seconds; keep COBOL85
+                # Include paging/budget args; executed by the MCP step
                 params={
                     "root": "${repo.paths_root}",
                     "paths": [],
                     "dialect": "COBOL85",
                     "file_limit": 24,
-                    "budget_seconds": 20
+                    "budget_seconds": 20,
                 },
-                tool_calls=[
-                    {
-                        "tool": "parse_tree",
-                        # ⬇️ mirror the same args into the tool call
-                        "args": {
-                            "root": "${repo.paths_root}",
-                            "paths": [],
-                            "dialect": "COBOL85",
-                            "file_limit": 24,
-                            "budget_seconds": 20
-                        },
-                        "timeout_sec": LONG_TIMEOUT,
-                        "retries": 1,
-                    }
-                ],
             ),
             PlaybookStep(
                 id="s3.jcl",
@@ -222,7 +185,7 @@ async def seed_packs() -> None:
         playbooks=[pb_main],
     )
 
-    await _create_refresh_publish(svc, payload_full, publish_on_seed)
+    await _create_and_maybe_publish(svc, payload_full, publish_on_seed)
 
     # -------------------------------
     # Pack #2: Minimal two-step v1.0.2
@@ -239,53 +202,24 @@ async def seed_packs() -> None:
                 name="Clone Repo",
                 capability_id="cap.repo.clone",
                 description="Clone source repository; records commit and paths_root.",
-                execution_mode="mcp",
                 params={
                     "url": "${git.url}",
                     "branch": "${git.branch:-main}",
                     "depth": 0,
                 },
-                tool_calls=[
-                    {
-                        "tool": "clone_repo",
-                        "args": {
-                            "url": "${git.url}",
-                            "branch": "${git.branch:-main}",
-                            "depth": 0,
-                        },
-                        "timeout_sec": LONG_TIMEOUT,
-                        "retries": 1,
-                    }
-                ],
             ),
             PlaybookStep(
                 id="s2.cobol",
                 name="Parse COBOL",
                 capability_id="cap.cobol.parse",
                 description="ProLeap/cb2xml parse of programs and copybooks into normalized CAM kinds.",
-                execution_mode="mcp",
-                # ⬇️ add paging args here too
                 params={
                     "root": "${repo.paths_root}",
                     "paths": [],
                     "dialect": "COBOL85",
                     "file_limit": 24,
-                    "budget_seconds": 20
+                    "budget_seconds": 20,
                 },
-                tool_calls=[
-                    {
-                        "tool": "parse_tree",
-                        "args": {
-                            "root": "${repo.paths_root}",
-                            "paths": [],
-                            "dialect": "COBOL85",
-                            "file_limit": 24,
-                            "budget_seconds": 20
-                        },
-                        "timeout_sec": LONG_TIMEOUT,
-                        "retries": 1,
-                    }
-                ],
             ),
         ],
     )
@@ -302,6 +236,6 @@ async def seed_packs() -> None:
         playbooks=[pb_core],
     )
 
-    await _create_refresh_publish(svc, payload_mini, publish_on_seed)
+    await _create_and_maybe_publish(svc, payload_mini, publish_on_seed)
 
     log.info("[capability.seeds.packs] Done (seeded %s@%s and %s@%s)", pack_key, full_version, pack_key, mini_version)
