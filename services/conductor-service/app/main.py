@@ -1,4 +1,3 @@
-# services/conductor-service/app/main.py
 from __future__ import annotations
 
 import logging
@@ -12,7 +11,9 @@ from fastapi.responses import ORJSONResponse
 from app.config import settings
 from app.infra.logging import setup_logging
 from app.events.rabbit import get_bus, RabbitBus
-
+from app.db.mongodb import init_indexes, close_client as close_mongo_client
+from app.mcp_host.factory import mcp_client_manager  # for graceful shutdown of pooled MCP clients
+from app.api.routers import health_routes
 
 logger = logging.getLogger("app.main")
 
@@ -23,20 +24,48 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     App lifespan:
       - configure logging
       - connect event bus (RabbitMQ)
-      - (future) warm up db, http clients, etc.
+      - init Mongo indexes
+      - (future) warm up anything else (e.g., capability/artifact clients)
+      - graceful shutdown: bus, MCP client pool, Mongo client
     """
     setup_logging(settings.service_name)
     logger.info("%s starting up", settings.service_name)
 
-    # Connect Rabbit (shared exchange raina.events)
+    # 1) RabbitMQ (shared exchange raina.events)
     bus: RabbitBus = get_bus()
     await bus.connect()
+    logger.info("RabbitMQ connected (exchange=%s)", settings.rabbitmq_exchange)
+
+    # 2) Mongo indexes
+    await init_indexes()
+    logger.info("Mongo indexes ensured (db=%s)", settings.mongo_db)
 
     try:
         yield
     finally:
-        # Graceful shutdown
-        await bus.close()
+        # Graceful shutdown order:
+        # a) Event bus
+        try:
+            await bus.close()
+            logger.info("RabbitMQ connection closed")
+        except Exception:
+            logger.warning("Error closing RabbitMQ", exc_info=True)
+
+        # b) MCP client pool
+        try:
+            # every transport client exposes an async .close()
+            await mcp_client_manager.shutdown(closer=lambda c: c.close())
+            logger.info("MCP client pool shutdown complete")
+        except Exception:
+            logger.warning("Error shutting down MCP client pool", exc_info=True)
+
+        # c) Mongo client
+        try:
+            await close_mongo_client()
+            logger.info("Mongo client closed")
+        except Exception:
+            logger.warning("Error closing Mongo client", exc_info=True)
+
         logger.info("%s shutdown complete", settings.service_name)
 
 
@@ -48,54 +77,4 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-
-# --- Health Endpoints ------------------------------------------------------- #
-
-@app.get("/", tags=["meta"])
-def root() -> Dict[str, Any]:
-    return {
-        "service": settings.service_name,
-        "status": "ok",
-        "message": "astra conductor-service",
-        "docs": "/docs",
-        "health": "/health",
-        "ready": "/ready",
-        "version": "/version",
-    }
-
-
-@app.get("/health", tags=["meta"])
-def health() -> Dict[str, Any]:
-    """
-    Liveness probe: process is up and app is constructed.
-    """
-    return {
-        "status": "ok",
-        "service": settings.service_name,
-        "at": datetime.now(timezone.utc).isoformat(),
-    }
-
-
-@app.get("/ready", tags=["meta"])
-async def ready() -> Dict[str, Any]:
-    """
-    Readiness probe: verify essential dependencies we already initialize here.
-    For now, we check the RabbitMQ exchange is reachable.
-    """
-    # Ensure the bus is connected (lifespan already connects; this is a light check)
-    bus = get_bus()
-    await bus.connect()  # no-op if already connected
-    return {
-        "status": "ready",
-        "service": settings.service_name,
-        "exchange": settings.rabbitmq_exchange,
-        "at": datetime.now(timezone.utc).isoformat(),
-    }
-
-
-@app.get("/version", tags=["meta"])
-def version() -> Dict[str, Any]:
-    return {
-        "service": settings.service_name,
-        "version": app.version,
-    }
+app.include_router(health_routes.router)
