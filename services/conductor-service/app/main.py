@@ -15,6 +15,7 @@ from app.events.rabbit import get_bus, RabbitBus
 from app.db.mongodb import init_indexes, close_client as close_mongo_client
 from app.mcp_host.factory import mcp_client_manager  # for graceful shutdown of pooled MCP clients
 from app.api.routers import health_routes
+from app.api.routers import runs_routes
 
 logger = logging.getLogger("app.main")
 
@@ -79,3 +80,4 @@ app = FastAPI(
 )
 
 app.include_router(health_routes.router)
+app.include_router(runs_routes.router)
