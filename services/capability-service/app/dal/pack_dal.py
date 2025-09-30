@@ -43,6 +43,7 @@ class PackDAL:
             "version": payload.version,
             "title": payload.title,
             "description": payload.description,
+            "pack_input_id": getattr(payload, "pack_input_id", None),  # ← ensure persisted
             "capability_ids": payload.capability_ids or [],
             "playbooks": [pb.model_dump() for pb in (payload.playbooks or [])],
             "status": PackStatus.draft.value,

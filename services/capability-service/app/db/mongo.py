@@ -32,7 +32,13 @@ async def init_indexes() -> None:
     # capability_packs
     await db.capability_packs.create_index([("key", 1), ("version", 1)], unique=True)
     await db.capability_packs.create_index("status")
+    await db.capability_packs.create_index("pack_input_id")  # NEW: for quick filtering by input contract
     try:
         await db.capability_packs.create_index([("title", "text"), ("description", "text")])
     except Exception:
         pass
+
+    # pack_inputs
+    await db.pack_inputs.create_index("id", unique=True)
+    await db.pack_inputs.create_index("name")
+    await db.pack_inputs.create_index("tags")

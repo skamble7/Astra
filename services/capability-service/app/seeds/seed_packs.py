@@ -59,6 +59,9 @@ async def seed_packs() -> None:
     publish_on_seed = os.getenv("PACK_SEED_PUBLISH", "1") in ("1", "true", "True")
     svc = PackService()
 
+    # This pack declares that it expects the Renova Git input contract.
+    renova_input_id = "input.renova.repo"
+
     pack_key = "cobol-mainframe"
     full_version = "v1.0.1"
     mini_version = "v1.0.2"
@@ -79,6 +82,9 @@ async def seed_packs() -> None:
                 capability_id="cap.repo.clone",
                 description="Clone source repository; records commit and paths_root.",
                 params={
+                    # Agents can bind these from the registered input:
+                    # inputs.repos[0].git_url → git.url
+                    # inputs.repos[0].branch  → git.branch
                     "url": "${git.url}",
                     "branch": "${git.branch:-main}",
                     "depth": 0,
@@ -169,6 +175,7 @@ async def seed_packs() -> None:
         version=full_version,
         title="COBOL Mainframe Modernization",
         description="Deterministic MCP parsing + LLM enrichment to discover inventories, data lineage, and workflows from COBOL/JCL estates.",
+        pack_input_id=renova_input_id,  # ← NEW: declares required input contract
         capability_ids=[
             "cap.repo.clone",
             "cap.cobol.parse",
@@ -229,6 +236,7 @@ async def seed_packs() -> None:
         version=mini_version,
         title="COBOL Mainframe Modernization (Core)",
         description="Derived minimal pack with a two-step playbook: clone a repo then parse COBOL.",
+        pack_input_id=renova_input_id,  # ← NEW: declares required input contract
         capability_ids=[
             "cap.repo.clone",
             "cap.cobol.parse",

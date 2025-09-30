@@ -43,6 +43,12 @@ class CapabilityPack(BaseModel):
     title: str
     description: str
 
+    # NEW: reference to a registered pack input contract (optional)
+    pack_input_id: Optional[str] = Field(
+        default=None,
+        description="Id of a PackInput in the registry. Declares the input contract needed to run this pack."
+    )
+
     capability_ids: List[str] = Field(default_factory=list)
     playbooks: List[Playbook] = Field(default_factory=list)
 
@@ -63,6 +69,10 @@ class CapabilityPackCreate(BaseModel):
     version: str
     title: str
     description: str
+    pack_input_id: Optional[str] = Field(
+        default=None,
+        description="Id of a PackInput in the registry."
+    )
     capability_ids: List[str] = Field(default_factory=list)
     playbooks: List[Playbook] = Field(default_factory=list)
 
@@ -70,6 +80,7 @@ class CapabilityPackCreate(BaseModel):
 class CapabilityPackUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
+    pack_input_id: Optional[str] = None
     capability_ids: Optional[List[str]] = None
     playbooks: Optional[List[Playbook]] = None
     status: Optional[PackStatus] = None

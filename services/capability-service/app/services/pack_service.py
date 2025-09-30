@@ -17,11 +17,18 @@ from app.models import (
 )
 from app.services.validation import ensure_pack_capabilities_exist
 
+# NEW: resolve registered pack input definitions
+try:
+    from app.dal.pack_input_dal import PackInputDAL  # your CRUD for inputs
+except Exception:  # pragma: no cover - allow service import even if DAL not present in some contexts
+    PackInputDAL = None  # type: ignore
+
 
 class PackService:
     def __init__(self) -> None:
         self.packs = PackDAL()
         self.caps = CapabilityDAL()
+        self.inputs = PackInputDAL() if PackInputDAL is not None else None
 
     # ─────────────────────────────────────────────────────────────
     # CRUD
@@ -89,7 +96,7 @@ class PackService:
         return await self.packs.list_versions(key)
 
     # ─────────────────────────────────────────────────────────────
-    # Resolved view (now fetches full GlobalCapability docs by ids)
+    # Resolved view (fetch full GlobalCapability docs + optional PackInput definition)
     # ─────────────────────────────────────────────────────────────
     async def resolved_view(self, pack_id: str) -> Optional[ResolvedPackView]:
         pack = await self.packs.get(pack_id)
@@ -104,6 +111,14 @@ class PackService:
         capability_ids: List[str] = pack.capability_ids or []
         capabilities: List[GlobalCapability] = await self.caps.get_many(capability_ids)
 
+        # Optionally resolve the registered pack input by id
+        pack_input_def = None
+        if getattr(pack, "pack_input_id", None) and self.inputs is not None:
+            try:
+                pack_input_def = await self.inputs.get(pack.pack_input_id)  # returns PackInput or None
+            except Exception:
+                pack_input_def = None
+
         # Map for quick lookup while keeping playbook steps cheap to build
         by_id: Dict[str, GlobalCapability] = {c.id: c for c in capabilities}
 
@@ -117,8 +132,6 @@ class PackService:
                     produces = cap.produces_kinds or []
                     tool_calls = getattr(cap.execution, "tool_calls", None) if mode == "mcp" else None
                 else:
-                    # If a referenced capability is missing (shouldn't happen after validation),
-                    # fall back to empty projections.
                     mode = "llm"
                     produces = []
                     tool_calls = None
@@ -151,6 +164,8 @@ class PackService:
             version=pack.version,
             title=pack.title,
             description=pack.description,
+            pack_input_id=getattr(pack, "pack_input_id", None),
+            pack_input=pack_input_def,
             capability_ids=capability_ids,
             capabilities=capabilities,
             playbooks=resolved_playbooks,

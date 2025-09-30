@@ -28,3 +28,8 @@ from .resolved_views import (
     ResolvedPlaybook,
     ResolvedPackView,
 )
+from .pack_input_models import (
+    PackInput,
+    PackInputCreate,
+    PackInputUpdate,
+)

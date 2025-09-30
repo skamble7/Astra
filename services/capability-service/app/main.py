@@ -15,6 +15,7 @@ from app.events import get_bus
 from app.routers import (
     capability_router,
     pack_router,
+    pack_input_router,   # NEW
     resolved_router,
     health_router,
 )
@@ -68,6 +69,7 @@ add_error_handlers(app)
 
 # Routers (order matters: static before dynamic to avoid shadowing)
 app.include_router(health_router)
+app.include_router(pack_input_router)  # NEW
 app.include_router(pack_router)
 app.include_router(resolved_router)
 app.include_router(capability_router)
