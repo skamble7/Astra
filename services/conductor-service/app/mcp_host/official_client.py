@@ -268,6 +268,10 @@ class McpHttpClient:
         self.headers = {**default_headers, **(headers or {})}
         self.init_timeout_sec = int(init_timeout_sec)
         self.health_path = health_path
+        # Whether to verify TLS certificates when connecting to HTTPS servers.
+        # Some SDK versions do not support the ``verify_tls`` parameter on
+        # ``streamablehttp_client``.  The parameter is stored here for
+        # inspection at call time.  When unsupported it will be ignored.
         self.verify_tls = verify_tls
         # Internal state
         self._ctx: Optional[Any] = None
@@ -284,12 +288,21 @@ class McpHttpClient:
         try:
             logger.info("Connecting MCP HTTP (streamable): url=%s", self.stream_url)
             # Enter the streamable HTTP client context.  This returns a
-            # (read_stream, write_stream, get_session_id) triple.
-            self._ctx = streamablehttp_client(
-                self.stream_url,
-                headers=self.headers,
-                verify_tls=self.verify_tls,
-            )  # type: ignore[arg-type]
+            # (read_stream, write_stream, get_session_id) triple.  The SDK
+            # signature for ``streamablehttp_client`` has changed across
+            # versions; for backwards compatibility we only pass ``verify_tls``
+            # when the function accepts it.  Use inspect.signature to detect
+            # support at runtime.
+            import inspect  # local import to avoid cost when unused
+            params: Dict[str, Any] = {"headers": self.headers}
+            try:
+                signature = inspect.signature(streamablehttp_client)  # type: ignore[arg-type]
+                if "verify_tls" in signature.parameters:
+                    params["verify_tls"] = self.verify_tls
+            except Exception:
+                # If inspection fails, do not include verify_tls
+                pass
+            self._ctx = streamablehttp_client(self.stream_url, **params)  # type: ignore[arg-type]
             self._read, self._write, self._get_session_id = await self._ctx.__aenter__()
             self._session = ClientSession(self._read, self._write)
             await asyncio.wait_for(self._session.initialize(), timeout=self.init_timeout_sec)
