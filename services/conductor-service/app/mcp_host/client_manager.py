@@ -5,7 +5,7 @@ import asyncio
 import logging
 import time
 from collections import OrderedDict
-from typing import Awaitable, Callable, Dict, Generic, Optional, TypeVar, Tuple, List
+from typing import Awaitable, Callable, Generic, Optional, TypeVar, Tuple, List
 
 from app.mcp_host.types import ClientSignature
 

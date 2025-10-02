@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import AsyncIterator, Dict, Any
+from typing import AsyncIterator
 
 from fastapi import FastAPI
 from fastapi.responses import ORJSONResponse
@@ -13,7 +13,7 @@ from app.config import settings
 from app.infra.logging import setup_logging
 from app.events.rabbit import get_bus, RabbitBus
 from app.db.mongodb import init_indexes, close_client as close_mongo_client
-from app.mcp_host.factory import mcp_client_manager  # for graceful shutdown of pooled MCP clients
+from app.mcp_host import mcp_client_manager  # no-op unless pooling is enabled
 from app.api.routers import health_routes
 from app.api.routers import runs_routes
 
@@ -27,13 +27,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
       - configure logging
       - connect event bus (RabbitMQ)
       - init Mongo indexes
-      - (future) warm up anything else (e.g., capability/artifact clients)
       - graceful shutdown: bus, MCP client pool, Mongo client
     """
     setup_logging(settings.service_name)
     logger.info("%s starting up", settings.service_name)
 
-    # 1) RabbitMQ (shared exchange raina.events)
+    # 1) RabbitMQ
     bus: RabbitBus = get_bus()
     await bus.connect()
     logger.info("RabbitMQ connected (exchange=%s)", settings.rabbitmq_exchange)
@@ -45,7 +44,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     try:
         yield
     finally:
-        # Graceful shutdown order:
         # a) Event bus
         try:
             await bus.close()
@@ -55,7 +53,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         # b) MCP client pool
         try:
-            # every transport client exposes an async .close()
             await mcp_client_manager.shutdown(closer=lambda c: c.close())
             logger.info("MCP client pool shutdown complete")
         except Exception:

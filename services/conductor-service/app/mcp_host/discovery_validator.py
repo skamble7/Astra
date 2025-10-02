@@ -1,5 +1,4 @@
 # services/conductor-service/app/mcp_host/discovery_validator.py
-
 from __future__ import annotations
 
 import logging
@@ -26,7 +25,7 @@ async def validate(
 
     missing: list[str] = []
     if validate_tools and required_tools:
-        available = set(discovery.tools or [])
+        available = set(discovery.get("tools", []) or [])
         for t in required_tools:
             if t not in available:
                 missing.append(t)
