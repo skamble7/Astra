@@ -1,7 +1,16 @@
+# services/conductor-service/pyproject.toml
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "astra-conductor-service"
 version = "0.1.0"
 requires-python = ">=3.11"
+description = "Astra Conductor Service – LangGraph agent + MCP host"
+readme = "README.md"
+
 dependencies = [
   "fastapi>=0.115",
   "uvicorn[standard]>=0.30",
@@ -13,10 +22,15 @@ dependencies = [
   "httpx>=0.27",
   "jsonschema>=4.22",
   "tenacity>=9.0",
-  "openai>=1.35",          # needed by llm/openai_adapter.py
-  "mcp>=1.0.0",            # official MCP SDK (imports `mcp`)
-  "langgraph>=0.2"         # quoted + trailing comma fixed
+  "openai>=1.35",
+  "langgraph>=0.2",
+
+  # MCP client (HTTP/SSE + stdio clients)
+  "mcp>=1.15,<2",
 ]
+
+[tool.setuptools]
+packages = ["app"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

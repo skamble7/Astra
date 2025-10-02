@@ -16,7 +16,6 @@ from app.mcp_host.transports.stdio_client import StdioMcpClient
 logger = logging.getLogger("app.mcp.factory")
 
 # A module-level manager dedicated to MCP transport clients.
-# You can also inject your own in tests or advanced scenarios.
 mcp_client_manager: ClientManager[Any] = ClientManager[Any](capacity=32, idle_ttl_sec=900)
 
 
@@ -54,7 +53,7 @@ def transport_signature(execution: Dict[str, Any]) -> ClientSignature:
     elif kind == "stdio":
         command = transport.get("command") or ""
         args = transport.get("args") or []
-        env_aliases = transport.get("env_aliases") or {}  # aliases; actual secrets resolved upstream
+        env_aliases = transport.get("env_aliases") or {}
         env = transport.get("env") or {}
         cwd = transport.get("cwd") or ""
         return "stdio|" + "|".join(
@@ -86,9 +85,16 @@ async def _create_http_client(transport: Dict[str, Any]) -> HttpMcpClient:
 
 
 async def _create_stdio_client(transport: Dict[str, Any]) -> StdioMcpClient:
+    command = transport.get("command") or ""
+    args = transport.get("args") or []
+
+    # 🔑 Always enforce unbuffered mode when running Python interpreters
+    if command.strip().startswith("python") and "-u" not in args:
+        args = ["-u"] + list(args)
+
     client = StdioMcpClient(
-        command=transport.get("command") or "",
-        args=transport.get("args") or [],
+        command=command,
+        args=args,
         cwd=transport.get("cwd"),
         env=transport.get("env") or {},
         readiness_regex=transport.get("readiness_regex") or r"server started",
@@ -171,9 +177,7 @@ async def ensure_discovery_and_validate(
     """
     Run discovery on the connected client and validate against the capability's discovery policy.
     """
-    # discovery()
     discovery = await client.discovery()
-
     policy = (capability_execution or {}).get("discovery") or {}
     await validate_discovery(
         discovery=discovery,

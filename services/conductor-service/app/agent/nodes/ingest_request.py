@@ -7,9 +7,10 @@ from hashlib import sha256
 import json
 from typing import Any, Dict
 
+from app.config import settings
 from app.db.mongodb import get_client
 from app.db.run_repository import RunRepository
-from app.models.run_models import PlaybookRun, RunStatus, StartRunRequest, StepState
+from app.models.run_models import PlaybookRun, RunStatus, StartRunRequest
 
 logger = logging.getLogger("app.agent.nodes.ingest")
 
@@ -22,7 +23,9 @@ async def ingest_request(state: Dict[str, Any]) -> Dict[str, Any]:
     req = StartRunRequest.model_validate(req_dict)
 
     # Fingerprint inputs for provenance
-    canonical_inputs = json.dumps(req.inputs or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    canonical_inputs = json.dumps(
+        req.inputs or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
     input_fingerprint = "sha256:" + sha256(canonical_inputs.encode("utf-8")).hexdigest()
 
     run = PlaybookRun(
@@ -37,7 +40,8 @@ async def ingest_request(state: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     client = get_client()
-    repo = RunRepository(client, db_name=client.get_default_database().name)
+    # Use configured DB name (avoids get_default_database() error)
+    repo = RunRepository(client, db_name=settings.mongo_db)
     await repo.ensure_indexes()
     await repo.create(run)
 

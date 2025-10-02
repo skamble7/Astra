@@ -9,6 +9,7 @@ from uuid import UUID
 from app.db.mongodb import get_client
 from app.db.run_repository import RunRepository
 from app.events.rabbit import get_bus
+from app.config import settings
 
 logger = logging.getLogger("app.agent.nodes.error")
 
@@ -23,7 +24,7 @@ async def handle_error(state: Dict[str, Any]) -> Dict[str, Any]:
         # nothing persisted yet
         return state
 
-    repo = RunRepository(get_client(), db_name=get_client().get_default_database().name)
+    repo = RunRepository(get_client(), db_name=settings.mongo_db)
     await repo.mark_failed(UUID(run_id), error=err)
 
     bus = get_bus()

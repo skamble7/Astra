@@ -8,6 +8,7 @@ from uuid import UUID
 from app.db.mongodb import get_client
 from app.db.run_repository import RunRepository
 from app.core.diff_engine import compute_diffs
+from app.config import settings
 
 logger = logging.getLogger("app.agent.nodes.diffs")
 
@@ -19,7 +20,7 @@ async def compute_diffs_vs_baseline(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     run_id = UUID(state["run"]["run_id"])
     client = get_client()
-    repo = RunRepository(client, db_name=client.get_default_database().name)
+    repo = RunRepository(client, db_name=settings.mongo_db)
 
     diffs_by_kind, deltas = await compute_diffs(
         workspace_id=state["run"]["workspace_id"],

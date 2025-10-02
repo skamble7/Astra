@@ -4,14 +4,18 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
-from app.mcp_host.factory import get_validated_client_for_capability
+from app.mcp_host.official_client import build_stdio_client_from_capability
 
 logger = logging.getLogger("app.agent.nodes.mcp_init")
 
 
 async def init_mcp_clients(state: Dict[str, Any]) -> Dict[str, Any]:
     """
-    For each MCP capability referenced by the playbook, create/reuse a client and run discovery validation once.
+    For each MCP capability in the selected playbook:
+      - build official stdio client
+      - connect + initialize
+      - run discovery once
+      - stash in state for execute_steps
     """
     cap_by_id = state["pack"]["capabilities_by_id"]
     playbook = state["pack"]["playbook"]
@@ -26,9 +30,16 @@ async def init_mcp_clients(state: Dict[str, Any]) -> Dict[str, Any]:
         if cap_id in state["mcp"]["clients"]:
             continue
 
-        sig, client, discovery = await get_validated_client_for_capability(capability=cap)
-        state["mcp"]["clients"][cap_id] = {"signature": sig, "client": client}
+        # Build client from capability transport (stdio)
+        client = build_stdio_client_from_capability(cap)
+        await client.connect()
+
+        # Discovery
+        discovery = await client.discovery()
+        state["mcp"]["clients"][cap_id] = {"client": client}
         state["mcp"]["discovery_reports"][cap_id] = discovery
+
+        logger.info("MCP client ready for %s; tools=%s", cap_id, discovery.get("tools"))
 
     logger.info("Initialized %d MCP clients", len(state["mcp"]["clients"]))
     return state

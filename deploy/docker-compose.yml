@@ -46,6 +46,7 @@ services:
     build:
       context: ..
       dockerfile: services/conductor-service/Dockerfile
+      
     container_name: astra-conductor-service
     restart: unless-stopped
     env_file:
@@ -62,7 +63,14 @@ services:
       HTTP_CLIENT_TIMEOUT_SECONDS: ${HTTP_CLIENT_TIMEOUT_SECONDS:-30}
       SERVICE_NAME: conductor-service
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+      # NEW: make the workspace path explicit (optional but handy)
+      WORKSPACE_FOLDER: /workspace
+      WORKSPACE_MOUNT: /workspace
     ports:
       - "9022:9022"
+    volumes:
+      # NEW: mount your repo root into the container at /workspace
+      - ../data/workspace:/workspace
     extra_hosts:
       - "host.docker.internal:host-gateway"

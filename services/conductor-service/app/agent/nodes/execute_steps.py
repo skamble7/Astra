@@ -16,6 +16,7 @@ from app.llm.factory import get_agent_llm
 from app.mcp_host.invoker import CancelToken, invoke_tool_call
 from app.mcp_host.types import ToolCallSpec
 from app.models.run_models import ArtifactEnvelope, ArtifactProvenance, StepStatus, ToolCallAudit
+from app.config import settings
 
 logger = logging.getLogger("app.agent.nodes.execute")
 
@@ -125,7 +126,7 @@ async def execute_steps(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     run_id = UUID(state["run"]["run_id"])
     client = get_client()
-    repo = RunRepository(client, db_name=client.get_default_database().name)
+    repo = RunRepository(client, db_name=settings.mongo_db)
     bus = get_bus()
 
     cap_by_id = state["pack"]["capabilities_by_id"]
@@ -169,38 +170,31 @@ async def execute_steps(state: Dict[str, Any]) -> Dict[str, Any]:
                     raise RuntimeError(f"Capability {cap_id} has no tool_calls")
 
                 tc = tool_calls[0]
-                spec = ToolCallSpec(
-                    tool=tc["tool"],
-                    args_schema=tc.get("args_schema"),
-                    output_kinds=tc.get("output_kinds") or [],
-                    timeout_sec=int(tc.get("timeout_sec", 60)),
-                    retries=int(tc.get("retries", 1)),
-                    expects_stream=bool(tc.get("expects_stream", False)),
-                    cancellable=bool(tc.get("cancellable", True)),
-                )
+                tool_name = tc["tool"]
 
-                # invoke via MCP client
+                # invoke via official MCP stdio client
                 client_rec = state["mcp"]["clients"].get(cap_id)
                 if not client_rec:
                     raise RuntimeError(f"No MCP client initialized for capability {cap_id}")
-                client_obj = client_rec["client"]
+                client = client_rec["client"]
 
-                cancel = CancelToken()
-                result = await invoke_tool_call(client=client_obj, spec=spec, args=args, cancel=cancel)
+                # Normalize volume_path if your pack_inputs provided workspace hint
+                # (Optional: keep as-is if LLM already produced it)
+                extra_ctx = ((inputs or {}).get("inputs") or {}).get("extra_context") or {}
+                default_workspace = extra_ctx.get("workspace_mount")
+                if default_workspace and "volume_path" not in args:
+                    args["volume_path"] = default_workspace
 
-                pages_dicts = []
-                if result.stream is not None:
-                    # We surface a runtime error earlier, but keep safety here
-                    async for _ in result.stream:
-                        pass
-                else:
-                    pages_dicts = [{"data": p.data, "cursor": p.cursor} for p in result.pages]
+                res = await client.call_tool(tool_name, args)
+                pages_dicts = res.get("pages") or []
 
-                call_audit.tool_name = spec.tool
+                call_audit.tool_name = tool_name
                 call_audit.tool_args_preview = (args if len(str(args)) < 1200 else {"_size": len(str(args))})
 
                 produced_artifacts = await _normalize_tool_output_to_artifacts(
-                    pages=pages_dicts, capability=capability, run_meta={"run_id": state["run"]["run_id"], "step_id": step_id, "capability_id": cap_id}
+                    pages=pages_dicts,
+                    capability=capability,
+                    run_meta={"run_id": state["run"]["run_id"], "step_id": step_id, "capability_id": cap_id},
                 )
 
             elif exec_cfg.get("mode") == "llm":

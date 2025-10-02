@@ -10,6 +10,7 @@ from app.db.mongodb import get_client
 from app.db.run_repository import RunRepository
 from app.events.rabbit import get_bus
 from app.models.run_models import StepState, StepStatus
+from app.config import settings
 
 logger = logging.getLogger("app.agent.nodes.run_started")
 
@@ -20,7 +21,7 @@ async def mark_run_started(state: Dict[str, Any]) -> Dict[str, Any]:
     """
     run_id = UUID(state["run"]["run_id"])
     client = get_client()
-    repo = RunRepository(client, db_name=client.get_default_database().name)
+    repo = RunRepository(client, db_name=settings.mongo_db)
 
     steps: List[StepState] = []
     for st in (state["pack"]["playbook"]["steps"] or []):

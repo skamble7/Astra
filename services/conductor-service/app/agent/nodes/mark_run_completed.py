@@ -9,6 +9,7 @@ from uuid import UUID
 from app.db.mongodb import get_client
 from app.db.run_repository import RunRepository
 from app.events.rabbit import get_bus
+from app.config import settings
 
 logger = logging.getLogger("app.agent.nodes.run_completed")
 
@@ -18,7 +19,7 @@ async def mark_run_completed(state: Dict[str, Any]) -> Dict[str, Any]:
     Mark run completed in DAL and publish final 'completed' (A).
     """
     client = get_client()
-    repo = RunRepository(client, db_name=client.get_default_database().name)
+    repo = RunRepository(client, db_name=settings.mongo_db)
 
     run_id = UUID(state["run"]["run_id"])
     started_at_iso = state["run"].get("started_at")

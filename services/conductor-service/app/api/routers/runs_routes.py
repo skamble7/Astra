@@ -10,9 +10,10 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import ORJSONResponse
 
 from app.agent.graph import spawn_agent_task
+from app.config import settings
 from app.db.mongodb import get_client
 from app.db.run_repository import RunRepository
-from app.models.run_models import StartRunRequest, PlaybookRun
+from app.models.run_models import StartRunRequest
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 logger = logging.getLogger("app.api.runs")
@@ -27,14 +28,14 @@ logger = logging.getLogger("app.api.runs")
 )
 async def start_run(req: StartRunRequest) -> Dict[str, Any]:
     """
-    Start a run. Validates request against `StartRunRequest` (Pydantic) so
-    `workspace_id` must be a UUID string and `inputs` is an object.
+    Start a run. Validates request against `StartRunRequest` so
+    `workspace_id` must be a UUID and `inputs` is an object.
 
     Returns 202 with a run_id (best-effort; may be null if ingestion hasn't stamped it yet).
     """
     # Prepare initial agent state (ingest node will persist the run and stamp run_id)
     state: Dict[str, Any] = {
-        "request": req.model_dump(),
+        "request": req.model_dump(mode="json"),
         "run": {
             "run_id": None,  # set by ingest node after creating the document
             "workspace_id": str(req.workspace_id),
@@ -76,8 +77,9 @@ async def get_run(run_id: str) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="Invalid run_id")
 
     client = get_client()
-    repo = RunRepository(client, db_name=client.get_default_database().name)
+    repo = RunRepository(client, db_name=settings.mongo_db)
     run = await repo.get(UUID(run_id))
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
-    return run.model_dump(by_alias=True)
+    # Ensure UUIDs and other special types are JSON-safe
+    return run.model_dump(mode="json", by_alias=True)

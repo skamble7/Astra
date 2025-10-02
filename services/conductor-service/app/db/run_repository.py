@@ -48,7 +48,8 @@ class RunRepository:
     # ---------- CRUD ---------- #
 
     async def create(self, run: PlaybookRun) -> PlaybookRun:
-        doc = run.model_dump(by_alias=True)
+        # JSON mode converts UUIDs to strings and datetimes to ISO 8601
+        doc = run.model_dump(by_alias=True, mode="json")
         await self._col.insert_one(doc)
         return run
 
@@ -115,7 +116,7 @@ class RunRepository:
     async def init_steps(self, run_id: UUID, steps: List[StepState]) -> None:
         await self._col.update_one(
             {"run_id": str(run_id)},
-            {"$set": {"steps": [s.model_dump() for s in steps], "updated_at": datetime.now(timezone.utc)}},
+            {"$set": {"steps": [s.model_dump(mode="json") for s in steps], "updated_at": datetime.now(timezone.utc)}},
         )
 
     async def step_started(self, run_id: UUID, step_id: str) -> None:
@@ -165,7 +166,7 @@ class RunRepository:
     async def append_step_audit(self, run_id: UUID, audit: StepAudit) -> None:
         await self._col.update_one(
             {"run_id": str(run_id)},
-            {"$push": {"audit": audit.model_dump()}, "$set": {"updated_at": datetime.now(timezone.utc)}},
+            {"$push": {"audit": audit.model_dump(mode="json")}, "$set": {"updated_at": datetime.now(timezone.utc)}},
         )
 
     async def append_tool_call_audit(self, run_id: UUID, step_id: str, call: ToolCallAudit) -> None:
@@ -174,17 +175,28 @@ class RunRepository:
         If not present, create a StepAudit envelope on the fly.
         """
         now = datetime.now(timezone.utc)
+        payload = call.model_dump(mode="json")
         # try to push into existing StepAudit entry
         result = await self._col.update_one(
             {"run_id": str(run_id), "audit.step_id": step_id},
-            {"$push": {"audit.$.calls": call.model_dump()}, "$set": {"updated_at": now}},
+            {"$push": {"audit.$.calls": payload}, "$set": {"updated_at": now}},
         )
         if result.matched_count == 0:
             # create a new StepAudit envelope with this single call
             await self._col.update_one(
                 {"run_id": str(run_id)},
-                {"$push": {"audit": {"step_id": step_id, "capability_id": "", "mode": "mcp", "inputs_preview": {}, "calls": [call.model_dump()]}},
-                 "$set": {"updated_at": now}},
+                {
+                    "$push": {
+                        "audit": {
+                            "step_id": step_id,
+                            "capability_id": "",
+                            "mode": "mcp",
+                            "inputs_preview": {},
+                            "calls": [payload],
+                        }
+                    },
+                    "$set": {"updated_at": now},
+                },
             )
 
     # ---------- artifacts & deltas (DELTA run-owned) ---------- #
@@ -196,18 +208,24 @@ class RunRepository:
         """
         await self._col.update_one(
             {"run_id": str(run_id)},
-            {"$push": {"run_artifacts": {"$each": [i.model_dump() for i in items]}},
-             "$set": {"updated_at": datetime.now(timezone.utc)}},
+            {
+                "$push": {
+                    "run_artifacts": {"$each": [i.model_dump(mode="json") for i in items]}
+                },
+                "$set": {"updated_at": datetime.now(timezone.utc)},
+            },
         )
 
     async def set_diffs(self, run_id: UUID, *, diffs_by_kind: Dict[str, Any], deltas: Optional[RunDeltas]) -> None:
         await self._col.update_one(
             {"run_id": str(run_id)},
-            {"$set": {
-                "diffs_by_kind": diffs_by_kind,
-                "deltas": deltas.model_dump() if deltas else None,
-                "updated_at": datetime.now(timezone.utc),
-            }},
+            {
+                "$set": {
+                    "diffs_by_kind": diffs_by_kind,
+                    "deltas": deltas.model_dump(mode="json") if deltas else None,
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            },
         )
 
     # ---------- free-form notes/logs ---------- #
