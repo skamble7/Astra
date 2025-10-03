@@ -9,6 +9,7 @@ import inspect
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple, Callable
 from uuid import UUID
+import contextlib
 
 from app.clients.artifact_service import ArtifactServiceClient  # noqa: F401 (placeholder if/when wired)
 from app.db.mongodb import get_client
@@ -81,6 +82,40 @@ def _extract_job_id(pages: List[Dict[str, Any]]) -> Optional[str]:
     return None
 
 
+# Polling helpers
+TERMINAL_OK = {"done", "success", "completed", "complete", "ok"}
+TERMINAL_BAD = {"failed", "error", "cancelled", "canceled"}
+
+def _terminal_from_struct(structured: dict) -> tuple[bool, Optional[str]]:
+    """Return (is_terminal, status_str) from a structured dict."""
+    if not isinstance(structured, dict):
+        return (False, None)
+    status_val = str(
+        structured.get("status")
+        or structured.get("state")
+        or structured.get("phase")
+        or ""
+    ).lower()
+    if status_val in (TERMINAL_OK | TERMINAL_BAD):
+        return (True, status_val)
+    return (False, status_val or None)
+
+def _poll_delay_hint(structured: dict, default: float) -> float:
+    """If server hints a poll interval, honor it. Otherwise use default."""
+    try:
+        hint = (
+            structured.get("next_poll_sec")
+            or structured.get("retry_in_sec")
+            or structured.get("retrySec")
+        )
+        if hint is None:
+            return default
+        v = float(hint)
+        return v if v > 0 else default
+    except Exception:
+        return default
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # MCP client builders (LangGraph first, official SDK fallback) – inline
 # ──────────────────────────────────────────────────────────────────────────────
@@ -116,10 +151,6 @@ def _format_result_from_sdk(result: Any) -> Dict[str, Any]:
 
 
 async def _build_mcp_client_from_capability(exec_cfg: Dict[str, Any]) -> _MCPAdapterProto:
-    """
-    Build a per-step MCP client from the capability execution config.
-    Prefers the LangGraph MCP client. Falls back to official SDK streamable HTTP.
-    """
     transport = dict(exec_cfg.get("transport") or {})
     kind = (transport.get("kind") or "").lower()
     if kind != "http":
@@ -128,22 +159,28 @@ async def _build_mcp_client_from_capability(exec_cfg: Dict[str, Any]) -> _MCPAda
     base_url = (transport.get("base_url") or "").rstrip("/")
     mcp_path = transport.get("mcp_path") or transport.get("stream_path") or "/mcp"
     headers = dict(transport.get("headers") or {})
-    timeout_init = int(transport.get("init_timeout_sec") or transport.get("timeout_sec") or 30)
+    timeout_init = int(transport.get("init_timeout_sec") or transport.get("timeout_sec") or 60)
     verify_tls = bool(transport.get("verify_tls", True))
+    health_path = transport.get("health_path") or ""
 
-    # 1) Try LangGraph MCP
+    # (optional) health preflight to improve logs
+    if health_path:
+        try:
+            import httpx
+            hp = f"{base_url}{health_path}"
+            r = await httpx.AsyncClient(timeout=10.0, verify=verify_tls).get(hp)
+            logger.info("MCP health preflight %s -> HTTP %s", hp, r.status_code)
+        except Exception as he:
+            logger.warning("MCP health preflight failed (%s). Continuing…", he)
+
+    # 1) Try LangGraph MCP first
     try:
         try:
-            # Newer import path
             from langgraph.mcp import client as lg_client
         except Exception:
-            # Older nested path
-            from langgraph.mcp.client import client as lg_client  # type: ignore
+            from langgraph.mcp.client import client as lg_client  # older path
 
         logger.info("Connecting MCP via LangGraph client: %s%s", base_url, mcp_path)
-
-        # LangGraph client API: connect_http(base_url, path="/mcp", headers=..., timeout=...)
-        # We keep kwargs narrow for compatibility across versions.
         conn = await lg_client.connect_http(base_url=base_url, path=mcp_path, headers=headers, timeout=timeout_init)
 
         class _LGAdapter(_MCPAdapterProto):
@@ -151,7 +188,6 @@ async def _build_mcp_client_from_capability(exec_cfg: Dict[str, Any]) -> _MCPAda
                 self._c = c
 
             async def discovery(self) -> Dict[str, Any]:
-                # Normalize to {tools: [str], resources: [...], prompts: [...]}
                 try:
                     tools = await self._c.list_tools()
                 except Exception:
@@ -164,17 +200,27 @@ async def _build_mcp_client_from_capability(exec_cfg: Dict[str, Any]) -> _MCPAda
                     prompts = await self._c.list_prompts()
                 except Exception:
                     prompts = []
-                return {"tools": [getattr(t, "name", t) for t in tools or []], "resources": resources or [], "prompts": prompts or []}
+                tools_meta = [
+                    {
+                        "name": getattr(t, "name", None),
+                        "description": getattr(t, "description", None),
+                        "input_schema": getattr(t, "inputSchema", None),
+                    }
+                    for t in (tools or [])
+                ]
+                return {
+                    "tools": [getattr(t, "name", t) for t in tools or []],
+                    "tools_meta": tools_meta,
+                    "resources": resources or [],
+                    "prompts": prompts or [],
+                }
 
             async def call_tool(self, tool_name: str, args: Dict[str, Any], timeout_sec: int) -> Dict[str, Any]:
                 async def _call():
                     return await self._c.call_tool(tool_name, arguments=args)
                 res = await asyncio.wait_for(_call(), timeout=timeout_sec)
-                # LangGraph client already returns a dict-like `{"content":[...], "structured":...}`?
-                # Normalize defensively:
                 if isinstance(res, dict) and "pages" in res:
-                    return res  # already normalized by lg client
-                # best-effort normalization
+                    return res
                 content = res.get("content") if isinstance(res, dict) else None
                 structured = res.get("structured") if isinstance(res, dict) else None
                 pages = [{"data": {"content": content or [], "structured": structured}, "cursor": None}]
@@ -187,9 +233,13 @@ async def _build_mcp_client_from_capability(exec_cfg: Dict[str, Any]) -> _MCPAda
         return _LGAdapter(conn)
 
     except Exception as e:
-        logger.info("LangGraph MCP connection failed (%s). Falling back to official MCP SDK…", e)
+        logger.info(
+            "LangGraph MCP connection failed (%s). Falling back to official MCP SDK… "
+            "Tip: install via `pip install 'langgraph[mcp]'` or `pip install langgraph-mcp`.",
+            e,
+        )
 
-    # 2) Fallback: official MCP (streamable HTTP). Avoid passing unknown kwargs (e.g., verify_tls) to older versions.
+    # 2) Official MCP SDK (streamable HTTP) — use context manager semantics
     from mcp.client.session import ClientSession  # type: ignore
     try:
         from mcp.client.streamable_http import streamablehttp_client  # type: ignore
@@ -199,11 +249,9 @@ async def _build_mcp_client_from_capability(exec_cfg: Dict[str, Any]) -> _MCPAda
     if not streamablehttp_client:
         raise RuntimeError("Official MCP streamable HTTP client not available")
 
-    # signature-safe kwargs
     call_kwargs = {"headers": headers}
     try:
         sig = inspect.signature(streamablehttp_client)
-        # only pass verify_tls if supported by the installed version
         if "verify_tls" in sig.parameters:
             call_kwargs["verify_tls"] = verify_tls
     except Exception:
@@ -212,31 +260,71 @@ async def _build_mcp_client_from_capability(exec_cfg: Dict[str, Any]) -> _MCPAda
     stream_url = f"{base_url}{mcp_path}"
     logger.info("Connecting MCP via official SDK (streamable): %s", stream_url)
 
-    ctx = streamablehttp_client(stream_url, **call_kwargs)  # type: ignore[arg-type]
-    read = write = session = None
+    ctx = streamablehttp_client(stream_url, **call_kwargs)  # async-gen context manager
+    read = write = None
+    session_cm = None
+    session = None
 
-    # enter context now and return an adapter that uses this session
-    read, write, _get_session_id = await ctx.__aenter__()  # type: ignore[assignment,union-attr]
-    session = ClientSession(read, write)
-    # guard initialize with timeout
-    await asyncio.wait_for(session.initialize(), timeout=timeout_init)
+    try:
+        # enter streams
+        read, write, _sid = await ctx.__aenter__()  # type: ignore[assignment,union-attr]
+        # enter session (IMPORTANT: use context manager like in the sample)
+        session_cm = ClientSession(read, write)
+        session = await session_cm.__aenter__()  # <— key difference vs. your code
+
+        # initialize with a forgiving timeout
+        await asyncio.wait_for(session.initialize(), timeout=timeout_init)
+
+    except asyncio.TimeoutError:
+        # clean up on init failure
+        with contextlib.suppress(Exception):
+            if session_cm:
+                await session_cm.__aexit__(None, None, None)
+        with contextlib.suppress(Exception):
+            await ctx.__aexit__(None, None, None)
+        raise RuntimeError(
+            "MCP streamable HTTP initialize() timed out. "
+            "The server likely didn't start its MCP session manager "
+            "(e.g., FastMCP.run() in ASGI startup)."
+        )
 
     class _SDKAdapter(_MCPAdapterProto):
-        def __init__(self, ctx, sess) -> None:
+        def __init__(self, ctx, session_cm, session) -> None:
             self._ctx = ctx
-            self._session = sess
+            self._session_cm = session_cm
+            self._session = session
 
         async def discovery(self) -> Dict[str, Any]:
-            tools = await self._session.list_tools()
+            tools_resp = await self._session.list_tools()
+            tools = getattr(tools_resp, "tools", tools_resp) or []
+
+            res_resp = prompts_resp = None
             try:
-                resources = await self._session.list_resources()
+                res_resp = await self._session.list_resources()
             except Exception:
-                resources = []
+                pass
             try:
-                prompts = await self._session.list_prompts()
+                prompts_resp = await self._session.list_prompts()
             except Exception:
-                prompts = []
-            return {"tools": [t.name for t in (tools or [])], "resources": resources or [], "prompts": prompts or []}
+                pass
+
+            resources = getattr(res_resp, "resources", res_resp) or []
+            prompts = getattr(prompts_resp, "prompts", prompts_resp) or []
+
+            tools_meta = [
+                {
+                    "name": getattr(t, "name", None),
+                    "description": getattr(t, "description", None),
+                    "input_schema": getattr(t, "inputSchema", None),
+                }
+                for t in tools
+            ]
+            return {
+                "tools": [getattr(t, "name", None) for t in tools],
+                "tools_meta": tools_meta,
+                "resources": resources,
+                "prompts": prompts,
+            }
 
         async def call_tool(self, tool_name: str, args: Dict[str, Any], timeout_sec: int) -> Dict[str, Any]:
             async def _call():
@@ -245,16 +333,13 @@ async def _build_mcp_client_from_capability(exec_cfg: Dict[str, Any]) -> _MCPAda
             return _format_result_from_sdk(res)
 
         async def close(self) -> None:
-            try:
-                await self._session.shutdown()
-            except Exception:
-                pass
-            try:
-                await self._ctx.__aexit__(None, None, None)  # type: ignore[union-attr]
-            except Exception:
-                pass
+            # exit session, then streams; suppress any AnyIO cancel-scope noise
+            with contextlib.suppress(Exception):
+                await self._session_cm.__aexit__(None, None, None)
+            with contextlib.suppress(Exception):
+                await self._ctx.__aexit__(None, None, None)
 
-    return _SDKAdapter(ctx, session)
+    return _SDKAdapter(ctx, session_cm, session)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -410,14 +495,16 @@ async def execute_steps(state: Dict[str, Any]) -> Dict[str, Any]:
                 # Build MCP client (LangGraph first, then official)
                 mcp_client = await _build_mcp_client_from_capability(exec_cfg)
 
-                # Discovery + logging (requested)
+                # Discovery + logging
                 discovery = await mcp_client.discovery()
                 discovered_tools = [t for t in (discovery.get("tools") or [])]
-                logger.info("MCP discovery for %s: tools=%s (resources=%s, prompts=%s)",
-                            cap_id,
-                            discovered_tools,
-                            len(discovery.get("resources") or []),
-                            len(discovery.get("prompts") or []))
+                logger.info(
+                    "MCP discovery for %s: tools=%s (resources=%s, prompts=%s)",
+                    cap_id,
+                    discovered_tools,
+                    len(discovery.get("resources") or []),
+                    len(discovery.get("prompts") or []),
+                )
 
                 # build args (LLM-assisted)
                 args = await _synthesize_tool_args_with_llM(step=step, capability=capability, inputs=inputs)
@@ -459,41 +546,72 @@ async def execute_steps(state: Dict[str, Any]) -> Dict[str, Any]:
                 job_id = _extract_job_id(start_pages)
                 logger.info("Start returned job_id=%s (raw pages=%s)", job_id, _json_preview(start_pages))
 
-                # 2) if we have a status tool + job_id -> poll
+                # 2) POLL REFINEMENT: if we have a status tool + job_id -> poll (respect server hints)
+                final_structured: Optional[dict] = None
+                final_status: Optional[str] = None
+                polls = 0
+                elapsed_total = 0.0
+
                 if job_id and status_tool:
                     poll_args = {"job_id": job_id}
                     max_polls = int(exec_cfg.get("polling", {}).get("max_attempts", 30))
-                    poll_delay = float(exec_cfg.get("polling", {}).get("interval_sec", 2.0))
+                    base_delay = float(exec_cfg.get("polling", {}).get("interval_sec", 2.0))
+                    timeout_budget = float(exec_cfg.get("polling", {}).get("timeout_sec", 300.0))
 
                     logger.info(
-                        "Polling status via tool=%s (max=%s, interval=%ss)",
-                        status_tool,
-                        max_polls,
-                        poll_delay,
+                        "Polling status via tool=%s (max=%s, interval~%ss, budget=%ss)",
+                        status_tool, max_polls, base_delay, timeout_budget
                     )
-                    for i in range(max_polls):
+
+                    while polls < max_polls and elapsed_total <= timeout_budget:
+                        polls += 1
                         res = await mcp_client.call_tool(status_tool, poll_args, timeout_sec=_timeout_for(status_tool))
                         pages = res.get("pages") or []
                         pages_accum.extend(pages)
 
-                        # Heuristic terminal detection
-                        terminal = False
-                        for pg in pages:
-                            st = (((pg or {}).get("data") or {}).get("structured") or {}) or {}
-                            if isinstance(st, dict):
-                                status_val = str(st.get("status") or st.get("state") or "").lower()
-                                if status_val in {"done", "success", "completed", "complete", "ok"}:
-                                    terminal = True
-                                elif status_val in {"failed", "error"}:
-                                    terminal = True
-                        logger.info("Poll %d/%d -> terminal=%s", i + 1, max_polls, terminal)
-                        if terminal:
+                        # Inspect last page for status/next poll hint
+                        last_structured = None
+                        for pg in reversed(pages):
+                            datum = (pg or {}).get("data") or {}
+                            if isinstance(datum.get("structured"), dict):
+                                last_structured = datum["structured"]
+                                break
+
+                        is_term = False
+                        delay = base_delay
+                        if isinstance(last_structured, dict):
+                            is_term, final_status = _terminal_from_struct(last_structured)
+                            delay = _poll_delay_hint(last_structured, base_delay)
+                            if is_term:
+                                final_structured = last_structured
+
+                        logger.info("Poll %d/%d -> terminal=%s status=%s delay=%ss",
+                                    polls, max_polls, is_term, final_status, delay)
+
+                        if is_term:
                             break
-                        await asyncio.sleep(poll_delay)
+
+                        await asyncio.sleep(delay)
+                        elapsed_total += delay
 
                 # Close per-step client
                 with contextlib.suppress(Exception):
                     await mcp_client.close()
+
+                # Summarize the final server output we observed
+                if final_structured is None:
+                    # Try to find a structured record from any page (best-effort)
+                    for pg in reversed(pages_accum):
+                        datum = (pg or {}).get("data") or {}
+                        if isinstance(datum.get("structured"), dict):
+                            final_structured = datum["structured"]
+                            break
+
+                logger.info(
+                    "Final MCP result summary: status=%s structured=%s",
+                    final_status,
+                    _json_preview(final_structured) if final_structured is not None else "N/A",
+                )
 
                 call_audit.tool_name = start_tool
                 call_audit.tool_args_preview = (args if len(_json_preview(args)) < 1200 else {"_size": len(str(args))})
@@ -502,6 +620,12 @@ async def execute_steps(state: Dict[str, Any]) -> Dict[str, Any]:
                     pages=pages_accum,
                     capability=capability,
                     run_meta={"run_id": state["run"]["run_id"], "step_id": step_id, "capability_id": cap_id},
+                )
+
+                logger.info(
+                    "Artifacts produced from MCP output: count=%d preview=%s",
+                    len(produced_artifacts),
+                    _json_preview([{"kind": a.kind_id, "identity": a.identity} for a in produced_artifacts])[:800]
                 )
 
             elif mode == "llm":
@@ -575,6 +699,13 @@ async def execute_steps(state: Dict[str, Any]) -> Dict[str, Any]:
             # Validation
             from app.core.validation import validate_artifacts
             validations, valid_artifacts = await validate_artifacts(produced_artifacts)
+
+            logger.info(
+                "Storing run state: valid_artifacts=%d, validations=%d, preview=%s",
+                len(valid_artifacts),
+                len(validations),
+                _json_preview([{"kind": a.kind_id, "identity": a.identity} for a in valid_artifacts])[:800]
+            )
 
             state["aggregates"]["validations"].extend(validations)
             state["aggregates"]["run_artifacts"].extend(valid_artifacts)
