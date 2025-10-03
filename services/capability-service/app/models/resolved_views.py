@@ -1,3 +1,4 @@
+# services/capability-service/app/models/resolved_views.py
 from __future__ import annotations
 
 from typing import List, Literal, Optional

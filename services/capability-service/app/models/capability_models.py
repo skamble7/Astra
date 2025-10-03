@@ -66,6 +66,34 @@ Transport = Annotated[Union[HTTPTransport, StdioTransport], Field(discriminator=
 
 
 # ─────────────────────────────────────────────────────────────
+# Execution-level I/O contracts
+# ─────────────────────────────────────────────────────────────
+
+class ExecutionOutputContract(BaseModel):
+    """
+    Declares how an execution returns artifacts and any extra envelope fields.
+    - artifacts_property: name of the property that contains the array of artifacts
+    - kinds: list of cam.* kinds the artifacts may contain
+    - extra_schema: JSON Schema for non-artifact fields (e.g., job_id, next_cursor)
+    - allow_extra_output_fields: if False, response must match artifacts + extra_schema exactly
+    """
+    artifacts_property: str = Field(default="artifacts", min_length=1)
+    kinds: List[str] = Field(default_factory=list)
+    extra_schema: Optional[Dict[str, Any]] = None
+    allow_extra_output_fields: bool = True
+
+
+class ExecutionIO(BaseModel):
+    """
+    Execution-level I/O declaration:
+    - input_schema: JSON Schema describing the input parameters for this execution
+    - output_contract: how outputs are shaped and validated
+    """
+    input_schema: Optional[Dict[str, Any]] = None
+    output_contract: Optional[ExecutionOutputContract] = None
+
+
+# ─────────────────────────────────────────────────────────────
 # MCP ToolCall spec
 # ─────────────────────────────────────────────────────────────
 
@@ -73,6 +101,8 @@ class ToolCallSpec(BaseModel):
     tool: str
     args_schema: Optional[Dict[str, Any]] = None
     output_kinds: List[str] = Field(default_factory=list)
+    # Optional per-tool non-artifact result envelope (e.g., {job_id, status})
+    result_schema: Optional[Dict[str, Any]] = None
     timeout_sec: int = Field(default=60, ge=1)
     retries: int = Field(default=1, ge=0)
     expects_stream: bool = False
@@ -91,6 +121,8 @@ class McpExecution(BaseModel):
     connection: Optional[Dict[str, bool]] = Field(
         default_factory=lambda: {"singleton": True, "share_across_steps": True}
     )
+    # NEW: execution-level input/output contract
+    io: Optional[ExecutionIO] = None
 
 
 class LlmParameters(BaseModel):
@@ -102,6 +134,8 @@ class LlmParameters(BaseModel):
 class LlmExecution(BaseModel):
     mode: Literal["llm"]
     llm_config: Dict[str, Any]  # { provider, model, parameters?: LlmParameters, output_contracts?: [cam.*] }
+    # Allow LLM executions to also declare structured I/O if desired
+    io: Optional[ExecutionIO] = None
 
 
 ExecutionUnion = Annotated[Union[McpExecution, LlmExecution], Field(discriminator="mode")]

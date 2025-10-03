@@ -1,3 +1,4 @@
+#services/capability-service/app/dal/capability_dal.py
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -80,6 +81,7 @@ class CapabilityDAL:
         if tag:
             filt["tags"] = tag
         if produces_kind:
+            # matches arrays that contain the value
             filt["produces_kinds"] = produces_kind
         if mode in ("mcp", "llm"):
             filt["execution.mode"] = mode
