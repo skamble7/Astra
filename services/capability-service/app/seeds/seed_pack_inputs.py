@@ -10,117 +10,101 @@ log = logging.getLogger("app.seeds.pack_inputs")
 
 async def seed_pack_inputs() -> None:
     """
-    Seed the Renova input contract.
+    Seed the Renova input contract (Form-based).
 
-    Final shape (as provided by frontends/agents):
-    {
-      "inputs": {
-        "repos": [
-          {
-            "url": "...",
-            "revision": "main",
-            "subdir": "src",
-            "shallow": true,
-            "include_globs": ["**/*.cob"],
-            "exclude_globs": ["**/test/**"]
-          }
-        ],
-        "extra_context": {
-          "...": {}
-        }
-      }
-    }
+    This schema represents the UI form in the screenshot. Frontends can map it
+    to the underlying runner inputs (e.g., populate inputs.repos[0] and inputs.extra).
     """
     svc = PackInputService()
 
     target = PackInputCreate(
-        id="input.renova.repo",
-        name="Renova – Repository Inputs",
+        id="input.renova.repo",  # keep the same ID to replace the existing one
+        name="Renova – Minimal COBOL Pack Run Form",
         description=(
-            "Generic repository-driven input for Renova runs. "
-            "Defines a list of repositories with revision/subdir/filters and an arbitrary extra_context bag."
+            "Form definition for a minimal COBOL pack run. Captures title, description, "
+            "shallow clone option, repository (URL/branch/destination), and execution options. "
+            "Frontends map this to the lower-level run inputs (e.g., inputs.repos[0], inputs.extra)."
         ),
-        tags=["renova", "repo", "git", "inputs"],
+        tags=["renova", "repo", "git", "inputs", "form"],
         json_schema={
             "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "title": "Renova Repository Input",
+            "$id": "https://astra.example/schemas/minimal-cobol-pack-run-form.json",
+            "title": "Minimal COBOL Pack Run – Form",
             "type": "object",
             "additionalProperties": False,
-            "required": ["inputs"],
+            "required": ["title", "repository"],
             "properties": {
-                "inputs": {
+                "title": {
+                    "type": "string",
+                    "title": "Title",
+                    "minLength": 1,
+                    "default": "Minimal COBOL Pack Run",
+                    "description": "Human-friendly name of the run."
+                },
+                "description": {
+                    "type": "string",
+                    "title": "Description",
+                    "default": "Clone + Parse using MCP servers",
+                    "description": "Optional notes about the run."
+                },
+                "shallowClone": {
+                    "type": "boolean",
+                    "title": "Shallow clone",
+                    "default": True,
+                    "description": "Use a shallow git clone (e.g., --depth=1)."
+                },
+                "repository": {
                     "type": "object",
+                    "title": "Repository",
                     "additionalProperties": False,
-                    "required": ["repos"],
+                    "required": ["gitUrl", "branch", "destination"],
                     "properties": {
-                        "repos": {
-                            "type": "array",
-                            "minItems": 1,
-                            "items": {
-                                "type": "object",
-                                "additionalProperties": False,
-                                "required": ["url"],
-                                "properties": {
-                                    "url": {
-                                        "type": "string",
-                                        "minLength": 1,
-                                        "description": "Repository URL (https/ssh/etc)."
-                                    },
-                                    "revision": {
-                                        "type": "string",
-                                        "description": "Branch, tag, or commit-ish (e.g., 'main')."
-                                    },
-                                    "subdir": {
-                                        "type": "string",
-                                        "description": "Optional subdirectory where sources live."
-                                    },
-                                    "shallow": {
-                                        "type": "boolean",
-                                        "default": True,
-                                        "description": "Prefer shallow clone/fetch when supported."
-                                    },
-                                    "include_globs": {
-                                        "type": "array",
-                                        "items": {"type": "string"},
-                                        "description": "Optional allow-list of glob patterns."
-                                    },
-                                    "exclude_globs": {
-                                        "type": "array",
-                                        "items": {"type": "string"},
-                                        "description": "Optional deny-list of glob patterns."
-                                    }
-                                }
-                            },
-                            "description": "List of repositories to load."
+                        "gitUrl": {
+                            "type": "string",
+                            "title": "Git URL",
+                            "format": "uri",
+                            "default": "https://github.com/aws-samples/aws-mainframe-modernization-carddemo",
+                            "description": "HTTPS/SSH URL to the repository to clone."
                         },
-                        "extra_context": {
-                            "type": "object",
-                            "additionalProperties": {},
-                            "description": "Free-form context map; keys and values are user-defined."
+                        "branch": {
+                            "type": "string",
+                            "title": "Branch",
+                            "default": "main",
+                            "minLength": 1,
+                            "description": "Branch or ref to checkout."
+                        },
+                        "destination": {
+                            "type": "string",
+                            "title": "Local destination (folder)",
+                            "default": "/mnt/src",
+                            "minLength": 1,
+                            "description": "Filesystem path where the repo will be cloned."
+                        }
+                    }
+                },
+                "options": {
+                    "type": "object",
+                    "title": "Options",
+                    "additionalProperties": False,
+                    "properties": {
+                        "validate": {
+                            "type": "boolean",
+                            "title": "Validate",
+                            "default": True,
+                            "description": "Validate against the pack input schema before starting."
+                        },
+                        "strictJson": {
+                            "type": "boolean",
+                            "title": "Strict JSON",
+                            "default": True,
+                            "description": "Require strictly valid JSON when generating inputs."
                         }
                     }
                 }
             }
         },
-        examples=[
-            {
-                "inputs": {
-                    "repos": [
-                        {
-                            "url": "https://github.com/aws-samples/aws-mainframe-modernization-carddemo",
-                            "revision": "main",
-                            "subdir": "",
-                            "shallow": True,
-                            "include_globs": ["**/*.cob", "**/*.cpy"],
-                            "exclude_globs": ["**/test/**", "**/.github/**"]
-                        }
-                    ],
-                    "extra_context": {
-                        "workspace_mount": "/mnt/src"
-                    }
-                }
-            }
-        ],
+        # Remove existing example value(s)
+        examples=[],
     )
 
     # Idempotent replace-by-id

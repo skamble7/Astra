@@ -1,3 +1,4 @@
+# seeds/capabilities.py
 from __future__ import annotations
 
 import logging
@@ -41,22 +42,21 @@ async def _try_wipe_all(svc: CapabilityService) -> bool:
 
 async def seed_capabilities() -> None:
     """
-    Seeds the new capability set with embedded MCP/LLM execution.
+    Seeds the capability set (mix of MCP over stdio and HTTP/SSE, plus LLM).
     """
     log.info("[capability.seeds] Begin")
 
     svc = CapabilityService()
 
-    # 1) Try full wipe (if the service offers it)
+    # 1) Try full wipe
     wiped = await _try_wipe_all(svc)
     if not wiped:
-        log.info("[capability.seeds] No wipe method found; proceeding with replace-by-id for targets")
+        log.info("[capability.seeds] No wipe method found; proceeding with replace-by-id")
 
     LONG_TIMEOUT = 3600  # seconds
 
     # ─────────────────────────────────────────────────────────────
-    # Latest MCP servers (stdio) used by some capabilities
-    # (Note: cap.repo.clone & cap.cobol.parse are overridden below per your spec)
+    # Existing stdio MCP servers
     # ─────────────────────────────────────────────────────────────
     source_indexer_stdio = StdioTransport(
         kind="stdio",
@@ -163,12 +163,14 @@ async def seed_capabilities() -> None:
     # ─────────────────────────────────────────────────────────────
     targets: list[GlobalCapabilityCreate] = [
         # ---------------------------------------------------------------------
-        # UPDATED: cap.repo.clone (STDIO python -m mcp_git_repo_snapshot + schema)
+        # UPDATED: cap.repo.clone -> HTTP/SSE transport, two tools:
+        #   1) git.repo.snapshot.start  (fast, returns {job_id})
+        #   2) git.repo.snapshot.status (poll with {job_id}, returns result when done)
         # ---------------------------------------------------------------------
         GlobalCapabilityCreate(
             id="cap.repo.clone",
             name="Clone Source Repository",
-            description="Clones the source repository and records commit and root path information.",
+            description="Starts a background Git clone/snapshot job and lets callers poll for completion.",
             tags=[],
             parameters_schema={
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -188,23 +190,26 @@ async def seed_capabilities() -> None:
             agent=None,
             execution=McpExecution(
                 mode="mcp",
-                transport=StdioTransport(
-                    kind="stdio",
-                    command="python",
-                    args=["-m", "mcp_git_repo_snapshot"],
-                    cwd=None,
-                    env={},
-                    env_aliases={},
-                    restart_on_exit=True,
-                    readiness_regex=".*",
-                    kill_timeout_sec=10,
+                transport=HTTPTransport(
+                    kind="http",
+                    base_url="http://host.docker.internal:8000",
+                    headers={},
+                    auth={"method": "none"},
+                    timeout_sec=30,                      # per-request guardrail (start/status)
+                    verify_tls=False,
+                    retry={"max_attempts": 2, "backoff_ms": 250, "jitter_ms": 50},
+                    health_path="/health",
+                    sse_path="/sse",
                 ),
+                # NOTE: Your workflow/orchestrator should:
+                #   1) call git.repo.snapshot.start with repo params -> {job_id}
+                #   2) poll git.repo.snapshot.status with {job_id} until status=='done'
                 tool_calls=[
                     ToolCallSpec(
-                        tool="git.repo.snapshot",
+                        tool="git.repo.snapshot.start",
                         args_schema={
                             "$schema": "https://json-schema.org/draft/2020-12/schema",
-                            "title": "git.repo.snapshot args",
+                            "title": "git.repo.snapshot.start args",
                             "type": "object",
                             "additionalProperties": False,
                             "required": ["repo_url", "volume_path"],
@@ -216,12 +221,32 @@ async def seed_capabilities() -> None:
                                 "auth_mode": {"type": "string", "enum": ["https", "ssh"]},
                             },
                         },
-                        output_kinds=["cam.asset.repo_snapshot"],
-                        timeout_sec=600,
+                        # start returns { job_id, status }, not the final artifact
+                        output_kinds=[],                   # no artifact yet
+                        timeout_sec=15,
                         retries=1,
                         expects_stream=False,
                         cancellable=True,
-                    )
+                    ),
+                    ToolCallSpec(
+                        tool="git.repo.snapshot.status",
+                        args_schema={
+                            "$schema": "https://json-schema.org/draft/2020-12/schema",
+                            "title": "git.repo.snapshot.status args",
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["job_id"],
+                            "properties": {
+                                "job_id": {"type": "string", "minLength": 1},
+                            },
+                        },
+                        # when status=='done', result is the strict cam.asset.repo_snapshot data
+                        output_kinds=["cam.asset.repo_snapshot"],
+                        timeout_sec=15,                    # per poll call
+                        retries=0,
+                        expects_stream=False,
+                        cancellable=True,
+                    ),
                 ],
                 discovery={
                     "validate_tools": True,
@@ -258,7 +283,7 @@ async def seed_capabilities() -> None:
         ),
 
         # ---------------------------------------------------------------------
-        # UPDATED: cap.cobol.parse (HTTP MCP, /health, /sse)
+        # UNCHANGED: cap.cobol.parse (HTTP MCP, /health, /sse)
         # ---------------------------------------------------------------------
         GlobalCapabilityCreate(
             id="cap.cobol.parse",
@@ -276,7 +301,7 @@ async def seed_capabilities() -> None:
                 mode="mcp",
                 transport=HTTPTransport(
                     kind="http",
-                    base_url="http://host.docker.internal:8765",
+                    base_url="http://host.docker.internal:8000",
                     headers={},
                     auth={"method": "none"},
                     timeout_sec=90,

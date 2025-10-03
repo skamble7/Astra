@@ -41,3 +41,36 @@ services:
       - "9021:9021"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  astra-conductor-service:
+    build:
+      context: ..
+      dockerfile: services/conductor-service/Dockerfile
+      
+    container_name: astra-conductor-service
+    restart: unless-stopped
+    env_file:
+      - ../services/conductor-service/.env.example
+    environment:
+      MONGO_URI: ${MONGO_URI:-mongodb+srv://sandeepk:sandeep@cluster0.tnbpi.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0}
+      MONGO_DB: ${MONGO_DB:-astra}
+      RABBITMQ_URI: ${RABBITMQ_URI:-amqp://raina:raina@host.docker.internal:5672/}
+      RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-raina.events}
+      EVENTS_ORG: ${EVENTS_ORG:-astra}
+      PLATFORM_EVENTS_ORG: ${PLATFORM_EVENTS_ORG:-platform}
+      CAPABILITY_SVC_BASE_URL: ${CAPABILITY_SVC_BASE_URL:-http://astra-capability-service:9021}
+      ARTIFACT_SVC_BASE_URL: ${ARTIFACT_SVC_BASE_URL:-http://astra-artifact-service:9020}
+      HTTP_CLIENT_TIMEOUT_SECONDS: ${HTTP_CLIENT_TIMEOUT_SECONDS:-30}
+      SERVICE_NAME: conductor-service
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+      # NEW: make the workspace path explicit (optional but handy)
+      WORKSPACE_FOLDER: /workspace
+      WORKSPACE_MOUNT: /workspace
+    ports:
+      - "9022:9022"
+    volumes:
+      # NEW: mount your repo root into the container at /workspace
+      - ../data/workspace:/workspace
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
