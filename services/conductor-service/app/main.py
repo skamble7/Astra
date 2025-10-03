@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 from typing import AsyncIterator
 
 from fastapi import FastAPI
@@ -13,7 +12,6 @@ from app.config import settings
 from app.infra.logging import setup_logging
 from app.events.rabbit import get_bus, RabbitBus
 from app.db.mongodb import init_indexes, close_client as close_mongo_client
-from app.mcp_host import mcp_client_manager  # no-op unless pooling is enabled
 from app.api.routers import health_routes
 from app.api.routers import runs_routes
 
@@ -27,7 +25,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
       - configure logging
       - connect event bus (RabbitMQ)
       - init Mongo indexes
-      - graceful shutdown: bus, MCP client pool, Mongo client
+      - graceful shutdown: bus, Mongo client
     """
     setup_logging(settings.service_name)
     logger.info("%s starting up", settings.service_name)
@@ -51,14 +49,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         except Exception:
             logger.warning("Error closing RabbitMQ", exc_info=True)
 
-        # b) MCP client pool
-        try:
-            await mcp_client_manager.shutdown(closer=lambda c: c.close())
-            logger.info("MCP client pool shutdown complete")
-        except Exception:
-            logger.warning("Error shutting down MCP client pool", exc_info=True)
-
-        # c) Mongo client
+        # b) Mongo client
         try:
             await close_mongo_client()
             logger.info("Mongo client closed")

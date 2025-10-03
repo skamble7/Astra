@@ -25,7 +25,7 @@ dependencies = [
   "openai>=1.35",
   "langgraph>=0.2",
 
-  # MCP client (HTTP/SSE + stdio clients)
+  # MCP client (official types)
   "mcp>=1.15,<2",
 ]
 

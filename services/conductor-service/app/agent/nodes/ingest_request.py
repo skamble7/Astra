@@ -40,7 +40,6 @@ async def ingest_request(state: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     client = get_client()
-    # Use configured DB name (avoids get_default_database() error)
     repo = RunRepository(client, db_name=settings.mongo_db)
     await repo.ensure_indexes()
     await repo.create(run)
@@ -63,7 +62,7 @@ async def ingest_request(state: Dict[str, Any]) -> Dict[str, Any]:
     }
     state["pack"] = {}
     state["registry"] = {"kinds_by_id": {}}
-    state["mcp"] = {"clients": {}, "discovery_reports": {}}
+    # no pre-initialized MCP state; execute_steps builds clients on demand
     state["steps"] = {"current_index": 0, "results": []}
     state["aggregates"] = {"run_artifacts": [], "validations": [], "logs": []}
     state["persistence"] = {"artifact_ids": [], "artifact_failures": []}

@@ -192,7 +192,7 @@ async def seed_capabilities() -> None:
                 mode="mcp",
                 transport=HTTPTransport(
                     kind="http",
-                    base_url="http://localhost:8000",
+                    base_url="http://host.docker.internal:8000",
                     headers={},
                     auth={"method": "none"},
                     timeout_sec=30,                      # per-request guardrail (start/status)

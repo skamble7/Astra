@@ -10,7 +10,6 @@ from langgraph.graph import END, StateGraph
 from app.agent.nodes.ingest_request import ingest_request
 from app.agent.nodes.resolve_pack_and_validate_inputs import resolve_pack_and_validate_inputs
 from app.agent.nodes.prefetch_kinds_and_index import prefetch_kinds_and_index
-from app.agent.nodes.init_mcp_clients import init_mcp_clients
 from app.agent.nodes.mark_run_started import mark_run_started
 from app.agent.nodes.execute_steps import execute_steps
 from app.agent.nodes.compute_diffs_vs_baseline import compute_diffs_vs_baseline
@@ -23,24 +22,18 @@ logger = logging.getLogger("app.agent.graph")
 
 
 def _route(next_node: str):
-    """Return a router fn that jumps to handle_error if state.error is set, else to next_node."""
     def _fn(state: Dict[str, Any]) -> str:
         return "handle_error" if state.get("error") else next_node
     return _fn
 
 
 def build_graph() -> StateGraph:
-    """
-    Builds the LangGraph state machine for a run.
-    State is a plain dict carrying everything the nodes need.
-    """
     g = StateGraph(dict)
 
-    # register nodes
+    # register nodes (init_mcp_clients removed)
     g.add_node("ingest_request", ingest_request)
     g.add_node("resolve_pack_and_validate_inputs", resolve_pack_and_validate_inputs)
     g.add_node("prefetch_kinds_and_index", prefetch_kinds_and_index)
-    g.add_node("init_mcp_clients", init_mcp_clients)
     g.add_node("mark_run_started", mark_run_started)
     g.add_node("execute_steps", execute_steps)
     g.add_node("compute_diffs_vs_baseline", compute_diffs_vs_baseline)
@@ -49,7 +42,7 @@ def build_graph() -> StateGraph:
     g.add_node("mark_run_completed", mark_run_completed)
     g.add_node("handle_error", handle_error)
 
-    # happy-path with conditional error routing
+    # edges
     g.add_conditional_edges("ingest_request", _route("resolve_pack_and_validate_inputs"),
                             {"resolve_pack_and_validate_inputs": "resolve_pack_and_validate_inputs",
                              "handle_error": "handle_error"})
@@ -58,11 +51,8 @@ def build_graph() -> StateGraph:
                             {"prefetch_kinds_and_index": "prefetch_kinds_and_index",
                              "handle_error": "handle_error"})
 
-    g.add_conditional_edges("prefetch_kinds_and_index", _route("init_mcp_clients"),
-                            {"init_mcp_clients": "init_mcp_clients",
-                             "handle_error": "handle_error"})
-
-    g.add_conditional_edges("init_mcp_clients", _route("mark_run_started"),
+    # directly to mark_run_started (no init_mcp_clients)
+    g.add_conditional_edges("prefetch_kinds_and_index", _route("mark_run_started"),
                             {"mark_run_started": "mark_run_started",
                              "handle_error": "handle_error"})
 
@@ -92,23 +82,16 @@ def build_graph() -> StateGraph:
     return g
 
 
-# Build & compile once at import time
 _graph = build_graph().compile()
 
 
 async def run_agent(state: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Drives the compiled LangGraph. Returns the final state after END.
-    """
     async for _ in _graph.astream(state):
         pass
     return state
 
 
 def spawn_agent_task(initial_state: Dict[str, Any]) -> asyncio.Task:
-    """
-    Fire-and-forget helper used by the API route to start a run asynchronously.
-    """
     return asyncio.create_task(
         run_agent(initial_state),
         name=f"run-agent-{initial_state.get('run', {}).get('run_id')}",

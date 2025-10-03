@@ -5,20 +5,25 @@ import asyncio
 import json
 import logging
 import re
+import inspect
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Callable
 from uuid import UUID
 
-from app.clients.artifact_service import ArtifactServiceClient
+from app.clients.artifact_service import ArtifactServiceClient  # noqa: F401 (placeholder if/when wired)
 from app.db.mongodb import get_client
 from app.db.run_repository import RunRepository
 from app.events.rabbit import get_bus
 from app.llm.factory import get_agent_llm
-from app.models.run_models import ArtifactEnvelope, ArtifactProvenance, StepStatus, ToolCallAudit
+from app.models.run_models import ArtifactEnvelope, ArtifactProvenance, ToolCallAudit  # noqa: F401
 from app.config import settings
 
 logger = logging.getLogger("app.agent.nodes.execute")
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Utilities
+# ──────────────────────────────────────────────────────────────────────────────
 
 def _json_preview(obj: Any, limit: int = 1200) -> Any:
     try:
@@ -28,54 +33,17 @@ def _json_preview(obj: Any, limit: int = 1200) -> Any:
     return s if len(s) <= limit else s[:limit] + f"...(+{len(s)-limit}B)"
 
 
-async def _synthesize_tool_args_with_llM(
-    *,
-    step: Dict[str, Any],
-    capability: Dict[str, Any],
-    inputs: Dict[str, Any],
-) -> Dict[str, Any]:
-    """
-    Use the agent LLM to produce tool arguments given the capability's args_schema + step.params + inputs.
-    """
-    llm = get_agent_llm()
-    tool_calls = (capability.get("execution", {}).get("tool_calls") or [])
-    if not tool_calls:
-        args = step.get("params") or {}
-        logger.debug("LLM synthesis skipped (no tool_calls). Using step.params=%s", _json_preview(args))
-        return args
-
-    # Use the first tool's schema as the "shape"
-    tc = tool_calls[0]
-    args_schema = tc.get("args_schema") or {"type": "object", "additionalProperties": True}
-    seed = {
-        "capability_id": capability.get("id"),
-        "step_params": step.get("params") or {},
-        "inputs": inputs or {},
-        "hint": "Produce minimal, valid JSON for the tool call args schema. Do not include nulls.",
-    }
-    prompt = (
-        "You are an orchestration agent. Given the capability step parameters and run inputs, "
-        "produce JSON arguments for the MCP tool call strictly conforming to the JSON Schema.\n\n"
-        f"Context:\n{json.dumps(seed, ensure_ascii=False, indent=2)}\n\n"
-        "Return ONLY the JSON object."
-    )
-    res = await llm.acomplete_json(prompt, schema={"name": "Args", "schema": args_schema})
-    try:
-        args = json.loads(res.text)
-        logger.info("Synthesized tool args via LLM: %s", _json_preview(args))
-        return args
-    except Exception:
-        # fallback to direct params
-        logger.warning("LLM tool-args synthesis failed; using step.params")
-        return step.get("params") or {}
+def _block_text(block: Any) -> Optional[str]:
+    if isinstance(block, dict):
+        if block.get("type") == "text":
+            return str(block.get("text", "")).strip()
+        return None
+    if getattr(block, "type", None) == "text":
+        return str(getattr(block, "text", "")).strip()
+    return None
 
 
 def _extract_job_id(pages: List[Dict[str, Any]]) -> Optional[str]:
-    """
-    Try to pull a job id from:
-      - structured.data fields (job_id / id)
-      - text content blocks (JSON or plain text with 'job_id: <...>' or UUID-like)
-    """
     for pg in pages:
         datum = (pg or {}).get("data") or {}
         structured = datum.get("structured")
@@ -85,26 +53,213 @@ def _extract_job_id(pages: List[Dict[str, Any]]) -> Optional[str]:
                     return str(structured[key])
 
         for block in (datum.get("content") or []):
-            if isinstance(block, dict) and block.get("type") == "text":
-                txt = str(block.get("text", "")).strip()
-                # try JSON parse
-                try:
-                    obj = json.loads(txt)
-                    if isinstance(obj, dict):
-                        for key in ("job_id", "id", "jobId"):
-                            if obj.get(key):
-                                return str(obj[key])
-                except Exception:
-                    pass
-                # try patterns
-                m = re.search(r"(?:job[_\s-]?id)\s*[:=]\s*([A-Za-z0-9._-]+)", txt, re.I)
-                if m:
-                    return m.group(1)
-                m2 = re.search(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", txt, re.I)
-                if m2:
-                    return m2.group(0)
+            txt = _block_text(block)
+            if not txt:
+                continue
+            # try JSON parse
+            try:
+                obj = json.loads(txt)
+                if isinstance(obj, dict):
+                    for key in ("job_id", "id", "jobId"):
+                        if obj.get(key):
+                            return str(obj[key])
+                elif isinstance(obj, list):
+                    for item in obj:
+                        if isinstance(item, dict):
+                            for key in ("job_id", "id", "jobId"):
+                                if item.get(key):
+                                    return str(item[key])
+            except Exception:
+                pass
+            # try patterns
+            m = re.search(r"(?:job[_\s-]?id)\s*[:=]\s*([A-Za-z0-9._-]+)", txt, re.I)
+            if m:
+                return m.group(1)
+            m2 = re.search(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b", txt, re.I)
+            if m2:
+                return m2.group(0)
     return None
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# MCP client builders (LangGraph first, official SDK fallback) – inline
+# ──────────────────────────────────────────────────────────────────────────────
+
+class _MCPAdapterProto:
+    async def discovery(self) -> Dict[str, Any]: ...
+    async def call_tool(self, tool_name: str, args: Dict[str, Any], timeout_sec: int) -> Dict[str, Any]: ...
+    async def close(self) -> None: ...
+
+
+def _format_result_from_sdk(result: Any) -> Dict[str, Any]:
+    """Normalize official SDK CallToolResult -> {pages:[{data:{content,structured}}]}"""
+    structured = getattr(result, "structuredContent", None)
+    raw_content = getattr(result, "content", None) or []
+    content = []
+    for b in raw_content:
+        t = getattr(b, "type", None)
+        if t == "text":
+            content.append({"type": "text", "text": getattr(b, "text", "")})
+        elif t == "image":
+            content.append({"type": "image", "mimeType": getattr(b, "mimeType", None), "data": getattr(b, "data", None)})
+        elif isinstance(b, dict):
+            content.append(b)
+        else:
+            try:
+                d = dict(getattr(b, "__dict__", {}))
+                d.setdefault("type", str(t) if t else "unknown")
+                content.append(d)
+            except Exception:
+                content.append({"type": str(t) if t else "unknown"})
+    pages = [{"data": {"content": content, "structured": structured}, "cursor": None}]
+    return {"pages": pages, "stream": None, "metrics": {}}
+
+
+async def _build_mcp_client_from_capability(exec_cfg: Dict[str, Any]) -> _MCPAdapterProto:
+    """
+    Build a per-step MCP client from the capability execution config.
+    Prefers the LangGraph MCP client. Falls back to official SDK streamable HTTP.
+    """
+    transport = dict(exec_cfg.get("transport") or {})
+    kind = (transport.get("kind") or "").lower()
+    if kind != "http":
+        raise RuntimeError(f"Unsupported MCP transport kind: {kind!r}")
+
+    base_url = (transport.get("base_url") or "").rstrip("/")
+    mcp_path = transport.get("mcp_path") or transport.get("stream_path") or "/mcp"
+    headers = dict(transport.get("headers") or {})
+    timeout_init = int(transport.get("init_timeout_sec") or transport.get("timeout_sec") or 30)
+    verify_tls = bool(transport.get("verify_tls", True))
+
+    # 1) Try LangGraph MCP
+    try:
+        try:
+            # Newer import path
+            from langgraph.mcp import client as lg_client
+        except Exception:
+            # Older nested path
+            from langgraph.mcp.client import client as lg_client  # type: ignore
+
+        logger.info("Connecting MCP via LangGraph client: %s%s", base_url, mcp_path)
+
+        # LangGraph client API: connect_http(base_url, path="/mcp", headers=..., timeout=...)
+        # We keep kwargs narrow for compatibility across versions.
+        conn = await lg_client.connect_http(base_url=base_url, path=mcp_path, headers=headers, timeout=timeout_init)
+
+        class _LGAdapter(_MCPAdapterProto):
+            def __init__(self, c) -> None:
+                self._c = c
+
+            async def discovery(self) -> Dict[str, Any]:
+                # Normalize to {tools: [str], resources: [...], prompts: [...]}
+                try:
+                    tools = await self._c.list_tools()
+                except Exception:
+                    tools = []
+                try:
+                    resources = await self._c.list_resources()
+                except Exception:
+                    resources = []
+                try:
+                    prompts = await self._c.list_prompts()
+                except Exception:
+                    prompts = []
+                return {"tools": [getattr(t, "name", t) for t in tools or []], "resources": resources or [], "prompts": prompts or []}
+
+            async def call_tool(self, tool_name: str, args: Dict[str, Any], timeout_sec: int) -> Dict[str, Any]:
+                async def _call():
+                    return await self._c.call_tool(tool_name, arguments=args)
+                res = await asyncio.wait_for(_call(), timeout=timeout_sec)
+                # LangGraph client already returns a dict-like `{"content":[...], "structured":...}`?
+                # Normalize defensively:
+                if isinstance(res, dict) and "pages" in res:
+                    return res  # already normalized by lg client
+                # best-effort normalization
+                content = res.get("content") if isinstance(res, dict) else None
+                structured = res.get("structured") if isinstance(res, dict) else None
+                pages = [{"data": {"content": content or [], "structured": structured}, "cursor": None}]
+                return {"pages": pages, "stream": None, "metrics": {}}
+
+            async def close(self) -> None:
+                with contextlib.suppress(Exception):
+                    await self._c.close()
+
+        return _LGAdapter(conn)
+
+    except Exception as e:
+        logger.info("LangGraph MCP connection failed (%s). Falling back to official MCP SDK…", e)
+
+    # 2) Fallback: official MCP (streamable HTTP). Avoid passing unknown kwargs (e.g., verify_tls) to older versions.
+    from mcp.client.session import ClientSession  # type: ignore
+    try:
+        from mcp.client.streamable_http import streamablehttp_client  # type: ignore
+    except Exception:
+        streamablehttp_client = None  # type: ignore
+
+    if not streamablehttp_client:
+        raise RuntimeError("Official MCP streamable HTTP client not available")
+
+    # signature-safe kwargs
+    call_kwargs = {"headers": headers}
+    try:
+        sig = inspect.signature(streamablehttp_client)
+        # only pass verify_tls if supported by the installed version
+        if "verify_tls" in sig.parameters:
+            call_kwargs["verify_tls"] = verify_tls
+    except Exception:
+        pass
+
+    stream_url = f"{base_url}{mcp_path}"
+    logger.info("Connecting MCP via official SDK (streamable): %s", stream_url)
+
+    ctx = streamablehttp_client(stream_url, **call_kwargs)  # type: ignore[arg-type]
+    read = write = session = None
+
+    # enter context now and return an adapter that uses this session
+    read, write, _get_session_id = await ctx.__aenter__()  # type: ignore[assignment,union-attr]
+    session = ClientSession(read, write)
+    # guard initialize with timeout
+    await asyncio.wait_for(session.initialize(), timeout=timeout_init)
+
+    class _SDKAdapter(_MCPAdapterProto):
+        def __init__(self, ctx, sess) -> None:
+            self._ctx = ctx
+            self._session = sess
+
+        async def discovery(self) -> Dict[str, Any]:
+            tools = await self._session.list_tools()
+            try:
+                resources = await self._session.list_resources()
+            except Exception:
+                resources = []
+            try:
+                prompts = await self._session.list_prompts()
+            except Exception:
+                prompts = []
+            return {"tools": [t.name for t in (tools or [])], "resources": resources or [], "prompts": prompts or []}
+
+        async def call_tool(self, tool_name: str, args: Dict[str, Any], timeout_sec: int) -> Dict[str, Any]:
+            async def _call():
+                return await self._session.call_tool(tool_name, arguments=args)
+            res = await asyncio.wait_for(_call(), timeout=timeout_sec)
+            return _format_result_from_sdk(res)
+
+        async def close(self) -> None:
+            try:
+                await self._session.shutdown()
+            except Exception:
+                pass
+            try:
+                await self._ctx.__aexit__(None, None, None)  # type: ignore[union-attr]
+            except Exception:
+                pass
+
+    return _SDKAdapter(ctx, session)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Output normalization
+# ──────────────────────────────────────────────────────────────────────────────
 
 async def _normalize_tool_output_to_artifacts(
     *,
@@ -112,11 +267,6 @@ async def _normalize_tool_output_to_artifacts(
     capability: Dict[str, Any],
     run_meta: Dict[str, Any],
 ) -> List[ArtifactEnvelope]:
-    """
-    Best-effort normalization:
-      - If structured data exists under `structured`, treat it as a list of artifact items or a single item.
-      - Otherwise attempt to parse `content` blocks (text/json) heuristically.
-    """
     produced: List[ArtifactEnvelope] = []
     produces_kinds = capability.get("produces_kinds") or []
     schema_version = "1.0.0"
@@ -152,21 +302,67 @@ async def _normalize_tool_output_to_artifacts(
 
         content = datum.get("content") or []
         for block in content:
-            if isinstance(block, dict) and block.get("type") == "text" and "text" in block:
-                txt = block["text"]
-                try:
-                    obj = json.loads(txt)
-                    if isinstance(obj, list):
-                        for it in obj:
-                            if isinstance(it, dict):
-                                produced.append(make_env(it))
-                    elif isinstance(obj, dict):
-                        produced.append(make_env(obj))
-                except Exception:
-                    pass
+            txt = _block_text(block)
+            if not txt:
+                continue
+            try:
+                obj = json.loads(txt)
+                if isinstance(obj, list):
+                    for it in obj:
+                        if isinstance(it, dict):
+                            produced.append(make_env(it))
+                elif isinstance(obj, dict):
+                    produced.append(make_env(obj))
+            except Exception:
+                pass
 
     return produced
 
+
+# ──────────────────────────────────────────────────────────────────────────────
+# LLM arg synthesis
+# ──────────────────────────────────────────────────────────────────────────────
+
+async def _synthesize_tool_args_with_llM(
+    *,
+    step: Dict[str, Any],
+    capability: Dict[str, Any],
+    inputs: Dict[str, Any],
+) -> Dict[str, Any]:
+    llm = get_agent_llm()
+    tool_calls = (capability.get("execution", {}).get("tool_calls") or [])
+    if not tool_calls:
+        args = step.get("params") or {}
+        logger.debug("LLM synthesis skipped (no tool_calls). Using step.params=%s", _json_preview(args))
+        return args
+
+    tc = tool_calls[0]
+    args_schema = tc.get("args_schema") or {"type": "object", "additionalProperties": True}
+    seed = {
+        "capability_id": capability.get("id"),
+        "step_params": step.get("params") or {},
+        "inputs": inputs or {},
+        "hint": "Produce minimal, valid JSON for the tool call args schema. Do not include nulls.",
+    }
+    prompt = (
+        "You are an orchestration agent. Given the capability step parameters and run inputs, "
+        "produce JSON arguments for the MCP tool call strictly conforming to the JSON Schema.\n\n"
+        f"Context:\n{json.dumps(seed, ensure_ascii=False, indent=2)}\n\n"
+        "Return ONLY the JSON object."
+    )
+    res = await llm.acomplete_json(prompt, schema={"name": "Args", "schema": args_schema})
+    try:
+        args = json.loads(res.text)
+        logger.info("Synthesized tool args via LLM: %s", _json_preview(args))
+        return args
+    except Exception:
+        logger.warning("LLM tool-args synthesis failed; using step.params")
+        return step.get("params") or {}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Main node
+# ──────────────────────────────────────────────────────────────────────────────
 
 async def execute_steps(state: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -209,7 +405,20 @@ async def execute_steps(state: Dict[str, Any]) -> Dict[str, Any]:
             produced_artifacts: List[ArtifactEnvelope] = []
             call_audit = ToolCallAudit()
 
-            if exec_cfg.get("mode") == "mcp":
+            mode = exec_cfg.get("mode")
+            if mode == "mcp":
+                # Build MCP client (LangGraph first, then official)
+                mcp_client = await _build_mcp_client_from_capability(exec_cfg)
+
+                # Discovery + logging (requested)
+                discovery = await mcp_client.discovery()
+                discovered_tools = [t for t in (discovery.get("tools") or [])]
+                logger.info("MCP discovery for %s: tools=%s (resources=%s, prompts=%s)",
+                            cap_id,
+                            discovered_tools,
+                            len(discovery.get("resources") or []),
+                            len(discovery.get("prompts") or []))
+
                 # build args (LLM-assisted)
                 args = await _synthesize_tool_args_with_llM(step=step, capability=capability, inputs=inputs)
                 logger.info("Prepared tool args for %s: %s", cap_id, _json_preview(args))
@@ -218,25 +427,8 @@ async def execute_steps(state: Dict[str, Any]) -> Dict[str, Any]:
                 if not tool_calls:
                     raise RuntimeError(f"Capability {cap_id} has no tool_calls")
 
-                client_rec = state["mcp"]["clients"].get(cap_id)
-                if not client_rec:
-                    raise RuntimeError(f"No MCP client initialized for capability {cap_id}")
-                mcp_client = client_rec["client"]
-
-                # default workspace hint if provided via inputs.extra_context
-                extra_ctx = ((inputs or {}).get("inputs") or {}).get("extra_context") or {}
-                default_workspace = extra_ctx.get("workspace_mount")
-                if default_workspace and "volume_path" not in args:
-                    args["volume_path"] = default_workspace
-                    logger.info("volume_path not provided; defaulting to workspace_mount=%s", default_workspace)
-
-                # Figure out if this is a 2-phase flow
-                # We detect a start/status pair by tool name suffixes if two tools exist.
-                tools_available = [t for t in (state["mcp"]["discovery_reports"].get(cap_id, {}).get("tools") or [])]
-                logger.info("Capability %s discovery tools=%s", cap_id, tools_available)
-
                 def _find_tool(name_substr: str) -> Optional[str]:
-                    for t in tools_available:
+                    for t in discovered_tools:
                         if name_substr in t:
                             return t
                     for t in [tc.get("tool") for tc in tool_calls if tc.get("tool")]:
@@ -244,12 +436,8 @@ async def execute_steps(state: Dict[str, Any]) -> Dict[str, Any]:
                             return t
                     return None
 
-                start_tool = _find_tool(".start") or _find_tool("snapshot.start")
+                start_tool = _find_tool(".start") or _find_tool("snapshot.start") or (tool_calls[0]["tool"] if tool_calls else None)
                 status_tool = _find_tool(".status") or _find_tool("snapshot.status")
-
-                # Fallback to first tool if no pair detected
-                if not start_tool and tool_calls:
-                    start_tool = tool_calls[0]["tool"]
 
                 # Timeouts per tool spec, fallback to transport timeout
                 def _timeout_for(tool_name: str) -> int:
@@ -261,6 +449,8 @@ async def execute_steps(state: Dict[str, Any]) -> Dict[str, Any]:
                 pages_accum: List[Dict[str, Any]] = []
 
                 # 1) call start
+                if not start_tool:
+                    raise RuntimeError(f"Could not resolve start tool for capability {cap_id}")
                 logger.info("Invoking start tool=%s with args=%s", start_tool, _json_preview(args))
                 start_res = await mcp_client.call_tool(start_tool, args, timeout_sec=_timeout_for(start_tool))
                 start_pages = start_res.get("pages") or []
@@ -275,29 +465,35 @@ async def execute_steps(state: Dict[str, Any]) -> Dict[str, Any]:
                     max_polls = int(exec_cfg.get("polling", {}).get("max_attempts", 30))
                     poll_delay = float(exec_cfg.get("polling", {}).get("interval_sec", 2.0))
 
-                    logger.info("Polling status via tool=%s (max=%s, interval=%ss)", status_tool, max_polls, poll_delay)
+                    logger.info(
+                        "Polling status via tool=%s (max=%s, interval=%ss)",
+                        status_tool,
+                        max_polls,
+                        poll_delay,
+                    )
                     for i in range(max_polls):
                         res = await mcp_client.call_tool(status_tool, poll_args, timeout_sec=_timeout_for(status_tool))
                         pages = res.get("pages") or []
                         pages_accum.extend(pages)
 
-                        # Heuristic: if any page structured has a 'status' and it's in terminal states, stop.
+                        # Heuristic terminal detection
                         terminal = False
-                        done = False
                         for pg in pages:
                             st = (((pg or {}).get("data") or {}).get("structured") or {}) or {}
                             if isinstance(st, dict):
                                 status_val = str(st.get("status") or st.get("state") or "").lower()
-                                if status_val in {"done", "success", "completed", "complete"}:
+                                if status_val in {"done", "success", "completed", "complete", "ok"}:
                                     terminal = True
-                                    done = True
                                 elif status_val in {"failed", "error"}:
                                     terminal = True
-                                    done = False
                         logger.info("Poll %d/%d -> terminal=%s", i + 1, max_polls, terminal)
                         if terminal:
                             break
                         await asyncio.sleep(poll_delay)
+
+                # Close per-step client
+                with contextlib.suppress(Exception):
+                    await mcp_client.close()
 
                 call_audit.tool_name = start_tool
                 call_audit.tool_args_preview = (args if len(_json_preview(args)) < 1200 else {"_size": len(str(args))})
@@ -308,7 +504,7 @@ async def execute_steps(state: Dict[str, Any]) -> Dict[str, Any]:
                     run_meta={"run_id": state["run"]["run_id"], "step_id": step_id, "capability_id": cap_id},
                 )
 
-            elif exec_cfg.get("mode") == "llm":
+            elif mode == "llm":
                 llm = get_agent_llm()
                 prompt = (
                     "Produce artifacts for the given capability based on inputs.\n"
@@ -368,7 +564,7 @@ async def execute_steps(state: Dict[str, Any]) -> Dict[str, Any]:
                 call_audit.llm_config = {"provider": "agent", "model": state.get("llm", {}).get("model")}
 
             else:
-                raise RuntimeError(f"Unsupported execution mode for capability {cap_id}: {exec_cfg.get('mode')}")
+                raise RuntimeError(f"Unsupported execution mode for capability {cap_id}: {mode}")
 
             # Enrichment (diagrams/narratives)
             from app.core.enrichment.diagrams import enrich_diagrams
@@ -404,7 +600,6 @@ async def execute_steps(state: Dict[str, Any]) -> Dict[str, Any]:
             )
 
         except Exception as e:
-            # step failed
             logger.exception("Step failed: step_id=%s cap_id=%s error=%s", step_id, cap_id, e)
             await repo.step_failed(run_id, step_id, error=str(e))
             await bus.publish(
