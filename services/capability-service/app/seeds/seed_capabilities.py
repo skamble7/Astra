@@ -11,6 +11,8 @@ from app.models import (
     ToolCallSpec,
     StdioTransport,
     HTTPTransport,
+    ExecutionIO,
+    ExecutionOutputContract,
 )
 from app.services import CapabilityService
 
@@ -163,29 +165,16 @@ async def seed_capabilities() -> None:
     # ─────────────────────────────────────────────────────────────
     targets: list[GlobalCapabilityCreate] = [
         # ---------------------------------------------------------------------
-        # UPDATED: cap.repo.clone -> HTTP/SSE transport, two tools:
-        #   1) git.repo.snapshot.start  (fast, returns {job_id})
-        #   2) git.repo.snapshot.status (poll with {job_id}, returns result when done)
+        # UPDATED: cap.repo.clone (HTTP MCP, polling)
+        #   Start tool -> returns { job_id, status }
+        #   Status tool -> returns { job_id, status, artifacts: [cam.asset.repo_snapshot] }
         # ---------------------------------------------------------------------
         GlobalCapabilityCreate(
             id="cap.repo.clone",
             name="Clone Source Repository",
             description="Starts a background Git clone/snapshot job and lets callers poll for completion.",
             tags=[],
-            parameters_schema={
-                "$schema": "https://json-schema.org/draft/2020-12/schema",
-                "title": "cap.repo.clone parameters",
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["repo_url", "volume_path"],
-                "properties": {
-                    "repo_url": {"type": "string", "minLength": 1},
-                    "volume_path": {"type": "string", "minLength": 1},
-                    "branch": {"type": "string"},
-                    "depth": {"type": "integer", "minimum": 0},
-                    "auth_mode": {"type": "string", "enum": ["https", "ssh"]},
-                },
-            },
+            parameters_schema=None,
             produces_kinds=["cam.asset.repo_snapshot"],
             agent=None,
             execution=McpExecution(
@@ -195,34 +184,69 @@ async def seed_capabilities() -> None:
                     base_url="http://host.docker.internal:8000",
                     headers={},
                     auth={"method": "none"},
-                    timeout_sec=30,                      # per-request guardrail (start/status)
+                    timeout_sec=30,
                     verify_tls=False,
                     retry={"max_attempts": 2, "backoff_ms": 250, "jitter_ms": 50},
                     health_path="/health",
                     sse_path="/sse",
                 ),
-                # NOTE: Your workflow/orchestrator should:
-                #   1) call git.repo.snapshot.start with repo params -> {job_id}
-                #   2) poll git.repo.snapshot.status with {job_id} until status=='done'
+                io=ExecutionIO(
+                    input_schema={
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["repo_url", "volume_path"],
+                        "properties": {
+                            "repo_url": {"type": "string", "minLength": 1, "examples": ["https://github.com/skamble7/CardDemo_minimal"]},
+                            "volume_path": {"type": "string", "minLength": 1, "examples": ["/workspace"]},
+                            "branch": {"type": "string", "examples": ["master"]},
+                            "depth": {"type": "integer", "minimum": 0, "examples": [1]},
+                            "auth_mode": {"type": ["string", "null"], "enum": ["https", "ssh", None], "examples": [None]},
+                        },
+                    },
+                    output_contract=ExecutionOutputContract(
+                        artifacts_property="artifacts",
+                        kinds=["cam.asset.repo_snapshot"],
+                        extra_schema={
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "job_id": {"type": "string"},
+                                "status": {"type": "string", "enum": ["queued", "running", "done", "error"]},
+                                # Optional progress/warnings if your server wants to send them
+                                "progress": {"type": "number", "minimum": 0, "maximum": 100},
+                                "message": {"type": "string"},
+                            },
+                        },
+                        allow_extra_output_fields=False,
+                    ),
+                ),
                 tool_calls=[
                     ToolCallSpec(
                         tool="git.repo.snapshot.start",
                         args_schema={
-                            "$schema": "https://json-schema.org/draft/2020-12/schema",
-                            "title": "git.repo.snapshot.start args",
                             "type": "object",
                             "additionalProperties": False,
                             "required": ["repo_url", "volume_path"],
                             "properties": {
-                                "repo_url": {"type": "string", "minLength": 1},
-                                "volume_path": {"type": "string", "minLength": 1},
+                                "repo_url": {"type": "string"},
+                                "volume_path": {"type": "string"},
                                 "branch": {"type": "string"},
                                 "depth": {"type": "integer", "minimum": 0},
-                                "auth_mode": {"type": "string", "enum": ["https", "ssh"]},
+                                "auth_mode": {"type": ["string", "null"], "enum": ["https", "ssh", None]},
                             },
                         },
-                        # start returns { job_id, status }, not the final artifact
-                        output_kinds=[],                   # no artifact yet
+                        # Start call does not emit artifacts
+                        output_kinds=[],
+                        # result_schema only for non-artifact fields from this specific call
+                        result_schema={
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["job_id", "status"],
+                            "properties": {
+                                "job_id": {"type": "string"},
+                                "status": {"type": "string", "enum": ["queued", "running"]},
+                            },
+                        },
                         timeout_sec=15,
                         retries=1,
                         expects_stream=False,
@@ -231,29 +255,32 @@ async def seed_capabilities() -> None:
                     ToolCallSpec(
                         tool="git.repo.snapshot.status",
                         args_schema={
-                            "$schema": "https://json-schema.org/draft/2020-12/schema",
-                            "title": "git.repo.snapshot.status args",
                             "type": "object",
                             "additionalProperties": False,
                             "required": ["job_id"],
+                            "properties": {"job_id": {"type": "string"}},
+                        },
+                        # When status == 'done', the server must return artifacts:
+                        #   { artifacts: [ { kind: "cam.asset.repo_snapshot", data: { repo, commit, branch, paths_root, tags } } ],
+                        #     job_id, status }
+                        output_kinds=["cam.asset.repo_snapshot"],
+                        result_schema={
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["job_id", "status"],
                             "properties": {
-                                "job_id": {"type": "string", "minLength": 1},
+                                "job_id": {"type": "string"},
+                                "status": {"type": "string", "enum": ["queued", "running", "done", "error"]},
+                                # No 'result' object anymore; the repo snapshot goes into artifacts[0].data
                             },
                         },
-                        # when status=='done', result is the strict cam.asset.repo_snapshot data
-                        output_kinds=["cam.asset.repo_snapshot"],
-                        timeout_sec=15,                    # per poll call
+                        timeout_sec=15,  # per poll
                         retries=0,
                         expects_stream=False,
                         cancellable=True,
                     ),
                 ],
-                discovery={
-                    "validate_tools": True,
-                    "validate_resources": False,
-                    "validate_prompts": False,
-                    "fail_fast": True,
-                },
+                discovery={"validate_tools": True, "validate_resources": False, "validate_prompts": False, "fail_fast": True},
                 connection={"singleton": True, "share_across_steps": True},
             ),
         ),
@@ -283,7 +310,7 @@ async def seed_capabilities() -> None:
         ),
 
         # ---------------------------------------------------------------------
-        # UNCHANGED: cap.cobol.parse (HTTP MCP, /health, /sse)
+        # UPDATED: cap.cobol.parse (HTTP MCP, pagination)
         # ---------------------------------------------------------------------
         GlobalCapabilityCreate(
             id="cap.cobol.parse",
@@ -310,6 +337,68 @@ async def seed_capabilities() -> None:
                     health_path="/health",
                     sse_path="/sse",
                 ),
+                io=ExecutionIO(
+                    input_schema={
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["paths_root"],
+                        "properties": {
+                            "paths_root": {"type": "string", "minLength": 1, "examples": ["/workspace"]},
+                            "page_size": {"type": "integer", "minimum": 1, "examples": [60]},
+                            "cursor": {"type": ["string", "null"], "examples": ["<opaque-cursor>"]},
+                            "kinds": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string",
+                                    "enum": ["source_index", "copybook", "program"],
+                                },
+                                "examples": [["source_index", "copybook", "program"]],
+                            },
+                            "force_reparse": {"type": "boolean"},
+                            "run_id": {"type": "string"},
+                        },
+                    },
+                    output_contract=ExecutionOutputContract(
+                        artifacts_property="artifacts",
+                        kinds=[
+                            "cam.asset.source_index",
+                            "cam.cobol.copybook",
+                            "cam.cobol.program",
+                        ],
+                        extra_schema={
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "run": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "properties": {
+                                        "run_id": {"type": "string"},
+                                        "paths_root": {"type": "string"},
+                                    },
+                                },
+                                "meta": {
+                                    "type": "object",
+                                    "additionalProperties": True,
+                                    "properties": {
+                                        "counts": {
+                                            "type": "object",
+                                            "additionalProperties": True,
+                                            "properties": {
+                                                "source_index": {"type": "integer"},
+                                                "copybook": {"type": "integer"},
+                                                "program": {"type": "integer"},
+                                            },
+                                        },
+                                        "page_size": {"type": "integer", "minimum": 1},
+                                    },
+                                },
+                                "next_cursor": {"type": ["string", "null"]},
+                            },
+                        },
+                        allow_extra_output_fields=False,
+                    ),
+                ),
                 tool_calls=[
                     ToolCallSpec(
                         tool="cobol.parse_repo",
@@ -320,7 +409,7 @@ async def seed_capabilities() -> None:
                             "properties": {
                                 "paths_root": {"type": "string", "minLength": 1},
                                 "page_size": {"type": "integer", "minimum": 1},
-                                "cursor": {"type": "string"},
+                                "cursor": {"type": ["string", "null"]},
                                 "kinds": {
                                     "type": "array",
                                     "items": {"type": "string", "enum": ["source_index", "copybook", "program"]},
@@ -334,18 +423,14 @@ async def seed_capabilities() -> None:
                             "cam.cobol.copybook",
                             "cam.cobol.program",
                         ],
+                        # result_schema for non-artifact fields (optional here since covered by execution.io.extra_schema)
                         timeout_sec=LONG_TIMEOUT,
                         retries=1,
                         expects_stream=False,
                         cancellable=True,
                     )
                 ],
-                discovery={
-                    "validate_tools": True,
-                    "validate_resources": False,
-                    "validate_prompts": False,
-                    "fail_fast": True,
-                },
+                discovery={"validate_tools": True, "validate_resources": False, "validate_prompts": False, "fail_fast": True},
                 connection={"singleton": True, "share_across_steps": True},
             ),
         ),
