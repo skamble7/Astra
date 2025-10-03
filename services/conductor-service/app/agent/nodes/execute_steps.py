@@ -26,7 +26,7 @@ logger = logging.getLogger("app.agent.nodes.execute")
 # Utilities
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _json_preview(obj: Any, limit: int = 1200) -> Any:
+def _json_preview(obj: Any, limit: int = 1600) -> Any:
     try:
         s = json.dumps(obj, ensure_ascii=False, default=str)
     except Exception:
@@ -114,6 +114,30 @@ def _poll_delay_hint(structured: dict, default: float) -> float:
         return v if v > 0 else default
     except Exception:
         return default
+
+
+def _parse_last_payload(pages: List[Dict[str, Any]]) -> Optional[dict]:
+    """
+    Try to parse the most recent structured payload from pages.
+    Looks at 'structured' first, then tries to JSON-decode text blocks.
+    Returns a dict if found, else None.
+    """
+    for pg in reversed(pages or []):
+        datum = (pg or {}).get("data") or {}
+        if isinstance(datum.get("structured"), dict):
+            return datum["structured"]
+        content = datum.get("content") or []
+        for block in reversed(content):
+            txt = _block_text(block)
+            if not txt:
+                continue
+            try:
+                obj = json.loads(txt)
+                if isinstance(obj, dict):
+                    return obj
+            except Exception:
+                continue
+    return None
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -346,20 +370,83 @@ async def _build_mcp_client_from_capability(exec_cfg: Dict[str, Any]) -> _MCPAda
 # Output normalization
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _derive_identity_from_result(res: Dict[str, Any]) -> Dict[str, Any]:
+    # Heuristics for a nice identity bag
+    repo = res.get("repo") or res.get("url") or res.get("remote") or ""
+    name = repo.rsplit("/", 1)[-1] if isinstance(repo, str) and repo else res.get("name") or "unknown"
+    ident = {"name": name}
+    if repo:
+        ident["repo"] = repo
+    if res.get("commit"):
+        ident["commit"] = res["commit"]
+    if res.get("branch"):
+        ident["branch"] = res["branch"]
+    return ident
+
+
 async def _normalize_tool_output_to_artifacts(
     *,
     pages: List[Dict[str, Any]],
     capability: Dict[str, Any],
     run_meta: Dict[str, Any],
 ) -> List[ArtifactEnvelope]:
-    produced: List[ArtifactEnvelope] = []
+    """
+    Convert MCP pages to ArtifactEnvelope[].
+
+    Improvements:
+    - If we see a job envelope {job_id,status,result}, we emit artifacts **only** from the final/result payload.
+    - We default kind to capability.produces_kinds[0] when item-level kind is absent.
+    - De-duplicate identical artifacts (same kind + identity + data hash).
+    """
     produces_kinds = capability.get("produces_kinds") or []
+    default_kind = produces_kinds[0] if produces_kinds else "cam.generic.unknown"
     schema_version = "1.0.0"
 
-    def make_env(item: Dict[str, Any]) -> ArtifactEnvelope:
-        kind_id = item.get("kind") or (produces_kinds[0] if produces_kinds else "cam.generic.unknown")
-        identity = item.get("identity") or item.get("key") or {"name": item.get("name", "unknown")}
-        data = item.get("data") or item
+    # Prefer the last payload we can parse
+    last_payload = _parse_last_payload(pages)
+
+    items: List[Dict[str, Any]] = []
+    if isinstance(last_payload, dict) and (
+        "result" in last_payload or "status" in last_payload or "job_id" in last_payload
+    ):
+        # Treat it as a job-style envelope; extract the result
+        payload_result = last_payload.get("result")
+        if isinstance(payload_result, list):
+            items.extend(payload_result)
+        elif isinstance(payload_result, dict):
+            items.append(payload_result)
+        else:
+            # If result missing or wrong shape, still try the whole payload
+            if isinstance(last_payload, dict):
+                items.append(last_payload)
+    else:
+        # Fallback: collect any JSON dicts from pages (legacy behavior), but this may duplicate.
+        for pg in pages:
+            datum = pg.get("data") if isinstance(pg, dict) else {}
+            structured = datum.get("structured")
+            if isinstance(structured, dict):
+                items.append(structured)
+                continue
+            if isinstance(structured, list):
+                items.extend([it for it in structured if isinstance(it, dict)])
+                continue
+            for block in (datum.get("content") or []):
+                txt = _block_text(block)
+                if not txt:
+                    continue
+                try:
+                    obj = json.loads(txt)
+                    if isinstance(obj, dict):
+                        items.append(obj)
+                    elif isinstance(obj, list):
+                        items.extend([it for it in obj if isinstance(it, dict)])
+                except Exception:
+                    continue
+
+    produced: List[ArtifactEnvelope] = []
+    seen: set[str] = set()
+
+    def _mk(kind_id: str, identity: Dict[str, Any], data: Dict[str, Any]) -> ArtifactEnvelope:
         return ArtifactEnvelope(
             kind_id=kind_id,
             schema_version=schema_version,
@@ -373,33 +460,36 @@ async def _normalize_tool_output_to_artifacts(
             ),
         )
 
-    for pg in pages:
-        datum = pg.get("data") if isinstance(pg, dict) else {}
-        structured = datum.get("structured")
-        if structured is not None:
-            if isinstance(structured, list):
-                for it in structured:
-                    if isinstance(it, dict):
-                        produced.append(make_env(it))
-            elif isinstance(structured, dict):
-                produced.append(make_env(structured))
+    for it in items:
+        # If this looks like a job envelope, try to use its "result" instead.
+        if {"job_id", "status", "result"} <= set(it.keys()):
+            res = it.get("result") or {}
+        else:
+            res = it
+
+        if not isinstance(res, dict):
             continue
 
-        content = datum.get("content") or []
-        for block in content:
-            txt = _block_text(block)
-            if not txt:
-                continue
-            try:
-                obj = json.loads(txt)
-                if isinstance(obj, list):
-                    for it in obj:
-                        if isinstance(it, dict):
-                            produced.append(make_env(it))
-                elif isinstance(obj, dict):
-                    produced.append(make_env(obj))
-            except Exception:
-                pass
+        kind_id = res.get("kind") or default_kind
+        # If the server didn’t include a 'kind' inline, use smarter identity defaults
+        identity = (
+            res.get("identity")
+            if isinstance(res.get("identity"), dict)
+            else _derive_identity_from_result(res)
+        )
+
+        data = res.get("data") if isinstance(res.get("data"), dict) else res
+
+        # De-dup key
+        dedupe_key = json.dumps(
+            {"k": kind_id, "i": identity, "d": data},
+            sort_keys=True, ensure_ascii=False, default=str
+        )
+        if dedupe_key in seen:
+            continue
+        seen.add(dedupe_key)
+
+        produced.append(_mk(kind_id, identity, data))
 
     return produced
 
@@ -546,7 +636,7 @@ async def execute_steps(state: Dict[str, Any]) -> Dict[str, Any]:
                 job_id = _extract_job_id(start_pages)
                 logger.info("Start returned job_id=%s (raw pages=%s)", job_id, _json_preview(start_pages))
 
-                # 2) POLL REFINEMENT: if we have a status tool + job_id -> poll (respect server hints)
+                # 2) POLL (look at each response and stop ASAP)
                 final_structured: Optional[dict] = None
                 final_status: Optional[str] = None
                 polls = 0
@@ -569,24 +659,21 @@ async def execute_steps(state: Dict[str, Any]) -> Dict[str, Any]:
                         pages = res.get("pages") or []
                         pages_accum.extend(pages)
 
-                        # Inspect last page for status/next poll hint
-                        last_structured = None
-                        for pg in reversed(pages):
-                            datum = (pg or {}).get("data") or {}
-                            if isinstance(datum.get("structured"), dict):
-                                last_structured = datum["structured"]
-                                break
-
+                        # Inspect the most recent JSON payload
+                        last_payload = _parse_last_payload(pages)
                         is_term = False
                         delay = base_delay
-                        if isinstance(last_structured, dict):
-                            is_term, final_status = _terminal_from_struct(last_structured)
-                            delay = _poll_delay_hint(last_structured, base_delay)
+                        status_hint = None
+
+                        if isinstance(last_payload, dict):
+                            is_term, status_hint = _terminal_from_struct(last_payload)
+                            delay = _poll_delay_hint(last_payload, base_delay)
                             if is_term:
-                                final_structured = last_structured
+                                final_structured = last_payload
+                                final_status = status_hint
 
                         logger.info("Poll %d/%d -> terminal=%s status=%s delay=%ss",
-                                    polls, max_polls, is_term, final_status, delay)
+                                    polls, max_polls, is_term, status_hint, delay)
 
                         if is_term:
                             break
@@ -600,12 +687,7 @@ async def execute_steps(state: Dict[str, Any]) -> Dict[str, Any]:
 
                 # Summarize the final server output we observed
                 if final_structured is None:
-                    # Try to find a structured record from any page (best-effort)
-                    for pg in reversed(pages_accum):
-                        datum = (pg or {}).get("data") or {}
-                        if isinstance(datum.get("structured"), dict):
-                            final_structured = datum["structured"]
-                            break
+                    final_structured = _parse_last_payload(pages_accum)
 
                 logger.info(
                     "Final MCP result summary: status=%s structured=%s",
@@ -614,7 +696,7 @@ async def execute_steps(state: Dict[str, Any]) -> Dict[str, Any]:
                 )
 
                 call_audit.tool_name = start_tool
-                call_audit.tool_args_preview = (args if len(_json_preview(args)) < 1200 else {"_size": len(str(args))})
+                call_audit.tool_args_preview = (args if len(_json_preview(args)) < 1600 else {"_size": len(str(args))})
 
                 produced_artifacts = await _normalize_tool_output_to_artifacts(
                     pages=pages_accum,
@@ -625,7 +707,7 @@ async def execute_steps(state: Dict[str, Any]) -> Dict[str, Any]:
                 logger.info(
                     "Artifacts produced from MCP output: count=%d preview=%s",
                     len(produced_artifacts),
-                    _json_preview([{"kind": a.kind_id, "identity": a.identity} for a in produced_artifacts])[:800]
+                    _json_preview([{"kind": a.kind_id, "identity": a.identity} for a in produced_artifacts])[:1200]
                 )
 
             elif mode == "llm":
@@ -704,7 +786,7 @@ async def execute_steps(state: Dict[str, Any]) -> Dict[str, Any]:
                 "Storing run state: valid_artifacts=%d, validations=%d, preview=%s",
                 len(valid_artifacts),
                 len(validations),
-                _json_preview([{"kind": a.kind_id, "identity": a.identity} for a in valid_artifacts])[:800]
+                _json_preview([{"kind": a.kind_id, "identity": a.identity} for a in valid_artifacts])[:1200]
             )
 
             state["aggregates"]["validations"].extend(validations)
