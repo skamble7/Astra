@@ -1,101 +1,136 @@
 # services/conductor-service/app/agent/graph.py
 from __future__ import annotations
 
-import asyncio
-import logging
-from typing import Any, Dict
+import hashlib
+import json
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional, TypedDict
 
-from langgraph.graph import END, StateGraph
+from langgraph.graph import StateGraph
+from langgraph.graph.state import END
 
-from app.agent.nodes.ingest_request import ingest_request
-from app.agent.nodes.resolve_pack_and_validate_inputs import resolve_pack_and_validate_inputs
-from app.agent.nodes.prefetch_kinds_and_index import prefetch_kinds_and_index
-from app.agent.nodes.mark_run_started import mark_run_started
-from app.agent.nodes.execute_steps import execute_steps
-from app.agent.nodes.compute_diffs_vs_baseline import compute_diffs_vs_baseline
-from app.agent.nodes.persist_results import persist_results
-from app.agent.nodes.publish_summary import publish_summary
-from app.agent.nodes.mark_run_completed import mark_run_completed
-from app.agent.nodes.handle_error import handle_error
+from app.clients.artifact_service import ArtifactServiceClient
+from app.clients.capability_service import CapabilityServiceClient
+from app.db.run_repository import RunRepository
+from app.models.run_models import PlaybookRun
 
-logger = logging.getLogger("app.agent.graph")
+from app.agent.nodes.input_resolver import input_resolver_node
 
 
-def _route(next_node: str):
-    def _fn(state: Dict[str, Any]) -> str:
-        return "handle_error" if state.get("error") else next_node
-    return _fn
+# ─────────────────────────────────────────────────────────────
+# Graph state definition (what flows between nodes)
+# Keep only what downstream nodes need; the DB stores step state, etc.
+# ─────────────────────────────────────────────────────────────
+
+class GraphState(TypedDict, total=False):
+    # Request & run
+    request: Dict[str, Any]                  # StartRunRequest as dict
+    run: Dict[str, Any]                      # PlaybookRun as dict (used for run_id, etc.)
+
+    # Resolved pack & metadata
+    pack: Dict[str, Any]                     # resolved pack document (includes pack_input, capabilities, playbooks)
+    artifact_kinds: Dict[str, Dict[str, Any]]  # resolved kind specs (pack holds only IDs)
+
+    # Validated inputs + fingerprint
+    inputs_valid: bool
+    input_errors: list[str]
+    input_fingerprint: Optional[str]
+
+    # Logs & validations
+    logs: list[str]
+    validations: list[Dict[str, Any]]
+
+    # Timeline
+    started_at: str
+    completed_at: Optional[str]
 
 
-def build_graph() -> StateGraph:
-    g = StateGraph(dict)
+# ─────────────────────────────────────────────────────────────
+# Helper: canonical JSON + fingerprint
+# ─────────────────────────────────────────────────────────────
 
-    # register nodes (init_mcp_clients removed)
-    g.add_node("ingest_request", ingest_request)
-    g.add_node("resolve_pack_and_validate_inputs", resolve_pack_and_validate_inputs)
-    g.add_node("prefetch_kinds_and_index", prefetch_kinds_and_index)
-    g.add_node("mark_run_started", mark_run_started)
-    g.add_node("execute_steps", execute_steps)
-    g.add_node("compute_diffs_vs_baseline", compute_diffs_vs_baseline)
-    g.add_node("persist_results", persist_results)
-    g.add_node("publish_summary", publish_summary)
-    g.add_node("mark_run_completed", mark_run_completed)
-    g.add_node("handle_error", handle_error)
+def canonical_json(obj: Any) -> str:
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
-    # edges
-    g.add_conditional_edges("ingest_request", _route("resolve_pack_and_validate_inputs"),
-                            {"resolve_pack_and_validate_inputs": "resolve_pack_and_validate_inputs",
-                             "handle_error": "handle_error"})
-
-    g.add_conditional_edges("resolve_pack_and_validate_inputs", _route("prefetch_kinds_and_index"),
-                            {"prefetch_kinds_and_index": "prefetch_kinds_and_index",
-                             "handle_error": "handle_error"})
-
-    # directly to mark_run_started (no init_mcp_clients)
-    g.add_conditional_edges("prefetch_kinds_and_index", _route("mark_run_started"),
-                            {"mark_run_started": "mark_run_started",
-                             "handle_error": "handle_error"})
-
-    g.add_conditional_edges("mark_run_started", _route("execute_steps"),
-                            {"execute_steps": "execute_steps",
-                             "handle_error": "handle_error"})
-
-    g.add_conditional_edges("execute_steps", _route("compute_diffs_vs_baseline"),
-                            {"compute_diffs_vs_baseline": "compute_diffs_vs_baseline",
-                             "handle_error": "handle_error"})
-
-    g.add_conditional_edges("compute_diffs_vs_baseline", _route("persist_results"),
-                            {"persist_results": "persist_results",
-                             "handle_error": "handle_error"})
-
-    g.add_conditional_edges("persist_results", _route("publish_summary"),
-                            {"publish_summary": "publish_summary",
-                             "handle_error": "handle_error"})
-
-    g.add_conditional_edges("publish_summary", _route("mark_run_completed"),
-                            {"mark_run_completed": "mark_run_completed",
-                             "handle_error": "handle_error"})
-
-    g.add_edge("mark_run_completed", END)
-
-    g.set_entry_point("ingest_request")
-    return g
+def sha256_fingerprint(obj: Any) -> str:
+    return hashlib.sha256(canonical_json(obj).encode("utf-8")).hexdigest()
 
 
-_graph = build_graph().compile()
+# ─────────────────────────────────────────────────────────────
+# Graph builder
+# ─────────────────────────────────────────────────────────────
+
+@dataclass
+class ConductorGraph:
+    """
+    Thin wrapper that compiles a LangGraph with injected service clients
+    and repository handles. Keeps graph wiring in one place.
+    """
+    runs_repo: RunRepository
+    cap_client: CapabilityServiceClient
+    art_client: ArtifactServiceClient
+
+    def build(self):
+        graph = StateGraph(GraphState)
+
+        # Single node for now
+        graph.add_node(
+            "input_resolver",
+            input_resolver_node(
+                runs_repo=self.runs_repo,
+                cap_client=self.cap_client,
+                art_client=self.art_client,
+                sha256_fingerprint=sha256_fingerprint,
+            ),
+        )
+
+        # Entry → input_resolver → END
+        graph.set_entry_point("input_resolver")
+        graph.add_edge("input_resolver", END)
+
+        return graph.compile()
 
 
-async def run_agent(state: Dict[str, Any]) -> Dict[str, Any]:
-    async for _ in _graph.astream(state):
-        pass
-    return state
+# ─────────────────────────────────────────────────────────────
+# Public entry (used by API): run single-node graph
+# ─────────────────────────────────────────────────────────────
 
+async def run_input_bootstrap(
+    *,
+    runs_repo: RunRepository,
+    cap_client: CapabilityServiceClient,
+    art_client: ArtifactServiceClient,
+    start_request: Dict[str, Any],
+    run_doc: PlaybookRun,
+) -> GraphState:
+    """
+    Executes the single-node graph (input_resolver) to:
+    - resolve pack, collect kinds, validate inputs,
+    - initialize run steps (in DB).
+    Returns the final graph state for diagnostics / API response.
+    """
+    compiled = ConductorGraph(
+        runs_repo=runs_repo,
+        cap_client=cap_client,
+        art_client=art_client,
+    ).build()
 
-def spawn_agent_task(initial_state: Dict[str, Any]) -> asyncio.Task:
-    return asyncio.create_task(
-        run_agent(initial_state),
-        name=f"run-agent-{initial_state.get('run', {}).get('run_id')}",
-    )
+    now = datetime.now(timezone.utc).isoformat()
 
+    initial_state: GraphState = {
+        "request": start_request,
+        "run": run_doc.model_dump(mode="json"),
+        "artifact_kinds": {},
+        "inputs_valid": False,
+        "input_errors": [],
+        "input_fingerprint": None,
+        "logs": [],
+        "validations": [],
+        "started_at": now,
+        "completed_at": None,
+    }
 
-__all__ = ["spawn_agent_task", "run_agent"]
+    # .ainvoke returns the terminal state
+    final_state: GraphState = await compiled.ainvoke(initial_state)
+    return final_state

@@ -156,7 +156,7 @@ class StartRunRequest(BaseModel):
 
     inputs: Dict[str, Any] = Field(default_factory=dict)  # validated against pack_input.json_schema
 
-    # Friendly metadata
+    # Friendly metadata for run
     title: Optional[str] = Field(default=None, max_length=200)
     description: Optional[str] = Field(default=None, max_length=2000)
 

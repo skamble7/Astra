@@ -247,6 +247,12 @@ class RunRepository:
         completed_at: Optional[datetime] = None,
         duration_s: Optional[float] = None,
     ) -> None:
+        # Ensure run_summary is an object (not null) before setting dotted subfields
+        await self._col.update_one(
+            {"run_id": str(run_id), "run_summary": None},
+            {"$set": {"run_summary": {}}},
+        )
+
         set_ops: Dict[str, Any] = {"updated_at": datetime.now(timezone.utc)}
         if validations is not None:
             set_ops["run_summary.validations"] = validations
