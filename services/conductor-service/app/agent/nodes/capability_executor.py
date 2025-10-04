@@ -1,4 +1,3 @@
-# app/agent/nodes/capability_executor.py
 from __future__ import annotations
 from typing import Any, Dict, List
 from uuid import UUID
@@ -12,7 +11,9 @@ from app.db.run_repository import RunRepository
 logger = logging.getLogger("app.agent.nodes.capability_executor")
 
 def capability_executor_node(*, runs_repo: RunRepository):
-    async def _node(state: Dict[str, Any]) -> Command[Literal["mcp_input_resolver", "llm_execution", "capability_executor"]] | Dict[str, Any]:
+    async def _node(
+        state: Dict[str, Any]
+    ) -> Command[Literal["mcp_input_resolver", "llm_execution", "capability_executor"]] | Dict[str, Any]:
         logs: List[str] = state.get("logs", [])
         request: Dict[str, Any] = state["request"]
         run_doc: Dict[str, Any] = state["run"]
@@ -22,6 +23,23 @@ def capability_executor_node(*, runs_repo: RunRepository):
         playbook_id = request["playbook_id"]
         step_idx = int(state.get("step_idx", 0))
 
+        # Sole writer policy: only this node writes current_step_id/step_idx advancement.
+        current_step_id = state.get("current_step_id")
+        last_mcp = state.get("last_mcp_summary") or {}
+        last_mcp_error = state.get("last_mcp_error")
+
+        # Terminate on executor-reported failure
+        if last_mcp_error:
+            logs.append(f"MCP failure: {last_mcp_error}")
+            return {"logs": logs, "completed_at": datetime.now(timezone.utc).isoformat()}
+
+        # Consume completion breadcrumb inline (no extra tick that re-writes the same key)
+        if current_step_id and last_mcp.get("completed_step_id") == current_step_id:
+            step_idx += 1
+            current_step_id = None
+            last_mcp = {}  # consumed
+
+        # Guard invalid inputs
         if not state.get("inputs_valid", False):
             if step_idx == 0:
                 pb = next((p for p in (pack.get("playbooks") or []) if p.get("id") == playbook_id), None)
@@ -30,10 +48,11 @@ def capability_executor_node(*, runs_repo: RunRepository):
                         await runs_repo.step_skipped(run_uuid, s["id"], reason="inputs_invalid")
             return {"logs": logs, "completed_at": datetime.now(timezone.utc).isoformat()}
 
+        # Playbook/steps
         pb = next((p for p in (pack.get("playbooks") or []) if p.get("id") == playbook_id), None)
         if not pb:
             logs.append(f"Playbook '{playbook_id}' not found during execution.")
-            return {"logs": logs}
+            return {"logs": logs, "completed_at": datetime.now(timezone.utc).isoformat()}
 
         steps = pb.get("steps", []) or []
         if step_idx >= len(steps):
@@ -51,20 +70,23 @@ def capability_executor_node(*, runs_repo: RunRepository):
         mode = (cap.get("execution") or {}).get("mode")
         await runs_repo.step_started(run_uuid, step_id)
 
-        update = {
-            "step_idx": step_idx,  # execution node will increment
+        # Only this node writes current_step_id
+        base_update = {
+            "step_idx": step_idx,
             "current_step_id": step_id,
             "dispatch": {
                 "capability": cap,
                 "step": step,
             },
+            # clear any consumed flags
+            "last_mcp_summary": {},
+            "last_mcp_error": None,
         }
 
         if mode == "mcp":
-            # NEW: route to input resolver first
-            return Command(goto="mcp_input_resolver", update=update)
+            return Command(goto="mcp_input_resolver", update=base_update)
         elif mode == "llm":
-            return Command(goto="llm_execution", update=update)
+            return Command(goto="llm_execution", update=base_update)
         else:
             await runs_repo.step_failed(run_uuid, step_id, error=f"Unsupported mode '{mode}'")
             return Command(goto="capability_executor", update={"step_idx": step_idx + 1})

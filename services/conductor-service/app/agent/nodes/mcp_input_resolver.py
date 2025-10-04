@@ -1,8 +1,8 @@
-# app/agent/nodes/mcp_input_resolver.py
 from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -18,26 +18,13 @@ from app.models.run_models import StepAudit, ToolCallAudit
 logger = logging.getLogger("app.agent.nodes.mcp_input_resolver")
 
 # ---------- Utilities ----------
-
 def _cap_io_input_contract(capability: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Return the standardized ExecutionInput envelope:
-      capability.execution.io.input_contract
-    """
     return (((capability.get("execution") or {}).get("io") or {}).get("input_contract") or {})
 
 def _cap_io_input_json_schema(capability: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Return the JSON Schema under the ExecutionInput envelope:
-      capability.execution.io.input_contract.json_schema
-    """
     return (_cap_io_input_contract(capability).get("json_schema") or {})
 
 def _cap_io_input_schema_guide(capability: Dict[str, Any]) -> str:
-    """
-    Return the human-readable schema guide:
-      capability.execution.io.input_contract.schema_guide
-    """
     guide = _cap_io_input_contract(capability).get("schema_guide")
     return str(guide) if isinstance(guide, str) else ""
 
@@ -50,7 +37,6 @@ def _choose_tool_name(capability: Dict[str, Any]) -> str:
         return ""
     if len(calls) == 1:
         return str(calls[0].get("tool") or "")
-    # If multiple, pick the first deterministically (tool disambiguation can be added later)
     return str(calls[0].get("tool") or "")
 
 def _first_required_props(schema: Dict[str, Any]) -> List[str]:
@@ -58,11 +44,6 @@ def _first_required_props(schema: Dict[str, Any]) -> List[str]:
     return list(req) if isinstance(req, list) else []
 
 def _upstream_kind_ids_for_capability(capability: Dict[str, Any], artifact_kinds: Dict[str, Dict[str, Any]]) -> List[str]:
-    """
-    Given the capability's produces_kinds, collect all 'depends_on' kinds (hard and soft)
-    from those kind specs. This tells us which previously-produced artifacts are relevant
-    inputs for the next step.
-    """
     produces = capability.get("produces_kinds") or []
     upstream: List[str] = []
     for k in produces:
@@ -74,24 +55,14 @@ def _upstream_kind_ids_for_capability(capability: Dict[str, Any], artifact_kinds
                     upstream.append(dep)
     return upstream
 
-def _collect_relevant_artifacts_for_later_step(
-    *,
-    state: Dict[str, Any],
-    capability: Dict[str, Any],
-) -> List[Dict[str, Any]]:
-    """
-    Return artifacts prioritized by whether their 'kind' matches the upstream depends_on
-    kinds of the capability's produces_kinds. Falls back to all artifacts if none match.
-    """
+def _collect_relevant_artifacts_for_later_step(*, state: Dict[str, Any], capability: Dict[str, Any]) -> List[Dict[str, Any]]:
     artifacts: List[Dict[str, Any]] = state.get("mcp_artifacts") or []
     if not artifacts:
         return []
-
     art_kinds_map: Dict[str, Dict[str, Any]] = state.get("artifact_kinds") or {}
     upstream = set(_upstream_kind_ids_for_capability(capability, art_kinds_map))
     if not upstream:
-        return artifacts[:]  # nothing to prioritize against
-
+        return artifacts[:]
     prioritized: List[Dict[str, Any]] = []
     others: List[Dict[str, Any]] = []
     for a in artifacts:
@@ -100,20 +71,14 @@ def _collect_relevant_artifacts_for_later_step(
     return prioritized + others
 
 def _truncate_json(obj: Any, max_chars: int) -> str:
-    s = json.dumps(obj, ensure_ascii=False)
+    try:
+        s = json.dumps(obj, ensure_ascii=False)
+    except Exception:
+        s = "<unserializable>"
     return s if len(s) <= max_chars else s[: max_chars - 3] + "..."
 
 # ---------- LLM prompts ----------
-
-def _build_prompt_step0(
-    *,
-    pack_input_schema: Dict[str, Any],
-    pack_inputs: Dict[str, Any],
-    capability: Dict[str, Any],
-    exec_input_json_schema: Dict[str, Any],
-    exec_input_schema_guide: str,
-    step: Dict[str, Any],
-) -> str:
+def _build_prompt_step0(*, pack_input_schema: Dict[str, Any], pack_inputs: Dict[str, Any], capability: Dict[str, Any], exec_input_json_schema: Dict[str, Any], exec_input_schema_guide: str, step: Dict[str, Any]) -> str:
     cap_name = capability.get("name") or capability.get("id") or "<capability>"
     guide_block = f"\nExecution Input – schema_guide (human-readable):\n{exec_input_schema_guide}\n" if exec_input_schema_guide else ""
     return (
@@ -126,7 +91,8 @@ def _build_prompt_step0(
         "3) Do NOT fabricate values that contradict Pack Input values. If a required value cannot be inferred, make a minimal, "
         "reasonable guess consistent with both schemas and the schema_guide.\n"
         "4) Omit fields that are not in the ExecutionInput schema.\n"
-        "5) The output must be ONLY the JSON object (no commentary).\n\n"
+        "5) If the schema includes 'page_size' or 'cursor', include them. Use the schema_guide defaults when present.\n"
+        "6) The output must be ONLY the JSON object (no commentary).\n\n"
         f"Capability: {cap_name}\n"
         f"Step params (hints only): {_truncate_json(step.get('params') or {}, 2000)}\n"
         f"{guide_block}\n"
@@ -139,15 +105,7 @@ def _build_prompt_step0(
         "Return ONLY the JSON object of tool args."
     )
 
-def _build_prompt_later_step(
-    *,
-    capability: Dict[str, Any],
-    exec_input_json_schema: Dict[str, Any],
-    exec_input_schema_guide: str,
-    step: Dict[str, Any],
-    artifacts: List[Dict[str, Any]],
-    artifact_kinds: Dict[str, Any],
-) -> str:
+def _build_prompt_later_step(*, capability: Dict[str, Any], exec_input_json_schema: Dict[str, Any], exec_input_schema_guide: str, step: Dict[str, Any], artifacts: List[Dict[str, Any]], artifact_kinds: Dict[str, Any]) -> str:
     cap_name = capability.get("name") or capability.get("id") or "<capability>"
     guide_block = f"\nExecution Input – schema_guide (human-readable):\n{exec_input_schema_guide}\n" if exec_input_schema_guide else ""
     return (
@@ -160,7 +118,8 @@ def _build_prompt_later_step(
         "   required properties (e.g., repo snapshot → paths_root, branch, commit), and follow schema_guide for mapping tips.\n"
         "3) Do NOT invent values that conflict with artifact data; when in doubt, leave optional fields out.\n"
         "4) Omit fields that are not in the ExecutionInput schema.\n"
-        "5) The output must be ONLY the JSON object (no commentary).\n\n"
+        "5) If the schema includes 'page_size' or 'cursor', include them. Use the schema_guide defaults when present.\n"
+        "6) The output must be ONLY the JSON object (no commentary).\n\n"
         f"Capability: {cap_name}\n"
         f"Step params (hints only): {_truncate_json(step.get('params') or {}, 2000)}\n"
         f"{guide_block}\n"
@@ -173,13 +132,56 @@ def _build_prompt_later_step(
         "Return ONLY the JSON object of tool args."
     )
 
-# ---------- Node ----------
+_DEFAULT_NUM_RE = re.compile(r"Defaults?\s+to\s+(\d+)", re.IGNORECASE)
 
-def mcp_input_resolver_node(
-    *,
-    runs_repo: RunRepository,
-    llm: AgentLLM,
-):
+def _infer_default_from_guide(guide: str, key: str) -> Optional[int]:
+    if not guide or not key:
+        return None
+    m = _DEFAULT_NUM_RE.search(guide)
+    if m:
+        try:
+            return int(m.group(1))
+        except Exception:
+            return None
+    return None
+
+def _postprocess_args_with_heuristics(*, candidate: Dict[str, Any], capability: Dict[str, Any], step: Dict[str, Any], exec_input_schema: Dict[str, Any], exec_input_schema_guide: str) -> Dict[str, Any]:
+    args = dict(candidate or {})
+    props = (exec_input_schema.get("properties") or {})
+
+    if "page_size" in props and "page_size" not in args:
+        step_params = step.get("params") or {}
+        if isinstance(step_params, dict):
+            for src_key in ("page_size", "file_limit", "pageSize", "files_per_page"):
+                if isinstance(step_params.get(src_key), int) and step_params[src_key] >= 1:
+                    args["page_size"] = int(step_params[src_key])
+                    break
+        if "page_size" not in args:
+            guide_default = _infer_default_from_guide(exec_input_schema_guide, "page_size")
+            if isinstance(guide_default, int) and guide_default >= 1:
+                args["page_size"] = guide_default
+
+    if "cursor" in props and "cursor" not in args:
+        args["cursor"] = None
+
+    if "kinds" in props and "kinds" not in args:
+        produces = capability.get("produces_kinds") or []
+        enum = None
+        kinds_schema = props["kinds"]
+        if isinstance(kinds_schema, dict) and isinstance(kinds_schema.get("items"), dict):
+            enum = kinds_schema["items"].get("enum")
+        if isinstance(enum, list) and enum:
+            mapped = []
+            for k in produces:
+                suffix = k.split(".")[-1] if isinstance(k, str) else k
+                if suffix in enum and suffix not in mapped:
+                    mapped.append(suffix)
+            if mapped:
+                args["kinds"] = mapped
+
+    return args
+
+def mcp_input_resolver_node(*, runs_repo: RunRepository, llm: AgentLLM):
     async def _node(state: Dict[str, Any]) -> Command[Literal["mcp_execution", "capability_executor"]] | Dict[str, Any]:
         run = state["run"]
         run_uuid = UUID(run["run_id"])
@@ -192,15 +194,13 @@ def mcp_input_resolver_node(
 
         started = datetime.now(timezone.utc)
 
-        # 1) Choose tool (still needed to record which tool we plan to call)
         tool_name = _choose_tool_name(capability)
         if not tool_name:
             msg = f"No MCP tools found/selected for capability '{cap_id}'."
             await runs_repo.step_failed(run_uuid, step_id, error=msg)
-            # Advance the graph so we don't loop on a dead step
-            return Command(goto="capability_executor", update={"step_idx": step_idx + 1, "current_step_id": None})
+            # IMPORTANT: do NOT write current_step_id here (avoid double-write with router)
+            return Command(goto="capability_executor", update={"step_idx": step_idx + 1})
 
-        # 2) Pull standardized ExecutionInput schema & guide
         exec_input_json_schema = _cap_io_input_json_schema(capability) or {
             "type": "object",
             "properties": {},
@@ -209,13 +209,9 @@ def mcp_input_resolver_node(
         exec_input_schema_guide = _cap_io_input_schema_guide(capability)
         validator = Draft202012Validator(exec_input_json_schema)
 
-        # 3) Build LLM prompt (step 0 vs later), now using schema_guide + input_contract.json_schema
+        # Build prompt per step index
         llm_calls: List[ToolCallAudit] = []
-        prompt: str
-        schema_for_args = {
-            "name": "mcp_tool_args",
-            "schema": {"type": "object", "properties": {}, "additionalProperties": True},
-        }
+        schema_for_args = {"name": "mcp_tool_args", "schema": {"type": "object", "properties": {}, "additionalProperties": True}}
 
         if step_idx == 0:
             pack = state.get("pack") or {}
@@ -241,7 +237,6 @@ def mcp_input_resolver_node(
                 artifact_kinds=artifact_kinds,
             )
 
-        # 4) LLM → candidate args
         llm_started = datetime.now(timezone.utc)
         resp = await llm.acomplete_json(prompt, schema=schema_for_args)
         llm_duration = int((datetime.now(timezone.utc) - llm_started).total_seconds() * 1000)
@@ -251,7 +246,14 @@ def mcp_input_resolver_node(
         except Exception:
             candidate = {}
 
-        # 5) Validate & (if needed) attempt a single repair
+        candidate = _postprocess_args_with_heuristics(
+            candidate=candidate,
+            capability=capability,
+            step=step,
+            exec_input_schema=exec_input_json_schema,
+            exec_input_schema_guide=exec_input_schema_guide,
+        )
+
         resolved_args = candidate
         err_msg: Optional[str] = None
         try:
@@ -263,7 +265,6 @@ def mcp_input_resolver_node(
             err_msg = ve.message
             repair_prompt = (
                 "Fix the JSON args so they satisfy the capability's ExecutionInput JSON Schema exactly.\n\n"
-                "Use this human-readable guide to select/rename fields where helpful.\n\n"
                 f"ExecutionInput schema_guide:\n{exec_input_schema_guide}\n\n"
                 f"ExecutionInput JSON Schema:\n{_truncate_json(exec_input_json_schema, 4000)}\n\n"
                 f"Current args:\n{_truncate_json(resolved_args, 4000)}\n\n"
@@ -278,6 +279,15 @@ def mcp_input_resolver_node(
                 repaired = json.loads(repair_resp.text or "{}")
             except Exception:
                 repaired = {}
+
+            repaired = _postprocess_args_with_heuristics(
+                candidate=repaired,
+                capability=capability,
+                step=step,
+                exec_input_schema=exec_input_json_schema,
+                exec_input_schema_guide=exec_input_schema_guide,
+            )
+
             try:
                 validator.validate(repaired)
                 missing = [r for r in _first_required_props(exec_input_json_schema) if r not in repaired]
@@ -321,10 +331,9 @@ def mcp_input_resolver_node(
                 ),
             )
             await runs_repo.step_failed(run_uuid, step_id, error=msg)
-            # Advance the graph to avoid loops
-            return Command(goto="capability_executor", update={"step_idx": step_idx + 1, "current_step_id": None})
+            # IMPORTANT: avoid writing current_step_id here
+            return Command(goto="capability_executor", update={"step_idx": step_idx + 1})
 
-        # 6) Audit success
         await runs_repo.append_step_audit(
             run_uuid,
             StepAudit(
@@ -341,10 +350,8 @@ def mcp_input_resolver_node(
             ),
         )
 
-        # 7) Handoff to execution (IMPORTANT: do NOT override step_idx here to avoid recursion loops)
+        # Handoff to execution WITHOUT touching current_step_id (router is the single writer)
         update = {
-            # Leave step_idx management to the executor node
-            "current_step_id": step_id,
             "dispatch": {
                 "capability": capability,
                 "step": step,
