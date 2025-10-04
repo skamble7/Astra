@@ -22,12 +22,12 @@ from app.models.run_models import (
 
 logger = logging.getLogger("app.db.runs")
 
-COLLECTION_NAME = "playbook_runs"
+COLLECTION_NAME = "pack_runs"
 
 
 class RunRepository:
     """
-    DAL for the 'playbook_runs' collection.
+    DAL for the 'pack_runs' collection.
     - One document per run (run-owned artifacts for DELTA, audit trail, step state).
     - Baseline artifacts are managed by artifact-service and not duplicated here.
     """
@@ -156,6 +156,20 @@ class RunRepository:
                     "steps.$.status": StepStatus.FAILED.value,
                     "steps.$.completed_at": now,
                     "steps.$.error": error[:2000] if error else None,
+                    "updated_at": now,
+                }
+            },
+        )
+
+    async def step_skipped(self, run_id: UUID, step_id: str, *, reason: Optional[str] = None) -> None:
+        now = datetime.now(timezone.utc)
+        await self._col.update_one(
+            {"run_id": str(run_id), "steps.step_id": step_id},
+            {
+                "$set": {
+                    "steps.$.status": StepStatus.SKIPPED.value,
+                    "steps.$.completed_at": now,
+                    "steps.$.error": (reason[:2000] if reason else None),
                     "updated_at": now,
                 }
             },

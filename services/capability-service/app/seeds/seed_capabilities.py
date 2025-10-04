@@ -44,7 +44,7 @@ async def _try_wipe_all(svc: CapabilityService) -> bool:
 
 async def seed_capabilities() -> None:
     """
-    Seeds the capability set (mix of MCP over stdio and HTTP/SSE, plus LLM).
+    Seeds the capability set (mix of MCP over stdio and HTTP, plus LLM).
     """
     log.info("[capability.seeds] Begin")
 
@@ -188,7 +188,7 @@ async def seed_capabilities() -> None:
                     verify_tls=False,
                     retry={"max_attempts": 2, "backoff_ms": 250, "jitter_ms": 50},
                     health_path="/health",
-                    sse_path="/sse",
+                    protocol_path="/mcp",
                 ),
                 io=ExecutionIO(
                     input_schema={
@@ -328,14 +328,14 @@ async def seed_capabilities() -> None:
                 mode="mcp",
                 transport=HTTPTransport(
                     kind="http",
-                    base_url="http://host.docker.internal:8000",
+                    base_url="http://host.docker.internal:8765",
                     headers={},
                     auth={"method": "none"},
                     timeout_sec=90,
                     verify_tls=False,
                     retry={"max_attempts": 2, "backoff_ms": 250, "jitter_ms": 50},
                     health_path="/health",
-                    sse_path="/sse",
+                    protocol_path="/mcp",
                 ),
                 io=ExecutionIO(
                     input_schema={

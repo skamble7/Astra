@@ -33,8 +33,8 @@ def _repo() -> RunRepository:
 @router.post("/start")
 async def start_run(payload: StartRunRequest) -> Dict[str, Any]:
     """
-    Create a run document, execute the input_resolver graph node,
-    and return the initialized run + bootstrap state summary.
+    Create a run document, execute the input_resolver → capability_executor graph,
+    and return the run + terminal state summary.
     """
     runs_repo = _repo()
     cap_client = CapabilityServiceClient()
@@ -47,7 +47,7 @@ async def start_run(payload: StartRunRequest) -> Dict[str, Any]:
         playbook_id=payload.playbook_id,
         title=payload.title,
         description=payload.description,
-        strategy=payload.strategy or RunStrategy.DELTA,  # fixed: don't reference run before assignment
+        strategy=payload.strategy or RunStrategy.DELTA,
         status=RunStatus.CREATED,
         inputs=payload.inputs or {},
         # Seed a non-null run_summary so dotted-path updates never fail on null parent
@@ -62,7 +62,7 @@ async def start_run(payload: StartRunRequest) -> Dict[str, Any]:
     # 2) Mark started
     await runs_repo.mark_started(run.run_id)
 
-    # 3) Invoke the single-node graph to bootstrap state
+    # 3) Run the graph
     t0 = time.perf_counter()
     try:
         final_state = await run_input_bootstrap(
@@ -77,13 +77,13 @@ async def start_run(payload: StartRunRequest) -> Dict[str, Any]:
         await runs_repo.mark_failed(run.run_id, error=f"Bootstrap failed: {e}")
         raise HTTPException(status_code=500, detail=f"Bootstrap failed: {e}") from e
 
-    # 4) Summarize & mark completed (this endpoint performs only bootstrap)
+    # 4) Summarize & mark completed (this endpoint runs both nodes)
     duration_s = round(time.perf_counter() - t0, 3)
     await runs_repo.update_run_summary(
         run.run_id,
         validations=final_state.get("validations", []),
         started_at=run.created_at,
-        completed_at=run.updated_at,
+        completed_at=datetime.now(timezone.utc),
         duration_s=duration_s,
     )
     await runs_repo.mark_completed(

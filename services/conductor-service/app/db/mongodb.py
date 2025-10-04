@@ -35,7 +35,7 @@ async def init_indexes() -> None:
     to match the pattern used in capability-service.
     """
     db = get_db()
-    runs = db.playbook_runs
+    runs = db.pack_runs  # type: ignore[attr-defined]
 
     # Uniqueness on run id (UUID4 stored as string)
     await runs.create_index([("run_id", ASCENDING)], name="uk_run_id", unique=True)

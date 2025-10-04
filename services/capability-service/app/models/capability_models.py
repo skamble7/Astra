@@ -47,7 +47,7 @@ class HTTPTransport(BaseModel):
     verify_tls: bool = True
     retry: Optional[RetryPolicy] = None
     health_path: str = "/health"
-    sse_path: str = "/sse"
+    protocol_path: str = "/sse"
 
 
 class StdioTransport(BaseModel):

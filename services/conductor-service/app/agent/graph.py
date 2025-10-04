@@ -16,39 +16,32 @@ from app.db.run_repository import RunRepository
 from app.models.run_models import PlaybookRun
 
 from app.agent.nodes.input_resolver import input_resolver_node
+from app.agent.nodes.capability_executor import capability_executor_node
+from app.agent.nodes.mcp_input_resolver import mcp_input_resolver_node  # NEW
+from app.agent.nodes.mcp_execution import mcp_execution_node
+from app.agent.nodes.llm_execution import llm_execution_node
 
+from app.llm.factory import get_agent_llm
 
-# ─────────────────────────────────────────────────────────────
-# Graph state definition (what flows between nodes)
-# Keep only what downstream nodes need; the DB stores step state, etc.
-# ─────────────────────────────────────────────────────────────
 
 class GraphState(TypedDict, total=False):
-    # Request & run
-    request: Dict[str, Any]                  # StartRunRequest as dict
-    run: Dict[str, Any]                      # PlaybookRun as dict (used for run_id, etc.)
-
-    # Resolved pack & metadata
-    pack: Dict[str, Any]                     # resolved pack document (includes pack_input, capabilities, playbooks)
-    artifact_kinds: Dict[str, Dict[str, Any]]  # resolved kind specs (pack holds only IDs)
-
-    # Validated inputs + fingerprint
+    request: Dict[str, Any]
+    run: Dict[str, Any]
+    pack: Dict[str, Any]
+    artifact_kinds: Dict[str, Dict[str, Any]]
     inputs_valid: bool
     input_errors: list[str]
     input_fingerprint: Optional[str]
-
-    # Logs & validations
+    step_idx: int
+    current_step_id: Optional[str]
+    dispatch: Dict[str, Any]
     logs: list[str]
     validations: list[Dict[str, Any]]
-
-    # Timeline
     started_at: str
     completed_at: Optional[str]
+    mcp_artifacts: list[Dict[str, Any]]
+    last_mcp_summary: Dict[str, Any]
 
-
-# ─────────────────────────────────────────────────────────────
-# Helper: canonical JSON + fingerprint
-# ─────────────────────────────────────────────────────────────
 
 def canonical_json(obj: Any) -> str:
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -57,16 +50,8 @@ def sha256_fingerprint(obj: Any) -> str:
     return hashlib.sha256(canonical_json(obj).encode("utf-8")).hexdigest()
 
 
-# ─────────────────────────────────────────────────────────────
-# Graph builder
-# ─────────────────────────────────────────────────────────────
-
 @dataclass
 class ConductorGraph:
-    """
-    Thin wrapper that compiles a LangGraph with injected service clients
-    and repository handles. Keeps graph wiring in one place.
-    """
     runs_repo: RunRepository
     cap_client: CapabilityServiceClient
     art_client: ArtifactServiceClient
@@ -74,7 +59,8 @@ class ConductorGraph:
     def build(self):
         graph = StateGraph(GraphState)
 
-        # Single node for now
+        agent_llm = get_agent_llm()
+
         graph.add_node(
             "input_resolver",
             input_resolver_node(
@@ -84,17 +70,47 @@ class ConductorGraph:
                 sha256_fingerprint=sha256_fingerprint,
             ),
         )
+        graph.add_node(
+            "capability_executor",
+            capability_executor_node(
+                runs_repo=self.runs_repo,
+            ),
+        )
 
-        # Entry → input_resolver → END
+        # NEW: input resolver for MCP
+        graph.add_node(
+            "mcp_input_resolver",
+            mcp_input_resolver_node(
+                runs_repo=self.runs_repo,
+                llm=agent_llm,
+            ),
+        )
+
+        # Execution nodes
+        graph.add_node(
+            "mcp_execution",
+            mcp_execution_node(
+                runs_repo=self.runs_repo,
+            ),
+        )
+        graph.add_node(
+            "llm_execution",
+            llm_execution_node(
+                runs_repo=self.runs_repo,
+            ),
+        )
+
+        # Edges
         graph.set_entry_point("input_resolver")
-        graph.add_edge("input_resolver", END)
+        graph.add_edge("input_resolver", "capability_executor")
+        graph.add_edge("capability_executor", END)  # terminal if no more steps / invalid
+        graph.add_edge("capability_executor", "mcp_input_resolver")
+        graph.add_edge("mcp_input_resolver", "mcp_execution")
+        graph.add_edge("mcp_execution", "capability_executor")
+        graph.add_edge("llm_execution", "capability_executor")
 
         return graph.compile()
 
-
-# ─────────────────────────────────────────────────────────────
-# Public entry (used by API): run single-node graph
-# ─────────────────────────────────────────────────────────────
 
 async def run_input_bootstrap(
     *,
@@ -103,13 +119,7 @@ async def run_input_bootstrap(
     art_client: ArtifactServiceClient,
     start_request: Dict[str, Any],
     run_doc: PlaybookRun,
-) -> GraphState:
-    """
-    Executes the single-node graph (input_resolver) to:
-    - resolve pack, collect kinds, validate inputs,
-    - initialize run steps (in DB).
-    Returns the final graph state for diagnostics / API response.
-    """
+) -> Dict[str, Any]:
     compiled = ConductorGraph(
         runs_repo=runs_repo,
         cap_client=cap_client,
@@ -118,19 +128,22 @@ async def run_input_bootstrap(
 
     now = datetime.now(timezone.utc).isoformat()
 
-    initial_state: GraphState = {
+    initial_state: Dict[str, Any] = {
         "request": start_request,
         "run": run_doc.model_dump(mode="json"),
         "artifact_kinds": {},
         "inputs_valid": False,
         "input_errors": [],
         "input_fingerprint": None,
+        "step_idx": 0,
+        "current_step_id": None,
+        "dispatch": {},
         "logs": [],
         "validations": [],
         "started_at": now,
         "completed_at": None,
+        "mcp_artifacts": [],
     }
 
-    # .ainvoke returns the terminal state
-    final_state: GraphState = await compiled.ainvoke(initial_state)
+    final_state: Dict[str, Any] = await compiled.ainvoke(initial_state)
     return final_state
