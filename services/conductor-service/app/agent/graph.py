@@ -41,6 +41,7 @@ class GraphState(TypedDict, total=False):
     completed_at: Optional[str]
     mcp_artifacts: list[Dict[str, Any]]
     last_mcp_summary: Dict[str, Any]
+    last_mcp_error: Optional[str]
 
 
 def canonical_json(obj: Any) -> str:
@@ -103,8 +104,33 @@ class ConductorGraph:
         # Edges
         graph.set_entry_point("input_resolver")
         graph.add_edge("input_resolver", "capability_executor")
-        graph.add_edge("capability_executor", END)  # terminal if no more steps / invalid
-        graph.add_edge("capability_executor", "mcp_input_resolver")
+
+        # Replace unconditional fan-out with a single conditional router.
+        def route_from_capability_executor(state: GraphState):
+            """
+            Decide next hop after capability_executor:
+            - If there's an active dispatch with a capability+step, route by mode.
+            - Otherwise, we are done.
+            """
+            dispatch = state.get("dispatch") or {}
+            cap = dispatch.get("capability") or {}
+            step = dispatch.get("step") or None
+
+            if cap and step:
+                mode = (cap.get("execution") or {}).get("mode")
+                if mode == "mcp":
+                    return "mcp_input_resolver"
+                elif mode == "llm":
+                    return "llm_execution"
+                else:
+                    # Unsupported -> router will have marked the step failed and advanced; loop back to router
+                    return "capability_executor"
+
+            # No dispatch -> terminal
+            return END
+
+        graph.add_conditional_edges("capability_executor", route_from_capability_executor)
+
         graph.add_edge("mcp_input_resolver", "mcp_execution")
         graph.add_edge("mcp_execution", "capability_executor")
         graph.add_edge("llm_execution", "capability_executor")
@@ -143,6 +169,8 @@ async def run_input_bootstrap(
         "started_at": now,
         "completed_at": None,
         "mcp_artifacts": [],
+        "last_mcp_summary": {},
+        "last_mcp_error": None,
     }
 
     final_state: Dict[str, Any] = await compiled.ainvoke(initial_state)

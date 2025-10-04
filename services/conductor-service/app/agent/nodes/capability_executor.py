@@ -31,7 +31,15 @@ def capability_executor_node(*, runs_repo: RunRepository):
         # Terminate on executor-reported failure
         if last_mcp_error:
             logs.append(f"MCP failure: {last_mcp_error}")
-            return {"logs": logs, "completed_at": datetime.now(timezone.utc).isoformat()}
+            return {
+                "logs": logs,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                # Clear stale execution context on terminal exit
+                "current_step_id": None,
+                "dispatch": {},
+                "last_mcp_summary": {},
+                # Keep last_mcp_error as-is in state for auditing/visibility
+            }
 
         # Consume completion breadcrumb inline (no extra tick that re-writes the same key)
         if current_step_id and last_mcp.get("completed_step_id") == current_step_id:
@@ -39,24 +47,46 @@ def capability_executor_node(*, runs_repo: RunRepository):
             current_step_id = None
             last_mcp = {}  # consumed
 
-        # Guard invalid inputs
+        # Guard invalid inputs (terminal)
         if not state.get("inputs_valid", False):
             if step_idx == 0:
                 pb = next((p for p in (pack.get("playbooks") or []) if p.get("id") == playbook_id), None)
                 if pb:
                     for s in pb.get("steps", []) or []:
                         await runs_repo.step_skipped(run_uuid, s["id"], reason="inputs_invalid")
-            return {"logs": logs, "completed_at": datetime.now(timezone.utc).isoformat()}
+            return {
+                "logs": logs,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "current_step_id": None,
+                "dispatch": {},
+                "last_mcp_summary": {},
+                "last_mcp_error": None,
+            }
 
         # Playbook/steps
         pb = next((p for p in (pack.get("playbooks") or []) if p.get("id") == playbook_id), None)
         if not pb:
             logs.append(f"Playbook '{playbook_id}' not found during execution.")
-            return {"logs": logs, "completed_at": datetime.now(timezone.utc).isoformat()}
+            return {
+                "logs": logs,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "current_step_id": None,
+                "dispatch": {},
+                "last_mcp_summary": {},
+                "last_mcp_error": None,
+            }
 
         steps = pb.get("steps", []) or []
         if step_idx >= len(steps):
-            return {"logs": logs, "completed_at": datetime.now(timezone.utc).isoformat()}
+            # Finished all steps (terminal)
+            return {
+                "logs": logs,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "current_step_id": None,
+                "dispatch": {},
+                "last_mcp_summary": {},
+                "last_mcp_error": None,
+            }
 
         step = steps[step_idx]
         step_id = step["id"]
