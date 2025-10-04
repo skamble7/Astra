@@ -11,6 +11,7 @@ from app.models import (
     ToolCallSpec,
     StdioTransport,
     HTTPTransport,
+    ExecutionInput,          # ← added
     ExecutionIO,
     ExecutionOutputContract,
 )
@@ -191,18 +192,40 @@ async def seed_capabilities() -> None:
                     protocol_path="/mcp",
                 ),
                 io=ExecutionIO(
-                    input_schema={
-                        "type": "object",
-                        "additionalProperties": False,
-                        "required": ["repo_url", "volume_path"],
-                        "properties": {
-                            "repo_url": {"type": "string", "minLength": 1, "examples": ["https://github.com/skamble7/CardDemo_minimal"]},
-                            "volume_path": {"type": "string", "minLength": 1, "examples": ["/workspace"]},
-                            "branch": {"type": "string", "examples": ["master"]},
-                            "depth": {"type": "integer", "minimum": 0, "examples": [1]},
-                            "auth_mode": {"type": ["string", "null"], "enum": ["https", "ssh", None], "examples": [None]},
+                    input_contract=ExecutionInput(
+                        json_schema={
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["repo_url", "volume_path"],
+                            "properties": {
+                                "repo_url": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "examples": ["https://github.com/skamble7/CardDemo_minimal"],
+                                },
+                                "volume_path": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "examples": ["/workspace"],
+                                },
+                                "branch": {"type": "string", "examples": ["master"]},
+                                "depth": {"type": "integer", "minimum": 0, "examples": [1]},
+                                "auth_mode": {
+                                    "type": ["string", "null"],
+                                    "enum": ["https", "ssh", None],
+                                    "examples": [None],
+                                },
+                            },
                         },
-                    },
+                        schema_guide=(
+                            "Provide details for a git snapshot job, ideally to fetch this from the pack_input \n"
+                            "- **repo_url** (required): HTTPS or SSH URL to clone.\n"
+                            "- **volume_path** (required): Absolute path where the repo should be materialized (e.g., `/workspace`).\n"
+                            "- **branch** (optional): Branch name to checkout. Defaults to the default branch if omitted.\n"
+                            "- **depth** (optional): Integer >= 0 for shallow clone. `0` or omitted means full history.\n"
+                            "- **auth_mode** (optional): One of `https`, `ssh`, or `null` for unauthenticated public clones."
+                        ),
+                    ),
                     output_contract=ExecutionOutputContract(
                         artifacts_property="artifacts",
                         kinds=["cam.asset.repo_snapshot"],
@@ -212,7 +235,6 @@ async def seed_capabilities() -> None:
                             "properties": {
                                 "job_id": {"type": "string"},
                                 "status": {"type": "string", "enum": ["queued", "running", "done", "error"]},
-                                # Optional progress/warnings if your server wants to send them
                                 "progress": {"type": "number", "minimum": 0, "maximum": 100},
                                 "message": {"type": "string"},
                             },
@@ -235,9 +257,7 @@ async def seed_capabilities() -> None:
                                 "auth_mode": {"type": ["string", "null"], "enum": ["https", "ssh", None]},
                             },
                         },
-                        # Start call does not emit artifacts
                         output_kinds=[],
-                        # result_schema only for non-artifact fields from this specific call
                         result_schema={
                             "type": "object",
                             "additionalProperties": False,
@@ -260,9 +280,6 @@ async def seed_capabilities() -> None:
                             "required": ["job_id"],
                             "properties": {"job_id": {"type": "string"}},
                         },
-                        # When status == 'done', the server must return artifacts:
-                        #   { artifacts: [ { kind: "cam.asset.repo_snapshot", data: { repo, commit, branch, paths_root, tags } } ],
-                        #     job_id, status }
                         output_kinds=["cam.asset.repo_snapshot"],
                         result_schema={
                             "type": "object",
@@ -271,7 +288,6 @@ async def seed_capabilities() -> None:
                             "properties": {
                                 "job_id": {"type": "string"},
                                 "status": {"type": "string", "enum": ["queued", "running", "done", "error"]},
-                                # No 'result' object anymore; the repo snapshot goes into artifacts[0].data
                             },
                         },
                         timeout_sec=15,  # per poll
@@ -338,26 +354,41 @@ async def seed_capabilities() -> None:
                     protocol_path="/mcp",
                 ),
                 io=ExecutionIO(
-                    input_schema={
-                        "type": "object",
-                        "additionalProperties": False,
-                        "required": ["paths_root"],
-                        "properties": {
-                            "paths_root": {"type": "string", "minLength": 1, "examples": ["/workspace"]},
-                            "page_size": {"type": "integer", "minimum": 1, "examples": [60]},
-                            "cursor": {"type": ["string", "null"], "examples": ["<opaque-cursor>"]},
-                            "kinds": {
-                                "type": "array",
-                                "items": {
+                    input_contract=ExecutionInput(
+                        json_schema={
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["paths_root"],
+                            "properties": {
+                                "paths_root": {
                                     "type": "string",
-                                    "enum": ["source_index", "copybook", "program"],
+                                    "minLength": 1,
+                                    "examples": ["/workspace"],
                                 },
-                                "examples": [["source_index", "copybook", "program"]],
+                                "page_size": {"type": "integer", "minimum": 1, "examples": [60]},
+                                "cursor": {"type": ["string", "null"], "examples": ["<opaque-cursor>"]},
+                                "kinds": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string",
+                                        "enum": ["source_index", "copybook", "program"],
+                                    },
+                                    "examples": [["source_index", "copybook", "program"]],
+                                },
+                                "force_reparse": {"type": "boolean"},
+                                "run_id": {"type": "string"},
                             },
-                            "force_reparse": {"type": "boolean"},
-                            "run_id": {"type": "string"},
                         },
-                    },
+                        schema_guide=(
+                            "Request a COBOL parse page:\n"
+                            "- **paths_root** (required): Root directory containing the checked-out repo (e.g., `/workspace`).\n"
+                            "- **page_size** (optional): Number of artifacts per page (integer ≥ 1). Defaults to 3.\n"
+                            "- **cursor** (optional): Opaque pagination token from a prior response; use `null` for the first page.\n"
+                            "- **kinds** (optional): list of artifact kinds that the mcp server needs to produce. Should be taken from the capability's produces_kinds.\n"
+                            "- **force_reparse** (optional): Boolean to force a clean reparse ignoring caches.\n"
+                            "- **run_id** (optional): Correlation id to be echoed back in responses."
+                        ),
+                    ),
                     output_contract=ExecutionOutputContract(
                         artifacts_property="artifacts",
                         kinds=[
@@ -423,7 +454,6 @@ async def seed_capabilities() -> None:
                             "cam.cobol.copybook",
                             "cam.cobol.program",
                         ],
-                        # result_schema for non-artifact fields (optional here since covered by execution.io.extra_schema)
                         timeout_sec=LONG_TIMEOUT,
                         retries=1,
                         expects_stream=False,

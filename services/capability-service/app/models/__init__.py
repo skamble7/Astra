@@ -1,3 +1,4 @@
+# services/capability-service/app/models/__init__.py
 from .capability_models import (
     RetryPolicy,
     DiscoveryPolicy,
@@ -9,6 +10,7 @@ from .capability_models import (
     LlmParameters,
     McpExecution,
     LlmExecution,
+    ExecutionInput,          # ← added
     ExecutionIO,
     ExecutionOutputContract,
     ExecutionUnion,
@@ -51,6 +53,7 @@ __all__ = [
     "LlmParameters",
     "McpExecution",
     "LlmExecution",
+    "ExecutionInput",          # ← added
     "ExecutionIO",
     "ExecutionOutputContract",
     "ExecutionUnion",

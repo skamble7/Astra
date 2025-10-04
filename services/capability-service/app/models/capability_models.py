@@ -47,7 +47,7 @@ class HTTPTransport(BaseModel):
     verify_tls: bool = True
     retry: Optional[RetryPolicy] = None
     health_path: str = "/health"
-    protocol_path: str = "/sse"
+    protocol_path: str = "/sse"  # protocol endpoint path (e.g., SSE stream or /mcp)
 
 
 class StdioTransport(BaseModel):
@@ -83,13 +83,32 @@ class ExecutionOutputContract(BaseModel):
     allow_extra_output_fields: bool = True
 
 
+class ExecutionInput(BaseModel):
+    """
+    Envelope for execution input specification.
+
+    - json_schema: JSON Schema describing the expected input object.
+    - schema_guide: Natural-language, field-by-field guidance that helps LLMs/UIs
+      construct a valid object (required/optional, allowed values, examples, rules).
+      Markdown is allowed.
+    """
+    json_schema: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="JSON Schema (Draft 2020-12 recommended) for execution input.",
+    )
+    schema_guide: Optional[str] = Field(
+        default=None,
+        description="Textual guide for each input field; accepts Markdown.",
+    )
+
+
 class ExecutionIO(BaseModel):
     """
     Execution-level I/O declaration:
-    - input_schema: JSON Schema describing the input parameters for this execution
+    - input: Envelope containing input schema and human-readable guide
     - output_contract: how outputs are shaped and validated
     """
-    input_schema: Optional[Dict[str, Any]] = None
+    input_contract: Optional[ExecutionInput] = None
     output_contract: Optional[ExecutionOutputContract] = None
 
 
@@ -121,7 +140,7 @@ class McpExecution(BaseModel):
     connection: Optional[Dict[str, bool]] = Field(
         default_factory=lambda: {"singleton": True, "share_across_steps": True}
     )
-    # NEW: execution-level input/output contract
+    # Execution-level input/output contract (envelope with schema + guide)
     io: Optional[ExecutionIO] = None
 
 

@@ -19,8 +19,27 @@ logger = logging.getLogger("app.agent.nodes.mcp_input_resolver")
 
 # ---------- Utilities ----------
 
-def _cap_io_input_schema(capability: Dict[str, Any]) -> Dict[str, Any]:
-    return (((capability.get("execution") or {}).get("io") or {}).get("input_schema") or {})
+def _cap_io_input_contract(capability: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Return the standardized ExecutionInput envelope:
+      capability.execution.io.input_contract
+    """
+    return (((capability.get("execution") or {}).get("io") or {}).get("input_contract") or {})
+
+def _cap_io_input_json_schema(capability: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Return the JSON Schema under the ExecutionInput envelope:
+      capability.execution.io.input_contract.json_schema
+    """
+    return (_cap_io_input_contract(capability).get("json_schema") or {})
+
+def _cap_io_input_schema_guide(capability: Dict[str, Any]) -> str:
+    """
+    Return the human-readable schema guide:
+      capability.execution.io.input_contract.schema_guide
+    """
+    guide = _cap_io_input_contract(capability).get("schema_guide")
+    return str(guide) if isinstance(guide, str) else ""
 
 def _tool_calls(capability: Dict[str, Any]) -> List[Dict[str, Any]]:
     return (((capability.get("execution") or {}).get("tool_calls")) or [])
@@ -91,59 +110,66 @@ def _build_prompt_step0(
     pack_input_schema: Dict[str, Any],
     pack_inputs: Dict[str, Any],
     capability: Dict[str, Any],
-    tool_input_schema: Dict[str, Any],
+    exec_input_json_schema: Dict[str, Any],
+    exec_input_schema_guide: str,
     step: Dict[str, Any],
 ) -> str:
     cap_name = capability.get("name") or capability.get("id") or "<capability>"
+    guide_block = f"\nExecution Input – schema_guide (human-readable):\n{exec_input_schema_guide}\n" if exec_input_schema_guide else ""
     return (
         "You are resolving arguments for calling an MCP tool.\n"
-        "Goal: Construct a JSON object of arguments that VALIDATES against the MCP tool's input JSON Schema.\n\n"
+        "Goal: Construct a JSON object of arguments that VALIDATES against the capability's ExecutionInput JSON Schema.\n\n"
         "Important rules:\n"
-        "1) Use EXACT property names/types as defined in the MCP tool input schema.\n"
-        "2) Prefer values found in the Pack Input VALUES (not the schema) when they are relevant.\n"
-        "3) You may map differently named fields (e.g., repository.gitUrl → repo_url) based on meaning.\n"
-        "4) Do NOT fabricate values that contradict Pack Input values. If a required value cannot be inferred, make a best, minimal guess consistent with both schemas.\n"
-        "5) Omit fields that are not in the MCP tool schema.\n"
-        "6) The output must be ONLY the JSON object. No commentary.\n\n"
+        "1) Use EXACT property names/types as defined in the ExecutionInput JSON Schema.\n"
+        "2) Prefer values found in the Pack Input VALUES when relevant; map semantically equivalent names "
+        "(e.g., repository.gitUrl → repo_url).\n"
+        "3) Do NOT fabricate values that contradict Pack Input values. If a required value cannot be inferred, make a minimal, "
+        "reasonable guess consistent with both schemas and the schema_guide.\n"
+        "4) Omit fields that are not in the ExecutionInput schema.\n"
+        "5) The output must be ONLY the JSON object (no commentary).\n\n"
         f"Capability: {cap_name}\n"
-        f"Step params (hints only): {_truncate_json(step.get('params') or {}, 2000)}\n\n"
+        f"Step params (hints only): {_truncate_json(step.get('params') or {}, 2000)}\n"
+        f"{guide_block}\n"
         "Pack Input SCHEMA:\n"
         f"{_truncate_json(pack_input_schema or {}, 4000)}\n\n"
         "Pack Input VALUES:\n"
         f"{_truncate_json(pack_inputs or {}, 4000)}\n\n"
-        "MCP Tool Input JSON Schema:\n"
-        f"{_truncate_json(tool_input_schema or {}, 4000)}\n\n"
+        "Execution Input JSON Schema (input_contract.json_schema):\n"
+        f"{_truncate_json(exec_input_json_schema or {}, 4000)}\n\n"
         "Return ONLY the JSON object of tool args."
     )
 
 def _build_prompt_later_step(
     *,
     capability: Dict[str, Any],
-    tool_input_schema: Dict[str, Any],
+    exec_input_json_schema: Dict[str, Any],
+    exec_input_schema_guide: str,
     step: Dict[str, Any],
     artifacts: List[Dict[str, Any]],
     artifact_kinds: Dict[str, Any],
 ) -> str:
     cap_name = capability.get("name") or capability.get("id") or "<capability>"
+    guide_block = f"\nExecution Input – schema_guide (human-readable):\n{exec_input_schema_guide}\n" if exec_input_schema_guide else ""
     return (
         "You are resolving arguments for calling an MCP tool for a LATER step in a playbook.\n"
-        "Goal: Construct a JSON object of arguments that VALIDATES against the MCP tool's input JSON Schema.\n\n"
+        "Goal: Construct a JSON object of arguments that VALIDATES against the capability's ExecutionInput JSON Schema.\n\n"
         "Important rules:\n"
-        "1) Use EXACT property names/types as defined in the MCP tool input schema.\n"
+        "1) Use EXACT property names/types as defined in the ExecutionInput JSON Schema.\n"
         "2) Use upstream artifacts as the primary source of truth. Start from kinds listed in the capability's produces_kinds,\n"
         "   then inspect their 'depends_on' kinds to find relevant upstream artifacts. Prefer data fields clearly matching\n"
-        "   required properties (e.g., repo snapshot → paths_root, branch, commit).\n"
+        "   required properties (e.g., repo snapshot → paths_root, branch, commit), and follow schema_guide for mapping tips.\n"
         "3) Do NOT invent values that conflict with artifact data; when in doubt, leave optional fields out.\n"
-        "4) Omit fields that are not in the MCP tool schema.\n"
-        "5) The output must be ONLY the JSON object. No commentary.\n\n"
+        "4) Omit fields that are not in the ExecutionInput schema.\n"
+        "5) The output must be ONLY the JSON object (no commentary).\n\n"
         f"Capability: {cap_name}\n"
-        f"Step params (hints only): {_truncate_json(step.get('params') or {}, 2000)}\n\n"
+        f"Step params (hints only): {_truncate_json(step.get('params') or {}, 2000)}\n"
+        f"{guide_block}\n"
         "Artifact Kind Specs (relevant excerpts):\n"
         f"{_truncate_json(artifact_kinds or {}, 3000)}\n\n"
         "Relevant Upstream Artifacts (snippets):\n"
         f"{_truncate_json(artifacts[:10], 6000)}\n\n"
-        "MCP Tool Input JSON Schema:\n"
-        f"{_truncate_json(tool_input_schema or {}, 4000)}\n\n"
+        "Execution Input JSON Schema (input_contract.json_schema):\n"
+        f"{_truncate_json(exec_input_json_schema or {}, 4000)}\n\n"
         "Return ONLY the JSON object of tool args."
     )
 
@@ -166,7 +192,7 @@ def mcp_input_resolver_node(
 
         started = datetime.now(timezone.utc)
 
-        # 1) Choose tool
+        # 1) Choose tool (still needed to record which tool we plan to call)
         tool_name = _choose_tool_name(capability)
         if not tool_name:
             msg = f"No MCP tools found/selected for capability '{cap_id}'."
@@ -174,14 +200,22 @@ def mcp_input_resolver_node(
             # Advance the graph so we don't loop on a dead step
             return Command(goto="capability_executor", update={"step_idx": step_idx + 1, "current_step_id": None})
 
-        # 2) Schemas & validator
-        tool_input_schema = _cap_io_input_schema(capability) or {"type": "object", "properties": {}, "additionalProperties": True}
-        validator = Draft202012Validator(tool_input_schema)
+        # 2) Pull standardized ExecutionInput schema & guide
+        exec_input_json_schema = _cap_io_input_json_schema(capability) or {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": True,
+        }
+        exec_input_schema_guide = _cap_io_input_schema_guide(capability)
+        validator = Draft202012Validator(exec_input_json_schema)
 
-        # 3) Build LLM prompt (step 0 vs later)
+        # 3) Build LLM prompt (step 0 vs later), now using schema_guide + input_contract.json_schema
         llm_calls: List[ToolCallAudit] = []
         prompt: str
-        schema_for_args = {"name": "mcp_tool_args", "schema": {"type": "object", "properties": {}, "additionalProperties": True}}
+        schema_for_args = {
+            "name": "mcp_tool_args",
+            "schema": {"type": "object", "properties": {}, "additionalProperties": True},
+        }
 
         if step_idx == 0:
             pack = state.get("pack") or {}
@@ -191,7 +225,8 @@ def mcp_input_resolver_node(
                 pack_input_schema=pack_input_schema,
                 pack_inputs=pack_inputs,
                 capability=capability,
-                tool_input_schema=tool_input_schema,
+                exec_input_json_schema=exec_input_json_schema,
+                exec_input_schema_guide=exec_input_schema_guide,
                 step=step,
             )
         else:
@@ -199,7 +234,8 @@ def mcp_input_resolver_node(
             artifact_kinds = state.get("artifact_kinds") or {}
             prompt = _build_prompt_later_step(
                 capability=capability,
-                tool_input_schema=tool_input_schema,
+                exec_input_json_schema=exec_input_json_schema,
+                exec_input_schema_guide=exec_input_schema_guide,
                 step=step,
                 artifacts=artifacts,
                 artifact_kinds=artifact_kinds,
@@ -220,15 +256,16 @@ def mcp_input_resolver_node(
         err_msg: Optional[str] = None
         try:
             validator.validate(resolved_args)
-            # Ensure all required are present
-            missing = [r for r in _first_required_props(tool_input_schema) if r not in resolved_args]
+            missing = [r for r in _first_required_props(exec_input_json_schema) if r not in resolved_args]
             if missing:
                 raise ValidationError(f"Missing required field(s): {', '.join(missing)}")
         except ValidationError as ve:
             err_msg = ve.message
             repair_prompt = (
-                "Fix the JSON args so they satisfy the JSON Schema exactly.\n\n"
-                f"Schema:\n{_truncate_json(tool_input_schema, 4000)}\n\n"
+                "Fix the JSON args so they satisfy the capability's ExecutionInput JSON Schema exactly.\n\n"
+                "Use this human-readable guide to select/rename fields where helpful.\n\n"
+                f"ExecutionInput schema_guide:\n{exec_input_schema_guide}\n\n"
+                f"ExecutionInput JSON Schema:\n{_truncate_json(exec_input_json_schema, 4000)}\n\n"
                 f"Current args:\n{_truncate_json(resolved_args, 4000)}\n\n"
                 f"Validation error: {err_msg}\n\n"
                 "Return only the corrected JSON object."
@@ -243,7 +280,7 @@ def mcp_input_resolver_node(
                 repaired = {}
             try:
                 validator.validate(repaired)
-                missing = [r for r in _first_required_props(tool_input_schema) if r not in repaired]
+                missing = [r for r in _first_required_props(exec_input_json_schema) if r not in repaired]
                 if missing:
                     raise ValidationError(f"Missing required field(s): {', '.join(missing)}")
                 resolved_args = repaired
@@ -276,7 +313,8 @@ def mcp_input_resolver_node(
                     inputs_preview={
                         "phase": "input-resolver",
                         "tool_name": tool_name,
-                        "schema": tool_input_schema,
+                        "execution_input_schema": exec_input_json_schema,
+                        "schema_guide": exec_input_schema_guide,
                         "llm_candidate": candidate,
                     },
                     calls=llm_calls,
@@ -293,7 +331,12 @@ def mcp_input_resolver_node(
                 step_id=step_id,
                 capability_id=cap_id,
                 mode="mcp",
-                inputs_preview={"phase": "input-resolver", "tool_name": tool_name, "resolved_args": resolved_args},
+                inputs_preview={
+                    "phase": "input-resolver",
+                    "tool_name": tool_name,
+                    "resolved_args": resolved_args,
+                    "schema_guide_used": bool(exec_input_schema_guide),
+                },
                 calls=llm_calls or [],
             ),
         )
