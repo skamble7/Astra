@@ -440,7 +440,7 @@ def mcp_execution_node(*, runs_repo: RunRepository):
                 goto="capability_executor",
                 update={
                     "dispatch": {},
-                    "mcp_artifacts": (state.get("mcp_artifacts") or []) + all_artifacts,
+                    "staged_artifacts": (state.get("staged_artifacts") or []) + all_artifacts,
                     "last_mcp_summary": {
                         "tool_calls": [
                             {"name": c.tool_name, "status": c.status, "duration_ms": c.duration_ms}

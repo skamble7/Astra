@@ -3,6 +3,7 @@ from typing import Any, Dict, List
 from uuid import UUID
 from datetime import datetime, timezone
 import logging
+import json  # CHANGED: keep for structured logging
 
 from typing_extensions import Literal
 from langgraph.types import Command
@@ -11,6 +12,25 @@ from app.db.run_repository import RunRepository
 logger = logging.getLogger("app.agent.nodes.capability_executor")
 
 def capability_executor_node(*, runs_repo: RunRepository):
+
+    def _log_terminal_state(state: Dict[str, Any], update: Dict[str, Any], reason: str) -> None:
+        """
+        Merge current state with the terminal update and dump ONLY the staged_artifacts
+        to logs for postmortem/debug. Never mutates the passed-in state.
+        """
+        try:
+            merged = dict(state)
+            merged.update(update or {})
+            staged = merged.get("staged_artifacts") or []
+            logger.info(
+                "[capability_executor] TERMINAL (%s) STAGED_ARTIFACTS (count=%d): %s",
+                reason,
+                len(staged),
+                json.dumps(staged, ensure_ascii=False, default=str)
+            )
+        except Exception:
+            logger.exception("[capability_executor] Failed to serialize staged_artifacts for logging (%s).", reason)
+
     async def _node(
         state: Dict[str, Any]
     ) -> Command[Literal["mcp_input_resolver", "llm_execution", "capability_executor"]] | Dict[str, Any]:
@@ -31,15 +51,17 @@ def capability_executor_node(*, runs_repo: RunRepository):
         # Terminate on executor-reported failure
         if last_mcp_error:
             logs.append(f"MCP failure: {last_mcp_error}")
-            return {
+            term_update = {
                 "logs": logs,
                 "completed_at": datetime.now(timezone.utc).isoformat(),
                 # Clear stale execution context on terminal exit
                 "current_step_id": None,
                 "dispatch": {},
                 "last_mcp_summary": {},
-                # Keep last_mcp_error as-is in state for auditing/visibility
+                # keep last_mcp_error for visibility
             }
+            _log_terminal_state(state, term_update, reason="mcp_error")
+            return term_update
 
         # Consume completion breadcrumb inline (no extra tick that re-writes the same key)
         if current_step_id and last_mcp.get("completed_step_id") == current_step_id:
@@ -47,14 +69,14 @@ def capability_executor_node(*, runs_repo: RunRepository):
             current_step_id = None
             last_mcp = {}  # consumed
 
-        # Guard invalid inputs (terminal)
+        # Guard invalid inputs
         if not state.get("inputs_valid", False):
             if step_idx == 0:
                 pb = next((p for p in (pack.get("playbooks") or []) if p.get("id") == playbook_id), None)
                 if pb:
                     for s in pb.get("steps", []) or []:
                         await runs_repo.step_skipped(run_uuid, s["id"], reason="inputs_invalid")
-            return {
+            term_update = {
                 "logs": logs,
                 "completed_at": datetime.now(timezone.utc).isoformat(),
                 "current_step_id": None,
@@ -62,12 +84,14 @@ def capability_executor_node(*, runs_repo: RunRepository):
                 "last_mcp_summary": {},
                 "last_mcp_error": None,
             }
+            _log_terminal_state(state, term_update, reason="inputs_invalid")
+            return term_update
 
         # Playbook/steps
         pb = next((p for p in (pack.get("playbooks") or []) if p.get("id") == playbook_id), None)
         if not pb:
             logs.append(f"Playbook '{playbook_id}' not found during execution.")
-            return {
+            term_update = {
                 "logs": logs,
                 "completed_at": datetime.now(timezone.utc).isoformat(),
                 "current_step_id": None,
@@ -75,11 +99,13 @@ def capability_executor_node(*, runs_repo: RunRepository):
                 "last_mcp_summary": {},
                 "last_mcp_error": None,
             }
+            _log_terminal_state(state, term_update, reason="playbook_not_found")
+            return term_update
 
         steps = pb.get("steps", []) or []
         if step_idx >= len(steps):
             # Finished all steps (terminal)
-            return {
+            term_update = {
                 "logs": logs,
                 "completed_at": datetime.now(timezone.utc).isoformat(),
                 "current_step_id": None,
@@ -87,6 +113,8 @@ def capability_executor_node(*, runs_repo: RunRepository):
                 "last_mcp_summary": {},
                 "last_mcp_error": None,
             }
+            _log_terminal_state(state, term_update, reason="all_steps_completed")
+            return term_update
 
         step = steps[step_idx]
         step_id = step["id"]

@@ -56,7 +56,7 @@ def _upstream_kind_ids_for_capability(capability: Dict[str, Any], artifact_kinds
     return upstream
 
 def _collect_relevant_artifacts_for_later_step(*, state: Dict[str, Any], capability: Dict[str, Any]) -> List[Dict[str, Any]]:
-    artifacts: List[Dict[str, Any]] = state.get("mcp_artifacts") or []
+    artifacts: List[Dict[str, Any]] = state.get("staged_artifacts") or []
     if not artifacts:
         return []
     art_kinds_map: Dict[str, Dict[str, Any]] = state.get("artifact_kinds") or {}

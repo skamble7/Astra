@@ -39,7 +39,7 @@ class GraphState(TypedDict, total=False):
     validations: list[Dict[str, Any]]
     started_at: str
     completed_at: Optional[str]
-    mcp_artifacts: list[Dict[str, Any]]
+    staged_artifacts: list[Dict[str, Any]]
     last_mcp_summary: Dict[str, Any]
     last_mcp_error: Optional[str]
 
@@ -168,7 +168,7 @@ async def run_input_bootstrap(
         "validations": [],
         "started_at": now,
         "completed_at": None,
-        "mcp_artifacts": [],
+        "staged_artifacts": [],
         "last_mcp_summary": {},
         "last_mcp_error": None,
     }
