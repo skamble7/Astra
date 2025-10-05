@@ -32,7 +32,9 @@ async def init_indexes() -> None:
     # capability_packs
     await db.capability_packs.create_index([("key", 1), ("version", 1)], unique=True)
     await db.capability_packs.create_index("status")
-    await db.capability_packs.create_index("pack_input_id")  # NEW: for quick filtering by input contract
+    await db.capability_packs.create_index("pack_input_id")
+    # NEW: allow filtering/searching by agent-scoped capability references
+    await db.capability_packs.create_index("agent_capability_ids")
     try:
         await db.capability_packs.create_index([("title", "text"), ("description", "text")])
     except Exception:

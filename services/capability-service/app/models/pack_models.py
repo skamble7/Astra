@@ -43,13 +43,22 @@ class CapabilityPack(BaseModel):
     title: str
     description: str
 
-    # NEW: reference to a registered pack input contract (optional)
+    # Reference to a registered pack input contract (optional)
     pack_input_id: Optional[str] = Field(
         default=None,
         description="Id of a PackInput in the registry. Declares the input contract needed to run this pack."
     )
 
+    # Capabilities referenced by playbooks (used within steps)
     capability_ids: List[str] = Field(default_factory=list)
+
+    # NEW: Capabilities the agent may use outside explicit playbook steps
+    # (e.g., preparation, orchestration, cross-cutting utilities).
+    agent_capability_ids: List[str] = Field(
+        default_factory=list,
+        description="Capability ids required by the agent to execute the pack (not necessarily used as playbook steps)."
+    )
+
     playbooks: List[Playbook] = Field(default_factory=list)
 
     status: PackStatus = PackStatus.draft
@@ -74,6 +83,13 @@ class CapabilityPackCreate(BaseModel):
         description="Id of a PackInput in the registry."
     )
     capability_ids: List[str] = Field(default_factory=list)
+
+    # NEW: include agent-scoped capability ids at creation time
+    agent_capability_ids: List[str] = Field(
+        default_factory=list,
+        description="Capability ids needed by the agent (outside of playbook steps)."
+    )
+
     playbooks: List[Playbook] = Field(default_factory=list)
 
 
@@ -82,5 +98,9 @@ class CapabilityPackUpdate(BaseModel):
     description: Optional[str] = None
     pack_input_id: Optional[str] = None
     capability_ids: Optional[List[str]] = None
+
+    # NEW: allow patching agent-scoped capability ids
+    agent_capability_ids: Optional[List[str]] = None
+
     playbooks: Optional[List[Playbook]] = None
     status: Optional[PackStatus] = None

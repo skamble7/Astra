@@ -6,7 +6,7 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel, Field
 
 from .capability_models import ToolCallSpec, GlobalCapability
-from .pack_input_models import PackInput  # ← registered input definition (id, name, json_schema, ...)
+from .pack_input_models import PackInput  # registered input definition (id, name, json_schema, ...)
 
 ExecutionMode = Literal["mcp", "llm"]
 
@@ -39,8 +39,10 @@ class ResolvedPackView(BaseModel):
       - pack header
       - pack_input_id (declares which registered input shape can trigger this pack)
       - pack_input (full PackInput definition; optional if not found)
-      - capability_ids (as stored on the pack)
-      - capabilities: full GlobalCapability documents for those ids (ordered)
+      - capability_ids (as stored on the pack; used by playbook steps)
+      - agent_capability_ids (ids of capabilities the agent may use outside steps)
+      - capabilities: full GlobalCapability documents for capability_ids (ordered)
+      - agent_capabilities: full GlobalCapability documents for agent_capability_ids (ordered)
       - playbooks: steps annotated with execution metadata derived from capabilities
     """
     pack_id: str
@@ -53,5 +55,9 @@ class ResolvedPackView(BaseModel):
     pack_input: Optional[PackInput] = None
 
     capability_ids: List[str] = Field(default_factory=list)
+    agent_capability_ids: List[str] = Field(default_factory=list)  # NEW
+
     capabilities: List[GlobalCapability] = Field(default_factory=list)
+    agent_capabilities: List[GlobalCapability] = Field(default_factory=list)  # NEW
+
     playbooks: List[ResolvedPlaybook] = Field(default_factory=list)

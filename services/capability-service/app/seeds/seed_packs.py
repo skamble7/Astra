@@ -175,7 +175,7 @@ async def seed_packs() -> None:
         version=full_version,
         title="COBOL Mainframe Modernization",
         description="Deterministic MCP parsing + LLM enrichment to discover inventories, data lineage, and workflows from COBOL/JCL estates.",
-        pack_input_id=renova_input_id,  # ← NEW: declares required input contract
+        pack_input_id=renova_input_id,  # declares required input contract
         capability_ids=[
             "cap.repo.clone",
             "cap.cobol.parse",
@@ -189,6 +189,8 @@ async def seed_packs() -> None:
             "cap.workflow.mine_entity",
             "cap.diagram.render",
         ],
+        # NEW: agent-scoped capabilities (keep empty for now)
+        agent_capability_ids=[],
         playbooks=[pb_main],
     )
 
@@ -236,11 +238,13 @@ async def seed_packs() -> None:
         version=mini_version,
         title="COBOL Mainframe Modernization (Core)",
         description="Derived minimal pack with a two-step playbook: clone a repo then parse COBOL.",
-        pack_input_id=renova_input_id,  # ← NEW: declares required input contract
+        pack_input_id=renova_input_id,  # declares required input contract
         capability_ids=[
             "cap.repo.clone",
             "cap.cobol.parse",
         ],
+        # NEW: agent-scoped capabilities (keep empty for now)
+        agent_capability_ids=[],
         playbooks=[pb_core],
     )
 

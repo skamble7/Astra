@@ -17,10 +17,10 @@ from app.models import (
 )
 from app.services.validation import ensure_pack_capabilities_exist
 
-# NEW: resolve registered pack input definitions
+# resolve registered pack input definitions
 try:
-    from app.dal.pack_input_dal import PackInputDAL  # your CRUD for inputs
-except Exception:  # pragma: no cover - allow service import even if DAL not present in some contexts
+    from app.dal.pack_input_dal import PackInputDAL
+except Exception:  # pragma: no cover
     PackInputDAL = None  # type: ignore
 
 
@@ -69,13 +69,9 @@ class PackService:
         return ok
 
     # ─────────────────────────────────────────────────────────────
-    # Publish (snapshots removed in new design; publish remains status-only)
+    # Publish (status-only)
     # ─────────────────────────────────────────────────────────────
     async def publish(self, pack_id: str, *, actor: Optional[str] = None) -> Optional[CapabilityPack]:
-        """
-        In the new design, packs no longer embed capability snapshots.
-        Publishing simply updates status and published_at.
-        """
         published = await self.packs.publish(pack_id)
         if published:
             await get_bus().publish(
@@ -96,30 +92,34 @@ class PackService:
         return await self.packs.list_versions(key)
 
     # ─────────────────────────────────────────────────────────────
-    # Resolved view (fetch full GlobalCapability docs + optional PackInput definition)
+    # Resolved view: full capability docs for playbook + agent scopes
     # ─────────────────────────────────────────────────────────────
     async def resolved_view(self, pack_id: str) -> Optional[ResolvedPackView]:
         pack = await self.packs.get(pack_id)
         if not pack:
             return None
 
-        # Validate that referenced capabilities exist
+        # Validate referenced capabilities exist (both step-bound and agent-scoped)
         all_ids = await self.caps.list_all_ids()
         ensure_pack_capabilities_exist(pack, all_ids)
 
-        # Fetch full capability docs in the same order as capability_ids
+        # Step-bound capability docs (ordered)
         capability_ids: List[str] = pack.capability_ids or []
         capabilities: List[GlobalCapability] = await self.caps.get_many(capability_ids)
 
-        # Optionally resolve the registered pack input by id
+        # Agent-scoped capability docs (ordered)
+        agent_capability_ids: List[str] = getattr(pack, "agent_capability_ids", None) or []
+        agent_capabilities: List[GlobalCapability] = await self.caps.get_many(agent_capability_ids) if agent_capability_ids else []
+
+        # Optional: resolve the registered pack input definition
         pack_input_def = None
         if getattr(pack, "pack_input_id", None) and self.inputs is not None:
             try:
-                pack_input_def = await self.inputs.get(pack.pack_input_id)  # returns PackInput or None
+                pack_input_def = await self.inputs.get(pack.pack_input_id)
             except Exception:
                 pack_input_def = None
 
-        # Map for quick lookup while keeping playbook steps cheap to build
+        # Fast lookup for step projection
         by_id: Dict[str, GlobalCapability] = {c.id: c for c in capabilities}
 
         resolved_playbooks: List[ResolvedPlaybook] = []
@@ -167,6 +167,8 @@ class PackService:
             pack_input_id=getattr(pack, "pack_input_id", None),
             pack_input=pack_input_def,
             capability_ids=capability_ids,
+            agent_capability_ids=agent_capability_ids,      # NEW
             capabilities=capabilities,
+            agent_capabilities=agent_capabilities,          # NEW
             playbooks=resolved_playbooks,
         )
