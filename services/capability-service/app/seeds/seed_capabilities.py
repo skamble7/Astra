@@ -11,9 +11,9 @@ from app.models import (
     ToolCallSpec,
     StdioTransport,
     HTTPTransport,
-    ExecutionInput,          # ← added
+    ExecutionInput,
     ExecutionIO,
-    ExecutionOutputContract,
+    ExecutionOutputContract,  # uses artifact_type ("cam" | "freeform"), supports extra_schema
 )
 from app.services import CapabilityService
 
@@ -167,8 +167,6 @@ async def seed_capabilities() -> None:
     targets: list[GlobalCapabilityCreate] = [
         # ---------------------------------------------------------------------
         # UPDATED: cap.repo.clone (HTTP MCP, polling)
-        #   Start tool -> returns { job_id, status }
-        #   Status tool -> returns { job_id, status, artifacts: [cam.asset.repo_snapshot] }
         # ---------------------------------------------------------------------
         GlobalCapabilityCreate(
             id="cap.repo.clone",
@@ -222,12 +220,12 @@ async def seed_capabilities() -> None:
                             "- **repo_url** (required): HTTPS or SSH URL to clone.\n"
                             "- **volume_path** (required): Absolute path where the repo should be materialized (e.g., `/workspace`).\n"
                             "- **branch** (optional): Branch name to checkout. Defaults to the default branch if omitted.\n"
-                            "- **depth** (optional): Integer >= 0 for shallow clone. `0` or omitted means full history.\n"
+                            "- **depth** (optional): Integer ≥ 0 for shallow clone. `0` or omitted means full history.\n"
                             "- **auth_mode** (optional): One of `https`, `ssh`, or `null` for unauthenticated public clones."
                         ),
                     ),
                     output_contract=ExecutionOutputContract(
-                        artifacts_property="artifacts",
+                        artifact_type="cam",
                         kinds=["cam.asset.repo_snapshot"],
                         extra_schema={
                             "type": "object",
@@ -239,7 +237,12 @@ async def seed_capabilities() -> None:
                                 "message": {"type": "string"},
                             },
                         },
-                        allow_extra_output_fields=False,
+                        schema_guide=(
+                            "The response contains **artifacts** (an array of CAM objects under `artifacts`) and an envelope.\n"
+                            "- When the job is still running, expect `{ job_id, status }` with **no artifacts**.\n"
+                            "- When complete, expect `{ job_id, status: \"done\", artifacts: [cam.asset.repo_snapshot, ...] }`.\n"
+                            "- `progress` (0–100) and `message` are optional hints during execution."
+                        ),
                     ),
                 ),
                 tool_calls=[
@@ -384,13 +387,13 @@ async def seed_capabilities() -> None:
                             "- **paths_root** (required): Root directory containing the checked-out repo (e.g., `/workspace`).\n"
                             "- **page_size** (optional): Number of artifacts per page (integer ≥ 1). Defaults to 3.\n"
                             "- **cursor** (optional): Opaque pagination token from a prior response; use `null` for the first page.\n"
-                            "- **kinds** (optional): list of artifact kinds that the mcp server needs to produce. Should be taken from the capability's produces_kinds.\n"
+                            "- **kinds** (optional): list of artifact kinds that the MCP server should emit this page; derive from capability `produces_kinds`.\n"
                             "- **force_reparse** (optional): Boolean to force a clean reparse ignoring caches.\n"
                             "- **run_id** (optional): Correlation id to be echoed back in responses."
                         ),
                     ),
                     output_contract=ExecutionOutputContract(
-                        artifacts_property="artifacts",
+                        artifact_type="cam",
                         kinds=[
                             "cam.asset.source_index",
                             "cam.cobol.copybook",
@@ -427,7 +430,13 @@ async def seed_capabilities() -> None:
                                 "next_cursor": {"type": ["string", "null"]},
                             },
                         },
-                        allow_extra_output_fields=False,
+                        schema_guide=(
+                            "Each page responds with an envelope and (optionally) **artifacts**:\n"
+                            "- `run`: echoes identifiers like `run_id` and `paths_root`.\n"
+                            "- `meta.counts`: per-kind artifact counts in this page; `meta.page_size` is the requested size.\n"
+                            "- `next_cursor`: supply this on the next call to continue paging; `null` means last page.\n"
+                            "- `artifacts`: array of CAM objects (`cam.asset.source_index`, `cam.cobol.copybook`, `cam.cobol.program`). The artifacts.data property contains the actual data as per the json_schema property of an artifact kind."
+                        ),
                     ),
                 ),
                 tool_calls=[
@@ -462,6 +471,207 @@ async def seed_capabilities() -> None:
                 ],
                 discovery={"validate_tools": True, "validate_resources": False, "validate_prompts": False, "fail_fast": True},
                 connection={"singleton": True, "share_across_steps": True},
+            ),
+        ),
+
+        # ---------------------------------------------------------------------
+        # NEW: cap.mermaid.generate (HTTP MCP, freeform output contract)
+        # ---------------------------------------------------------------------
+        GlobalCapabilityCreate(
+            id="cap.diagram.mermaid",
+            name="Generate Mermaid Diagrams from Artifact JSON",
+            description="Given an artifact JSON payload and requested diagram views, returns validated Mermaid instructions (LLM-only).",
+            tags=[],
+            parameters_schema=None,
+            produces_kinds=[],
+            agent=None,
+            execution=McpExecution(
+                mode="mcp",
+                transport=HTTPTransport(
+                    kind="http",
+                    base_url="http://host.docker.internal:8001",
+                    headers={},
+                    auth={"method": "none"},
+                    timeout_sec=120,
+                    verify_tls=False,
+                    retry={"max_attempts": 2, "backoff_ms": 250, "jitter_ms": 50},
+                    # health_path kept default ("/health") since model doesn't accept None
+                    protocol_path="/mcp",
+                ),
+                tool_calls=[
+                    ToolCallSpec(
+                        tool="diagram.mermaid.generate",
+                        args_schema={
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["artifact"],
+                            "properties": {
+                                "artifact": {
+                                    "type": "object",
+                                    "description": "The JSON payload to visualize (any shape).",
+                                },
+                                "views": {
+                                    "type": "array",
+                                    "description": 'Diagram views to generate (defaults to ["flowchart"]).',
+                                    "items": {
+                                        "type": "string",
+                                        "enum": [
+                                            "sequence",
+                                            "flowchart",
+                                            "class",
+                                            "component",
+                                            "deployment",
+                                            "state",
+                                            "activity",
+                                            "mindmap",
+                                            "er",
+                                            "gantt",
+                                            "timeline",
+                                            "journey",
+                                        ],
+                                    },
+                                },
+                                "prompt": {
+                                    "type": "string",
+                                    "description": "Optional extra guidance for the LLM (appended to the first user prompt).",
+                                },
+                            },
+                        },
+                        output_kinds=[],
+                        result_schema=None,
+                        timeout_sec=600,
+                        retries=1,
+                        expects_stream=False,
+                        cancellable=True,
+                    )
+                ],
+                discovery={
+                    "validate_tools": True,
+                    "validate_resources": False,
+                    "validate_prompts": False,
+                    "fail_fast": True,
+                },
+                connection={"singleton": True, "share_across_steps": True},
+                io=ExecutionIO(
+                    input_contract=ExecutionInput(
+                        json_schema={
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["artifact"],
+                            "properties": {
+                                "artifact": {
+                                    "type": "object",
+                                    "description": "The JSON payload to visualize (e.g., a parsed program structure).",
+                                    "examples": [
+                                        {
+                                            "program_id": "USRLST01",
+                                            "paragraphs": [
+                                                {
+                                                    "name": "MAIN-PARA",
+                                                    "performs": [
+                                                        "SEND-USRLST-SCREEN",
+                                                        "PROCESS-ENTER-KEY",
+                                                    ],
+                                                }
+                                            ],
+                                        }
+                                    ],
+                                },
+                                "views": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string",
+                                        "enum": [
+                                            "sequence",
+                                            "flowchart",
+                                            "class",
+                                            "component",
+                                            "deployment",
+                                            "state",
+                                            "activity",
+                                            "mindmap",
+                                            "er",
+                                            "gantt",
+                                            "timeline",
+                                            "journey",
+                                        ],
+                                    },
+                                    "description": "Which diagrams to produce.",
+                                    "examples": [["flowchart", "sequence", "mindmap"]],
+                                },
+                                "prompt": {
+                                    "type": "string",
+                                    "description": "Optional extra guidance for the LLM.",
+                                    "examples": ["Use concise node labels and avoid empty nodes."],
+                                },
+                            },
+                        },
+                        schema_guide=(
+                            'Request Mermaid diagrams from an artifact JSON.\n'
+                            '- **artifact** (required): Your JSON payload to visualize (any shape).\n'
+                            '- **views** (optional): List of diagram views to generate. Defaults to ["flowchart"]. '
+                            "Allowed: sequence, flowchart, class, component, deployment, state, activity, mindmap, er, gantt, timeline, journey.\n"
+                            "- **prompt** (optional): Extra guidance appended to the first LLM user prompt."
+                        ),
+                    ),
+                    output_contract=ExecutionOutputContract(
+                        artifact_type="freeform",
+                        kinds=[],  # must be empty for freeform
+                        result_schema={
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["diagrams"],
+                            "properties": {
+                                "diagrams": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "additionalProperties": False,
+                                        "required": ["view", "language", "instructions"],
+                                        "properties": {
+                                            "view": {
+                                                "type": "string",
+                                                "enum": [
+                                                    "sequence",
+                                                    "flowchart",
+                                                    "class",
+                                                    "component",
+                                                    "deployment",
+                                                    "state",
+                                                    "activity",
+                                                    "mindmap",
+                                                    "er",
+                                                    "gantt",
+                                                    "timeline",
+                                                    "journey",
+                                                ],
+                                            },
+                                            "language": {"type": "string", "const": "mermaid"},
+                                            "instructions": {"type": "string", "minLength": 1},
+                                            "renderer_hints": {
+                                                "type": "object",
+                                                "description": 'Optional rendering hints (e.g., {"wrap": true}).',
+                                                "additionalProperties": True,
+                                            },
+                                        },
+                                    },
+                                },
+                                "error": {
+                                    "type": ["string", "null"],
+                                    "description": "Present when the server could not generate diagrams.",
+                                },
+                            },
+                        },
+                        schema_guide=(
+                            'Response contains an array of diagrams. Each diagram includes:\n'
+                            '- **view**: One of the requested views.\n'
+                            '- **language**: Always "mermaid".\n'
+                            '- **instructions**: The Mermaid source starting with the correct directive '
+                            '(e.g., `flowchart TD`, `sequenceDiagram`, `mindmap`). The server normalizes and validates output '
+                            "before returning.\nIf generation fails, **error** is populated and **diagrams** may be empty."
+                        ),
+                    ),
+                ),
             ),
         ),
 

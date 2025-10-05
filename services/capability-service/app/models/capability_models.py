@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional, Union, Annotated
 
-from pydantic import BaseModel, Field, AnyUrl
+from pydantic import BaseModel, Field, AnyUrl, model_validator
 
 
 # ─────────────────────────────────────────────────────────────
@@ -71,16 +71,52 @@ Transport = Annotated[Union[HTTPTransport, StdioTransport], Field(discriminator=
 
 class ExecutionOutputContract(BaseModel):
     """
-    Declares how an execution returns artifacts and any extra envelope fields.
-    - artifacts_property: name of the property that contains the array of artifacts
-    - kinds: list of cam.* kinds the artifacts may contain
-    - extra_schema: JSON Schema for non-artifact fields (e.g., job_id, next_cursor)
-    - allow_extra_output_fields: if False, response must match artifacts + extra_schema exactly
+    Declares how an execution returns results.
+
+    Discriminator:
+      - artifact_type: "cam" | "freeform"
+
+    When artifact_type = "cam":
+      - kinds: REQUIRED non-empty list of registered CAM kinds.
+      - result_schema: MUST be omitted (None).
+      - schema_guide: MAY be provided but is usually unnecessary.
+    
+    When artifact_type = "freeform":
+      - result_schema: REQUIRED JSON Schema describing the result shape.
+      - kinds: MUST be omitted or empty.
+      - schema_guide: Optional natural-language guidance to help LLMs produce the shape.
+
+    Common optional toggles (apply to both):
+      - stream: whether output is streamed.
+      - many: whether multiple items are produced (array semantics / item stream).
     """
-    artifacts_property: str = Field(default="artifacts", min_length=1)
-    kinds: List[str] = Field(default_factory=list)
+    artifact_type: Literal["cam", "freeform"] = Field(default="cam")
+    kinds: List[str] = Field(default_factory=list, description="CAM kinds when artifact_type='cam'.")
+    result_schema: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="JSON Schema for freeform outputs when artifact_type='freeform'."
+    )
+    schema_guide: Optional[str] = Field(
+        default=None,
+        description="Text guidance for constructing/validating freeform results; Markdown allowed."
+    )
     extra_schema: Optional[Dict[str, Any]] = None
-    allow_extra_output_fields: bool = True
+
+    @model_validator(mode="after")
+    def _validate_contract(self) -> "ExecutionOutputContract":
+        if self.artifact_type == "cam":
+            # kinds required, non-empty; result_schema should be None
+            if not self.kinds:
+                raise ValueError("ExecutionOutputContract: 'kinds' must be a non-empty list when artifact_type='cam'.")
+            if self.result_schema is not None:
+                raise ValueError("ExecutionOutputContract: 'result_schema' must be omitted/None when artifact_type='cam'.")
+        elif self.artifact_type == "freeform":
+            # result_schema required; kinds must be empty
+            if self.result_schema is None:
+                raise ValueError("ExecutionOutputContract: 'result_schema' is required when artifact_type='freeform'.")
+            if self.kinds:
+                raise ValueError("ExecutionOutputContract: 'kinds' must be empty/omitted when artifact_type='freeform'.")
+        return self
 
 
 class ExecutionInput(BaseModel):
@@ -105,8 +141,8 @@ class ExecutionInput(BaseModel):
 class ExecutionIO(BaseModel):
     """
     Execution-level I/O declaration:
-    - input: Envelope containing input schema and human-readable guide
-    - output_contract: how outputs are shaped and validated
+    - input_contract: Envelope containing input schema and human-readable guide
+    - output_contract: Declares how outputs are shaped (CAM vs freeform), with optional guide
     """
     input_contract: Optional[ExecutionInput] = None
     output_contract: Optional[ExecutionOutputContract] = None

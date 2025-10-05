@@ -55,9 +55,9 @@ class ResolvedPackView(BaseModel):
     pack_input: Optional[PackInput] = None
 
     capability_ids: List[str] = Field(default_factory=list)
-    agent_capability_ids: List[str] = Field(default_factory=list)  # NEW
+    agent_capability_ids: List[str] = Field(default_factory=list)
 
     capabilities: List[GlobalCapability] = Field(default_factory=list)
-    agent_capabilities: List[GlobalCapability] = Field(default_factory=list)  # NEW
+    agent_capabilities: List[GlobalCapability] = Field(default_factory=list)
 
     playbooks: List[ResolvedPlaybook] = Field(default_factory=list)

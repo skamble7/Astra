@@ -190,7 +190,9 @@ async def seed_packs() -> None:
             "cap.diagram.render",
         ],
         # NEW: agent-scoped capabilities (keep empty for now)
-        agent_capability_ids=[],
+        agent_capability_ids=[
+            "cap.diagram.mermaid"
+        ],
         playbooks=[pb_main],
     )
 
@@ -244,7 +246,9 @@ async def seed_packs() -> None:
             "cap.cobol.parse",
         ],
         # NEW: agent-scoped capabilities (keep empty for now)
-        agent_capability_ids=[],
+        agent_capability_ids=[
+            "cap.diagram.mermaid"
+        ],
         playbooks=[pb_core],
     )
 
