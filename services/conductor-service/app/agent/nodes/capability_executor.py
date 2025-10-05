@@ -3,7 +3,7 @@ from typing import Any, Dict, List
 from uuid import UUID
 from datetime import datetime, timezone
 import logging
-import json  # CHANGED: keep for structured logging
+import json  # keep for structured logging
 
 from typing_extensions import Literal
 from langgraph.types import Command
@@ -33,7 +33,7 @@ def capability_executor_node(*, runs_repo: RunRepository):
 
     async def _node(
         state: Dict[str, Any]
-    ) -> Command[Literal["mcp_input_resolver", "llm_execution", "capability_executor"]] | Dict[str, Any]:
+    ) -> Command[Literal["mcp_input_resolver", "llm_execution", "capability_executor", "persist_run"]] | Dict[str, Any]:
         logs: List[str] = state.get("logs", [])
         request: Dict[str, Any] = state["request"]
         run_doc: Dict[str, Any] = state["run"]
@@ -48,7 +48,7 @@ def capability_executor_node(*, runs_repo: RunRepository):
         last_mcp = state.get("last_mcp_summary") or {}
         last_mcp_error = state.get("last_mcp_error")
 
-        # Terminate on executor-reported failure
+        # Terminate on executor-reported failure -> persist_run
         if last_mcp_error:
             logs.append(f"MCP failure: {last_mcp_error}")
             term_update = {
@@ -58,10 +58,10 @@ def capability_executor_node(*, runs_repo: RunRepository):
                 "current_step_id": None,
                 "dispatch": {},
                 "last_mcp_summary": {},
-                # keep last_mcp_error for visibility
+                # keep last_mcp_error for visibility (persist_run can incorporate it)
             }
             _log_terminal_state(state, term_update, reason="mcp_error")
-            return term_update
+            return Command(goto="persist_run", update=term_update)
 
         # Consume completion breadcrumb inline (no extra tick that re-writes the same key)
         if current_step_id and last_mcp.get("completed_step_id") == current_step_id:
@@ -69,7 +69,7 @@ def capability_executor_node(*, runs_repo: RunRepository):
             current_step_id = None
             last_mcp = {}  # consumed
 
-        # Guard invalid inputs
+        # Guard invalid inputs -> persist_run (we still seal the run record)
         if not state.get("inputs_valid", False):
             if step_idx == 0:
                 pb = next((p for p in (pack.get("playbooks") or []) if p.get("id") == playbook_id), None)
@@ -85,7 +85,7 @@ def capability_executor_node(*, runs_repo: RunRepository):
                 "last_mcp_error": None,
             }
             _log_terminal_state(state, term_update, reason="inputs_invalid")
-            return term_update
+            return Command(goto="persist_run", update=term_update)
 
         # Playbook/steps
         pb = next((p for p in (pack.get("playbooks") or []) if p.get("id") == playbook_id), None)
@@ -100,11 +100,11 @@ def capability_executor_node(*, runs_repo: RunRepository):
                 "last_mcp_error": None,
             }
             _log_terminal_state(state, term_update, reason="playbook_not_found")
-            return term_update
+            return Command(goto="persist_run", update=term_update)
 
         steps = pb.get("steps", []) or []
         if step_idx >= len(steps):
-            # Finished all steps (terminal)
+            # Finished all steps -> persist_run
             term_update = {
                 "logs": logs,
                 "completed_at": datetime.now(timezone.utc).isoformat(),
@@ -114,7 +114,7 @@ def capability_executor_node(*, runs_repo: RunRepository):
                 "last_mcp_error": None,
             }
             _log_terminal_state(state, term_update, reason="all_steps_completed")
-            return term_update
+            return Command(goto="persist_run", update=term_update)
 
         step = steps[step_idx]
         step_id = step["id"]

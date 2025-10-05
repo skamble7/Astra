@@ -17,9 +17,10 @@ from app.models.run_models import PlaybookRun
 
 from app.agent.nodes.input_resolver import input_resolver_node
 from app.agent.nodes.capability_executor import capability_executor_node
-from app.agent.nodes.mcp_input_resolver import mcp_input_resolver_node  # NEW
+from app.agent.nodes.mcp_input_resolver import mcp_input_resolver_node  # existing
 from app.agent.nodes.mcp_execution import mcp_execution_node
 from app.agent.nodes.llm_execution import llm_execution_node
+from app.agent.nodes.persist_run import persist_run_node  # NEW
 
 from app.llm.factory import get_agent_llm
 
@@ -42,6 +43,7 @@ class GraphState(TypedDict, total=False):
     staged_artifacts: list[Dict[str, Any]]
     last_mcp_summary: Dict[str, Any]
     last_mcp_error: Optional[str]
+    persist_summary: Dict[str, Any]
 
 
 def canonical_json(obj: Any) -> str:
@@ -78,7 +80,7 @@ class ConductorGraph:
             ),
         )
 
-        # NEW: input resolver for MCP
+        # MCP input resolver
         graph.add_node(
             "mcp_input_resolver",
             mcp_input_resolver_node(
@@ -101,16 +103,25 @@ class ConductorGraph:
             ),
         )
 
+        # NEW: persist_run (terminal writer)
+        graph.add_node(
+            "persist_run",
+            persist_run_node(
+                runs_repo=self.runs_repo,
+            ),
+        )
+
         # Edges
         graph.set_entry_point("input_resolver")
         graph.add_edge("input_resolver", "capability_executor")
 
-        # Replace unconditional fan-out with a single conditional router.
+        # Conditional routes from router when it doesn't explicitly Command-goto
         def route_from_capability_executor(state: GraphState):
             """
             Decide next hop after capability_executor:
             - If there's an active dispatch with a capability+step, route by mode.
-            - Otherwise, we are done.
+            - If no dispatch, we assume router already decided to persist (it usually Command-goto's persist_run).
+              As a safe default, end the graph.
             """
             dispatch = state.get("dispatch") or {}
             cap = dispatch.get("capability") or {}
@@ -123,10 +134,8 @@ class ConductorGraph:
                 elif mode == "llm":
                     return "llm_execution"
                 else:
-                    # Unsupported -> router will have marked the step failed and advanced; loop back to router
                     return "capability_executor"
 
-            # No dispatch -> terminal
             return END
 
         graph.add_conditional_edges("capability_executor", route_from_capability_executor)
@@ -134,6 +143,7 @@ class ConductorGraph:
         graph.add_edge("mcp_input_resolver", "mcp_execution")
         graph.add_edge("mcp_execution", "capability_executor")
         graph.add_edge("llm_execution", "capability_executor")
+        # persist_run returns a terminal dict; no edges needed.
 
         return graph.compile()
 
@@ -171,6 +181,7 @@ async def run_input_bootstrap(
         "staged_artifacts": [],
         "last_mcp_summary": {},
         "last_mcp_error": None,
+        "persist_summary": {},
     }
 
     final_state: Dict[str, Any] = await compiled.ainvoke(initial_state)

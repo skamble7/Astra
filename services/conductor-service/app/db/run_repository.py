@@ -242,6 +242,54 @@ class RunRepository:
             },
         )
 
+    # ---------- finalize (idempotent replace) ---------- #
+
+    async def finalize_run(
+        self,
+        run_id: UUID,
+        *,
+        run_artifacts: List[ArtifactEnvelope],
+        status: RunStatus,
+        diffs_by_kind: Optional[Dict[str, Any]] = None,
+        deltas: Optional[RunDeltas] = None,
+        run_summary_updates: Optional[Dict[str, Any]] = None,
+    ) -> Optional[PlaybookRun]:
+        """
+        Single atomic write to seal a run:
+        - Replace run_artifacts
+        - Set status
+        - Optionally set diffs/deltas
+        - Merge run_summary updates (replace semantics per provided keys)
+        Idempotent: re-running with same inputs leads to same stored arrays.
+        """
+        now = datetime.now(timezone.utc)
+
+        set_ops: Dict[str, Any] = {
+            "run_artifacts": [i.model_dump(mode="json") for i in run_artifacts],
+            "status": status.value,
+            "updated_at": now,
+        }
+        if diffs_by_kind is not None:
+            set_ops["diffs_by_kind"] = diffs_by_kind
+        if deltas is not None:
+            set_ops["deltas"] = deltas.model_dump(mode="json")
+
+        if run_summary_updates is not None:
+            # Ensure run_summary exists before updating dotted fields
+            await self._col.update_one(
+                {"run_id": str(run_id), "run_summary": None},
+                {"$set": {"run_summary": {}}},
+            )
+            for k, v in run_summary_updates.items():
+                set_ops[f"run_summary.{k}"] = v
+
+        doc = await self._col.find_one_and_update(
+            {"run_id": str(run_id)},
+            {"$set": set_ops},
+            return_document=ReturnDocument.AFTER,
+        )
+        return PlaybookRun.model_validate(doc) if doc else None
+
     # ---------- free-form notes/logs ---------- #
 
     async def append_log(self, run_id: UUID, message: str) -> None:
@@ -278,3 +326,4 @@ class RunRepository:
             set_ops["run_summary.duration_s"] = duration_s
 
         await self._col.update_one({"run_id": str(run_id)}, {"$set": set_ops})
+    

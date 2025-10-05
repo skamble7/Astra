@@ -33,7 +33,7 @@ def _repo() -> RunRepository:
 @router.post("/start")
 async def start_run(payload: StartRunRequest) -> Dict[str, Any]:
     """
-    Create a run document, execute the input_resolver → capability_executor graph,
+    Create a run document, execute the graph (input_resolver → capability_executor → ... → persist_run),
     and return the run + terminal state summary.
     """
     runs_repo = _repo()
@@ -62,7 +62,7 @@ async def start_run(payload: StartRunRequest) -> Dict[str, Any]:
     # 2) Mark started
     await runs_repo.mark_started(run.run_id)
 
-    # 3) Run the graph
+    # 3) Run the graph (this includes persist_run which seals the run)
     t0 = time.perf_counter()
     try:
         final_state = await run_input_bootstrap(
@@ -77,30 +77,23 @@ async def start_run(payload: StartRunRequest) -> Dict[str, Any]:
         await runs_repo.mark_failed(run.run_id, error=f"Bootstrap failed: {e}")
         raise HTTPException(status_code=500, detail=f"Bootstrap failed: {e}") from e
 
-    # 4) Summarize & mark completed (this endpoint runs both nodes)
+    # 4) Update summary timing fields as a courtesy (persist_run already set completed_at/status)
     duration_s = round(time.perf_counter() - t0, 3)
-    await runs_repo.update_run_summary(
-        run.run_id,
-        validations=final_state.get("validations", []),
-        started_at=run.created_at,
-        completed_at=datetime.now(timezone.utc),
-        duration_s=duration_s,
-    )
-    await runs_repo.mark_completed(
-        run.run_id,
-        run_summary={
-            "validations": final_state.get("validations", []),
-            "logs": final_state.get("logs", []),
-            "started_at": final_state.get("started_at"),
-            "completed_at": final_state.get("completed_at"),
-            "duration_s": duration_s,
-        },
-    )
+    try:
+        await runs_repo.update_run_summary(
+            run.run_id,
+            validations=final_state.get("validations", []),
+            started_at=run.created_at,
+            completed_at=datetime.now(timezone.utc),
+            duration_s=duration_s,
+        )
+    except Exception:
+        logger.warning("Non-fatal: update_run_summary post-run failed", exc_info=True)
 
     # 5) API response
     return {
         "run_id": str(run.run_id),
-        "status": RunStatus.COMPLETED.value,
+        "status": final_state.get("persist_summary", {}).get("status", RunStatus.COMPLETED.value),
         "pack_id": run.pack_id,
         "playbook_id": run.playbook_id,
         "steps": final_state.get("steps", []),
@@ -110,4 +103,5 @@ async def start_run(payload: StartRunRequest) -> Dict[str, Any]:
         "artifact_kinds_loaded": sorted(list(final_state.get("artifact_kinds", {}).keys())),
         "logs": final_state.get("logs", []),
         "validations": final_state.get("validations", []),
+        "persist_summary": final_state.get("persist_summary", {}),
     }
