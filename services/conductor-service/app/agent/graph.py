@@ -121,6 +121,7 @@ class ConductorGraph:
             "persist_run",
             persist_run_node(
                 runs_repo=self.runs_repo,
+                art_client=self.art_client,   # <<< NEW: required for baseline promotion
             ),
         )
 
