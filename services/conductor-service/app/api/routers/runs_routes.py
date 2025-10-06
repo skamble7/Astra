@@ -6,7 +6,7 @@ import time
 from typing import Any, Dict
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Request
 
 from app.config import settings
 from app.db.mongodb import get_client
@@ -30,17 +30,61 @@ def _repo() -> RunRepository:
     return RunRepository(get_client(), settings.mongo_db)
 
 
-@router.post("/start")
-async def start_run(payload: StartRunRequest) -> Dict[str, Any]:
+async def _execute_run(run: PlaybookRun, start_request: Dict[str, Any]) -> None:
     """
-    Create a run document, execute the graph (input_resolver → capability_executor → ... → persist_run),
-    and return the run + terminal state summary.
+    Background task: perform the full run lifecycle (mark started -> execute graph -> persist summary).
+    Any exceptions are handled here and reflected into run status; they do NOT affect the API caller.
     """
     runs_repo = _repo()
     cap_client = CapabilityServiceClient()
     art_client = ArtifactServiceClient()
 
-    # 1) Create run doc
+    # Mark started (server-side timestamp)
+    try:
+        await runs_repo.mark_started(run.run_id)
+    except Exception:
+        logger.exception("[run %s] mark_started failed", run.run_id)
+        # Keep going; run may still be recoverable
+
+    t0 = time.perf_counter()
+    try:
+        final_state = await run_input_bootstrap(
+            runs_repo=runs_repo,
+            cap_client=cap_client,
+            art_client=art_client,
+            start_request=start_request,
+            run_doc=run,
+        )
+        # Courtesy timing fields (persist_run already set completed_at/status)
+        duration_s = round(time.perf_counter() - t0, 3)
+        try:
+            await runs_repo.update_run_summary(
+                run.run_id,
+                validations=final_state.get("validations", []),
+                started_at=run.created_at,
+                completed_at=datetime.now(timezone.utc),
+                duration_s=duration_s,
+            )
+        except Exception:
+            logger.warning("[run %s] Non-fatal: update_run_summary post-run failed", run.run_id, exc_info=True)
+    except Exception as e:
+        logger.exception("[run %s] Run bootstrap failed", run.run_id)
+        try:
+            await runs_repo.mark_failed(run.run_id, error=f"Bootstrap failed: {e}")
+        except Exception:
+            logger.warning("[run %s] mark_failed also failed", run.run_id, exc_info=True)
+
+
+@router.post("/start", status_code=202)
+async def start_run(payload: StartRunRequest, request: Request, background: BackgroundTasks) -> Dict[str, Any]:
+    """
+    Fire-and-forget start:
+      - Create the run record
+      - Queue execution as a background task
+      - Return immediately with 202 and basic run info
+    """
+    runs_repo = _repo()
+
     run = PlaybookRun(
         workspace_id=payload.workspace_id,
         pack_id=payload.pack_id,
@@ -48,60 +92,27 @@ async def start_run(payload: StartRunRequest) -> Dict[str, Any]:
         title=payload.title,
         description=payload.description,
         strategy=payload.strategy or RunStrategy.DELTA,
-        status=RunStatus.CREATED,
+        status=RunStatus.CREATED,  # will transition to STARTED in background
         inputs=payload.inputs or {},
-        # Seed a non-null run_summary so dotted-path updates never fail on null parent
         run_summary=RunSummary(
             validations=[],
             logs=[],
             started_at=datetime.now(timezone.utc),
         ),
     )
+
+    # Persist initial run doc
     await runs_repo.create(run)
 
-    # 2) Mark started
-    await runs_repo.mark_started(run.run_id)
+    # Launch execution in background (non-blocking for the caller)
+    background.add_task(_execute_run, run, payload.model_dump(mode="json"))
 
-    # 3) Run the graph (this includes persist_run which seals the run)
-    t0 = time.perf_counter()
-    try:
-        final_state = await run_input_bootstrap(
-            runs_repo=runs_repo,
-            cap_client=cap_client,
-            art_client=art_client,
-            start_request=payload.model_dump(mode="json"),
-            run_doc=run,
-        )
-    except Exception as e:
-        logger.exception("Run bootstrap failed")
-        await runs_repo.mark_failed(run.run_id, error=f"Bootstrap failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Bootstrap failed: {e}") from e
-
-    # 4) Update summary timing fields as a courtesy (persist_run already set completed_at/status)
-    duration_s = round(time.perf_counter() - t0, 3)
-    try:
-        await runs_repo.update_run_summary(
-            run.run_id,
-            validations=final_state.get("validations", []),
-            started_at=run.created_at,
-            completed_at=datetime.now(timezone.utc),
-            duration_s=duration_s,
-        )
-    except Exception:
-        logger.warning("Non-fatal: update_run_summary post-run failed", exc_info=True)
-
-    # 5) API response
+    # Respond immediately
     return {
         "run_id": str(run.run_id),
-        "status": final_state.get("persist_summary", {}).get("status", RunStatus.COMPLETED.value),
+        "status": RunStatus.CREATED.value,  # effectively "queued"
         "pack_id": run.pack_id,
         "playbook_id": run.playbook_id,
-        "steps": final_state.get("steps", []),
-        "inputs_valid": final_state.get("inputs_valid", False),
-        "input_errors": final_state.get("input_errors", []),
-        "input_fingerprint": final_state.get("input_fingerprint"),
-        "artifact_kinds_loaded": sorted(list(final_state.get("artifact_kinds", {}).keys())),
-        "logs": final_state.get("logs", []),
-        "validations": final_state.get("validations", []),
-        "persist_summary": final_state.get("persist_summary", {}),
+        "strategy": run.strategy.value if hasattr(run.strategy, "value") else str(run.strategy),
+        "message": "Run accepted and scheduled.",
     }
