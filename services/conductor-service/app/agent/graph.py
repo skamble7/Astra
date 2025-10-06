@@ -17,10 +17,11 @@ from app.models.run_models import PlaybookRun
 
 from app.agent.nodes.input_resolver import input_resolver_node
 from app.agent.nodes.capability_executor import capability_executor_node
-from app.agent.nodes.mcp_input_resolver import mcp_input_resolver_node  # existing
+from app.agent.nodes.mcp_input_resolver import mcp_input_resolver_node
 from app.agent.nodes.mcp_execution import mcp_execution_node
 from app.agent.nodes.llm_execution import llm_execution_node
-from app.agent.nodes.persist_run import persist_run_node  # NEW
+from app.agent.nodes.persist_run import persist_run_node
+from app.agent.nodes.diagram_enrichment import diagram_enrichment_node  # NEW
 
 from app.llm.factory import get_agent_llm
 
@@ -30,11 +31,16 @@ class GraphState(TypedDict, total=False):
     run: Dict[str, Any]
     pack: Dict[str, Any]
     artifact_kinds: Dict[str, Dict[str, Any]]
+    # NEW: keep agent-side capabilities available for enrichment
+    agent_capabilities: list[Dict[str, Any]]
+    agent_capabilities_map: Dict[str, Dict[str, Any]]
+
     inputs_valid: bool
     input_errors: list[str]
     input_fingerprint: Optional[str]
     step_idx: int
     current_step_id: Optional[str]
+    phase: str  # "discover" | "enrich"
     dispatch: Dict[str, Any]
     logs: list[str]
     validations: list[Dict[str, Any]]
@@ -43,6 +49,8 @@ class GraphState(TypedDict, total=False):
     staged_artifacts: list[Dict[str, Any]]
     last_mcp_summary: Dict[str, Any]
     last_mcp_error: Optional[str]
+    last_enrichment_summary: Dict[str, Any]
+    last_enrichment_error: Optional[str]
     persist_summary: Dict[str, Any]
 
 
@@ -80,7 +88,6 @@ class ConductorGraph:
             ),
         )
 
-        # MCP input resolver
         graph.add_node(
             "mcp_input_resolver",
             mcp_input_resolver_node(
@@ -89,7 +96,6 @@ class ConductorGraph:
             ),
         )
 
-        # Execution nodes
         graph.add_node(
             "mcp_execution",
             mcp_execution_node(
@@ -103,7 +109,14 @@ class ConductorGraph:
             ),
         )
 
-        # NEW: persist_run (terminal writer)
+        # Enrichment now uses runs_repo (for audits)
+        graph.add_node(
+            "diagram_enrichment",
+            diagram_enrichment_node(
+                runs_repo=self.runs_repo,
+            ),
+        )
+
         graph.add_node(
             "persist_run",
             persist_run_node(
@@ -115,17 +128,14 @@ class ConductorGraph:
         graph.set_entry_point("input_resolver")
         graph.add_edge("input_resolver", "capability_executor")
 
-        # Conditional routes from router when it doesn't explicitly Command-goto
         def route_from_capability_executor(state: GraphState):
-            """
-            Decide next hop after capability_executor:
-            - If there's an active dispatch with a capability+step, route by mode.
-            - If no dispatch, we assume router already decided to persist (it usually Command-goto's persist_run).
-              As a safe default, end the graph.
-            """
+            phase = state.get("phase") or "discover"
             dispatch = state.get("dispatch") or {}
             cap = dispatch.get("capability") or {}
             step = dispatch.get("step") or None
+
+            if phase == "enrich" and state.get("current_step_id"):
+                return "diagram_enrichment"
 
             if cap and step:
                 mode = (cap.get("execution") or {}).get("mode")
@@ -143,7 +153,7 @@ class ConductorGraph:
         graph.add_edge("mcp_input_resolver", "mcp_execution")
         graph.add_edge("mcp_execution", "capability_executor")
         graph.add_edge("llm_execution", "capability_executor")
-        # persist_run returns a terminal dict; no edges needed.
+        graph.add_edge("diagram_enrichment", "capability_executor")
 
         return graph.compile()
 
@@ -168,11 +178,15 @@ async def run_input_bootstrap(
         "request": start_request,
         "run": run_doc.model_dump(mode="json"),
         "artifact_kinds": {},
+        # NEW: seed agent capability slots so input_resolver can populate them
+        "agent_capabilities": [],
+        "agent_capabilities_map": {},
         "inputs_valid": False,
         "input_errors": [],
         "input_fingerprint": None,
         "step_idx": 0,
         "current_step_id": None,
+        "phase": "discover",
         "dispatch": {},
         "logs": [],
         "validations": [],
@@ -181,6 +195,8 @@ async def run_input_bootstrap(
         "staged_artifacts": [],
         "last_mcp_summary": {},
         "last_mcp_error": None,
+        "last_enrichment_summary": {},
+        "last_enrichment_error": None,
         "persist_summary": {},
     }
 
