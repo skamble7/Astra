@@ -6,6 +6,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Awaitable, Callable as TCallable
+from uuid import UUID as _UUID
 
 from jsonschema import Draft202012Validator, ValidationError
 
@@ -13,6 +14,7 @@ from app.clients.artifact_service import ArtifactServiceClient
 from app.clients.capability_service import CapabilityServiceClient
 from app.db.run_repository import RunRepository
 from app.models.run_models import StepState, StepStatus
+from app.events.rabbit import get_bus, EventPublisher  # NEW
 
 logger = logging.getLogger("app.agent.nodes.input_resolver")
 
@@ -92,6 +94,35 @@ def input_resolver_node(
         pack_id: str = request["pack_id"]
         playbook_id: str = request["playbook_id"]
         inputs: Dict[str, Any] = request.get("inputs", {}) or {}
+        model_id: Optional[str] = request.get("model_id")
+        run_id = _UUID(run_doc["run_id"])
+        workspace_id = run_doc["workspace_id"]
+        strategy = (run_doc.get("strategy") or "").lower() or None
+        correlation_id: Optional[str] = state.get("correlation_id")
+
+        publisher = EventPublisher(bus=get_bus())
+
+        # ------ Emit 'started' immediately (receipt) -------------------------
+        await publisher.publish_once(
+            runs_repo=runs_repo,
+            run_id=run_id,
+            event="started",
+            payload={
+                "run_id": str(run_id),
+                "workspace_id": workspace_id,
+                "playbook_id": playbook_id,
+                "model_id": model_id,
+                "received_at": state.get("started_at") or datetime.now(timezone.utc).isoformat(),
+                "title": run_doc.get("title"),
+                "description": run_doc.get("description"),
+                "strategy": strategy,
+            },
+            workspace_id=workspace_id,
+            playbook_id=playbook_id,
+            strategy=strategy,
+            emitter="input_resolver",
+            correlation_id=correlation_id,
+        )
 
         # --- Pack resolution -------------------------------------------------
         logs.append(f"Resolving pack '{pack_id}'…")
@@ -118,10 +149,7 @@ def input_resolver_node(
         pre_resolved = pack.get("agent_capabilities")
         if isinstance(pre_resolved, list) and pre_resolved:
             agent_caps = [c for c in pre_resolved if isinstance(c, dict)]
-            logger.info(
-                "[input_resolver] agent_caps pre_resolved=%d",
-                len(agent_caps),
-            )
+            logger.info("[input_resolver] agent_caps pre_resolved=%d", len(agent_caps))
         else:
             agent_cap_ids: List[str] = list(pack.get("agent_capability_ids") or [])
             if agent_cap_ids:
@@ -129,14 +157,10 @@ def input_resolver_node(
                 missing = sorted(set(agent_cap_ids) - set([c.get("id") for c in agent_caps if c.get("id")]))
                 logger.info(
                     "[input_resolver] agent_caps requested=%d resolved=%d missing=%d",
-                    len(agent_cap_ids),
-                    len(agent_caps),
-                    len(missing),
+                    len(agent_cap_ids), len(agent_caps), len(missing),
                 )
                 if missing:
-                    validations.append(
-                        {"severity": "medium", "message": f"Unresolved agent capabilities: {missing}"}
-                    )
+                    validations.append({"severity": "medium", "message": f"Unresolved agent capabilities: {missing}"})
             else:
                 logger.info("[input_resolver] agent_caps requested=0 resolved=0")
 
@@ -151,6 +175,28 @@ def input_resolver_node(
         if not pb:
             msg = f"Playbook '{playbook_id}' not found in pack '{pack_id}'."
             validations.append({"severity": "high", "message": msg})
+
+            # inputs.resolved (failure)
+            await publisher.publish_once(
+                runs_repo=runs_repo,
+                run_id=run_id,
+                event="inputs.resolved",
+                payload={
+                    "run_id": str(run_id),
+                    "workspace_id": workspace_id,
+                    "playbook_id": playbook_id,
+                    "inputs_valid": False,
+                    "errors": [msg],
+                    "validations": validations,
+                    "input_fingerprint": None,
+                },
+                workspace_id=workspace_id,
+                playbook_id=playbook_id,
+                strategy=strategy,
+                emitter="input_resolver",
+                correlation_id=correlation_id,
+            )
+
             state.update(
                 {
                     "inputs_valid": False,
@@ -246,8 +292,6 @@ def input_resolver_node(
                 )
             )
 
-        from uuid import UUID as _UUID
-        run_id = _UUID(run_doc["run_id"])
         if steps_for_db:
             await runs_repo.init_steps(run_id, steps_for_db)
 
@@ -262,6 +306,27 @@ def input_resolver_node(
             len(steps_for_db),
             inputs_valid,
             (fingerprint[:8] if isinstance(fingerprint, str) else None),
+        )
+
+        # --- Emit inputs.resolved -------------------------------------------
+        await publisher.publish_once(
+            runs_repo=runs_repo,
+            run_id=run_id,
+            event="inputs.resolved",
+            payload={
+                "run_id": str(run_id),
+                "workspace_id": workspace_id,
+                "playbook_id": playbook_id,
+                "inputs_valid": inputs_valid,
+                "errors": errors,
+                "validations": validations,
+                "input_fingerprint": fingerprint,
+            },
+            workspace_id=workspace_id,
+            playbook_id=playbook_id,
+            strategy=strategy,
+            emitter="input_resolver",
+            correlation_id=correlation_id,
         )
 
         # --- Minimal state handoff ------------------------------------------

@@ -18,6 +18,7 @@ from app.models.run_models import (
     RunStrategy,
 )
 from app.clients.artifact_service import ArtifactServiceClient
+from app.events.rabbit import get_bus, EventPublisher  # NEW
 
 logger = logging.getLogger("app.agent.nodes.persist_run")
 
@@ -407,6 +408,8 @@ def persist_run_node(*, runs_repo: RunRepository, art_client: ArtifactServiceCli
         kind_specs: Dict[str, Any] = state.get("artifact_kinds") or {}
         correlation_id: Optional[str] = state.get("correlation_id")
 
+        publisher = EventPublisher(bus=get_bus())
+
         # Normalize
         envelopes: List[ArtifactEnvelope] = []
         dropped = 0
@@ -429,10 +432,8 @@ def persist_run_node(*, runs_repo: RunRepository, art_client: ArtifactServiceCli
         kinds_needed = sorted(by_kind.keys())
         known_kinds: set[str] = set()
         try:
-            # Reuse the provided client (do NOT construct with unsupported kwargs)
             known_kinds = await _filter_known_kinds(art_client, kinds_needed, correlation_id)
         except Exception:
-            # Non-fatal: if the check fails, proceed (server will still validate)
             logger.warning("[persist_run] kind existence check failed; proceeding without filtering")
 
         if known_kinds:
@@ -488,7 +489,6 @@ def persist_run_node(*, runs_repo: RunRepository, art_client: ArtifactServiceCli
             items = [_to_artifact_service_item(e, pack_id=pack_id, playbook_id=playbook_id) for e in envelopes]
             baseline_promoted["attempted"] = len(items)
 
-            # Log a tiny sanitized sample of the adapted payload to catch schema issues early
             try:
                 sample = items[0] if items else None
                 if sample:
@@ -524,7 +524,6 @@ def persist_run_node(*, runs_repo: RunRepository, art_client: ArtifactServiceCli
                                 pass
 
                         results = resp.get("results") or []
-                        # Log a compact sample including error, if any
                         sample = results[: min(10, len(results))]
                         logger.info(
                             "[persist_run] batch_sample: %s",
@@ -540,7 +539,6 @@ def persist_run_node(*, runs_repo: RunRepository, art_client: ArtifactServiceCli
                                 for r in sample
                             ],
                         )
-                        # Keep first few error messages for run logs
                         errs = [r for r in results if r.get("error")]
                         for e in errs[:3]:
                             msg = str(e.get("error") or "")[:300]
@@ -561,6 +559,107 @@ def persist_run_node(*, runs_repo: RunRepository, art_client: ArtifactServiceCli
                 f"noop={baseline_promoted['noop']} failed={baseline_promoted['failed']} "
                 f"chunks={baseline_promoted['chunks']} errors={len(baseline_promoted['errors'])}"
             )
+
+        # ── Emit completed.partial (post-persist summary) ────────────────────
+        try:
+            artifact_ids = [getattr(e, "identity", {}).get("_hash") or getattr(e, "identity", {}).get("key") for e in envelopes]
+            await EventPublisher(bus=get_bus()).publish_once(
+                runs_repo=runs_repo,
+                run_id=run_id,
+                event="completed.partial",
+                payload={
+                    "run_id": str(run_id),
+                    "workspace_id": workspace_id,
+                    "playbook_id": playbook_id,
+                    "artifact_ids": [a for a in artifact_ids if a],
+                    "artifact_failures": baseline_promoted["errors"] if strategy == RunStrategy.BASELINE.value else [],
+                    "validations": validations,
+                    "deltas": {
+                        "counts": {
+                            "new": baseline_promoted.get("insert", 0),
+                            "updated": baseline_promoted.get("update", 0),
+                            "unchanged": baseline_promoted.get("noop", 0),
+                            "retired": 0,
+                        }
+                    },
+                },
+                workspace_id=workspace_id,
+                playbook_id=playbook_id,
+                strategy=strategy,
+                emitter="persist_run",
+                correlation_id=correlation_id,
+            )
+        except Exception:
+            logger.warning("[persist_run] emit completed.partial failed", exc_info=True)
+
+        # ── Emit final completed / failed ────────────────────────────────────
+        publisher = EventPublisher(bus=get_bus())
+        if final_status == RunStatus.COMPLETED:
+            try:
+                duration_s = None
+                try:
+                    # if API wrapper later fills duration, we may not have it here
+                    t0 = state.get("started_at")
+                    t1 = completed_at_iso
+                    if t0 and t1:
+                        from datetime import datetime as _dt
+                        d = (_dt.fromisoformat(t1.replace("Z","+00:00")) - _dt.fromisoformat(t0.replace("Z","+00:00")))
+                        duration_s = round(d.total_seconds(), 3)
+                except Exception:
+                    duration_s = None
+
+                await publisher.publish_once(
+                    runs_repo=runs_repo,
+                    run_id=run_id,
+                    event="completed",
+                    payload={
+                        "run_id": str(run_id),
+                        "workspace_id": workspace_id,
+                        "playbook_id": playbook_id,
+                        "artifact_ids": [a for a in artifact_ids if a],
+                        "validations": validations,
+                        "logs": logs,
+                        "started_at": started_at_iso,
+                        "completed_at": completed_at_iso,
+                        "duration_s": duration_s,
+                        "title": run_doc.get("title"),
+                        "description": run_doc.get("description"),
+                    },
+                    workspace_id=workspace_id,
+                    playbook_id=playbook_id,
+                    strategy=strategy,
+                    emitter="persist_run",
+                    correlation_id=correlation_id,
+                )
+            except Exception:
+                logger.warning("[persist_run] emit completed failed", exc_info=True)
+        else:
+            try:
+                await publisher.publish_once(
+                    runs_repo=runs_repo,
+                    run_id=run_id,
+                    event="failed",
+                    payload={
+                        "run_id": str(run_id),
+                        "workspace_id": workspace_id,
+                        "error": state.get("last_mcp_error") or "Run failed",
+                        "logs": logs,
+                        "errors": [state.get("last_mcp_error")] if state.get("last_mcp_error") else [],
+                        "artifact_failures": baseline_promoted.get("errors", []),
+                        "started_at": started_at_iso,
+                        "failed_at": completed_at_iso,
+                        "title": run_doc.get("title"),
+                        "description": run_doc.get("description"),
+                        "strategy": strategy,
+                    },
+                    workspace_id=workspace_id,
+                    playbook_id=playbook_id,
+                    strategy=strategy,
+                    emitter="persist_run",
+                    correlation_id=correlation_id,
+                )
+            except Exception:
+                logger.warning("[persist_run] emit failed failed", exc_info=True)
 
         return {
             "persist_summary": {

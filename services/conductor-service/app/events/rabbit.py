@@ -4,13 +4,15 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Optional
+from datetime import datetime, timezone
+from typing import Optional, Dict, Any
+from uuid import UUID as _UUID
 
 import aio_pika
 from aio_pika import ExchangeType, Message
 
 from app.config import settings
-from libs.astra_common.events import rk  # canonical RK helper
+from libs.astra_common.events import rk, Service  # canonical RK helper
 
 logger = logging.getLogger("app.events")
 
@@ -73,3 +75,113 @@ def get_bus() -> RabbitBus:
     if _bus is None:
         _bus = RabbitBus()
     return _bus
+
+
+# ─────────────────────────────────────────────────────────────
+# EventPublisher (idempotent, adds headers)
+# ─────────────────────────────────────────────────────────────
+
+class EventPublisher:
+    """
+    Adds:
+      - Standard headers
+      - Idempotency via run doc flags (Mongo conditional update)
+    """
+    def __init__(self, *, bus: RabbitBus) -> None:
+        self.bus = bus
+
+    @staticmethod
+    def _headers_base(
+        *,
+        run_id: str,
+        workspace_id: Optional[str] = None,
+        playbook_id: Optional[str] = None,
+        step_id: Optional[str] = None,
+        phase: Optional[str] = None,
+        strategy: Optional[str] = None,
+        emitter: Optional[str] = None,
+        correlation_id: Optional[str] = None,
+        idem_key: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        h: Dict[str, Any] = {
+            "x-run-id": run_id,
+        }
+        if workspace_id: h["x-workspace-id"] = workspace_id
+        if playbook_id: h["x-playbook-id"] = playbook_id
+        if step_id: h["x-step-id"] = step_id
+        if phase: h["x-phase"] = phase
+        if strategy: h["x-strategy"] = strategy
+        if emitter: h["x-emitter"] = emitter
+        if correlation_id: h["x-correlation-id"] = correlation_id
+        if idem_key: h["x-idempotency-key"] = idem_key
+        h["x-at"] = datetime.now(timezone.utc).isoformat()
+        return h
+
+    @staticmethod
+    def _idem_key(event: str, *, run_id: str, step_id: Optional[str] = None, phase: Optional[str] = None) -> str:
+        # Examples:
+        #   started -> "<run>:started"
+        #   step.discovery_started -> "<run>:step.discovery_started:<step>"
+        #   step.failed (discover)  -> "<run>:step.failed:<step>:discover"
+        parts = [run_id, event]
+        if step_id:
+            parts.append(step_id)
+        if phase:
+            parts.append(phase)
+        return ":".join(parts)
+
+    async def publish_once(
+        self,
+        *,
+        runs_repo,                        # RunRepository
+        run_id: _UUID,
+        event: str,                       # e.g. "started", "inputs.resolved", "step.discovery_started"
+        payload: Dict[str, Any],
+        workspace_id: Optional[str] = None,
+        playbook_id: Optional[str] = None,
+        step_id: Optional[str] = None,
+        phase: Optional[str] = None,
+        strategy: Optional[str] = None,
+        emitter: Optional[str] = None,
+        correlation_id: Optional[str] = None,
+        version: str = "v1",
+    ) -> bool:
+        """
+        Atomically set a flag and publish only if we "won the race".
+        Returns True if published, False if a duplicate.
+        """
+        idem_key = self._idem_key(event, run_id=str(run_id), step_id=step_id, phase=phase)
+        flag_path = f"events.flags.{idem_key}"
+
+        # atomic guard: only publish if our flag wasn't already set
+        filt = {"run_id": str(run_id), flag_path: {"$ne": True}}
+        upd = {"$set": {flag_path: True, "events.last": {"event": event, "at": datetime.now(timezone.utc)}}}
+        try:
+            res = await runs_repo._col.update_one(filt, upd)
+            if getattr(res, "modified_count", 0) != 1:
+                logger.debug("Event duplicate (skipped): %s", idem_key)
+                return False
+        except Exception:
+            logger.warning("Event idempotency check failed for %s; proceeding best-effort", idem_key, exc_info=True)
+
+        headers = self._headers_base(
+            run_id=str(run_id),
+            workspace_id=workspace_id,
+            playbook_id=playbook_id,
+            step_id=step_id,
+            phase=phase,
+            strategy=strategy,
+            emitter=emitter,
+            correlation_id=correlation_id,
+            idem_key=idem_key,
+        )
+
+        await self.bus.publish(
+            service=Service.CONDUCTOR.value,
+            event=event,
+            payload=payload,
+            org=settings.events_org,
+            headers=headers,
+            version=version,
+        )
+        return True

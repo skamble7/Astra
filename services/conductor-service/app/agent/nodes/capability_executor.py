@@ -7,6 +7,7 @@ import logging
 from typing_extensions import Literal
 from langgraph.types import Command
 from app.db.run_repository import RunRepository
+from app.events.rabbit import get_bus, EventPublisher  # NEW
 
 logger = logging.getLogger("app.agent.nodes.capability_executor")
 
@@ -39,8 +40,13 @@ def capability_executor_node(*, runs_repo: RunRepository):
         pack: Dict[str, Any] = state.get("pack") or {}
 
         run_uuid = UUID(run_doc["run_id"])
+        workspace_id = run_doc["workspace_id"]
         playbook_id = request["playbook_id"]
         step_idx = int(state.get("step_idx", 0))
+        strategy = (run_doc.get("strategy") or "").lower() or None
+        correlation_id = state.get("correlation_id")
+
+        publisher = EventPublisher(bus=get_bus())
 
         # Two-phase step: discover -> enrich
         phase = state.get("phase") or "discover"
@@ -53,8 +59,31 @@ def capability_executor_node(*, runs_repo: RunRepository):
         last_enrich_error = state.get("last_enrichment_error")
 
         # Terminate on executor-reported discovery failure -> persist_run
-        if last_mcp_error:
+        if last_mcp_error and current_step_id:
             logs.append(f"MCP failure: {last_mcp_error}")
+            # Emit step.failed (discover)
+            await publisher.publish_once(
+                runs_repo=runs_repo,
+                run_id=run_uuid,
+                event="step.failed",
+                payload={
+                    "run_id": str(run_uuid),
+                    "workspace_id": workspace_id,
+                    "playbook_id": playbook_id,
+                    "step": {"id": current_step_id},
+                    "phase": "discover",
+                    "ended_at": datetime.now(timezone.utc).isoformat(),
+                    "error": str(last_mcp_error),
+                    "status": "failed",
+                },
+                workspace_id=workspace_id,
+                playbook_id=playbook_id,
+                step_id=current_step_id,
+                phase="discover",
+                strategy=strategy,
+                emitter="capability_executor",
+                correlation_id=correlation_id,
+            )
             term_update = {
                 "logs": logs,
                 "completed_at": datetime.now(timezone.utc).isoformat(),
@@ -72,11 +101,30 @@ def capability_executor_node(*, runs_repo: RunRepository):
 
         # Consume completion breadcrumbs depending on phase
         if phase == "discover" and current_step_id and last_mcp.get("completed_step_id") == current_step_id:
-            # Discovery done for this step -> switch to enrichment phase
-            logger.info(
-                "[capability_executor] phase_transition discover->enrich step_id=%s",
-                current_step_id,
+            # Discovery done for this step -> emit discovery_completed, then switch to enrichment phase
+            await publisher.publish_once(
+                runs_repo=runs_repo,
+                run_id=run_uuid,
+                event="step.discovery_completed",
+                payload={
+                    "run_id": str(run_uuid),
+                    "workspace_id": workspace_id,
+                    "playbook_id": playbook_id,
+                    "step": {"id": current_step_id},
+                    "phase": "discover",
+                    "ended_at": datetime.now(timezone.utc).isoformat(),
+                    "status": "discovery_completed",
+                },
+                workspace_id=workspace_id,
+                playbook_id=playbook_id,
+                step_id=current_step_id,
+                phase="discover",
+                strategy=strategy,
+                emitter="capability_executor",
+                correlation_id=correlation_id,
             )
+
+            logger.info("[capability_executor] phase_transition discover->enrich step_id=%s", current_step_id)
             phase = "enrich"
             state_breadcrumb_clear = {"last_mcp_summary": {}}
             base_update = {
@@ -87,14 +135,76 @@ def capability_executor_node(*, runs_repo: RunRepository):
                 **state_breadcrumb_clear,
                 "last_mcp_error": None,
             }
+            # Now enrichment starts
+            await publisher.publish_once(
+                runs_repo=runs_repo,
+                run_id=run_uuid,
+                event="step.enrichment_started",
+                payload={
+                    "run_id": str(run_uuid),
+                    "workspace_id": workspace_id,
+                    "playbook_id": playbook_id,
+                    "step": {"id": current_step_id},
+                    "phase": "enrich",
+                    "started_at": datetime.now(timezone.utc).isoformat(),
+                    "status": "enrichment_started",
+                },
+                workspace_id=workspace_id,
+                playbook_id=playbook_id,
+                step_id=current_step_id,
+                phase="enrich",
+                strategy=strategy,
+                emitter="capability_executor",
+                correlation_id=correlation_id,
+            )
             return Command(goto="diagram_enrichment", update=base_update)
 
         if phase == "enrich" and current_step_id and last_enrich.get("completed_step_id") == current_step_id:
-            # Enrichment done for this step -> advance to next step (reset to discover)
+            # Enrichment done for this step -> emit enrichment_completed and step.completed, then advance
+            await publisher.publish_once(
+                runs_repo=runs_repo,
+                run_id=run_uuid,
+                event="step.enrichment_completed",
+                payload={
+                    "run_id": str(run_uuid),
+                    "workspace_id": workspace_id,
+                    "playbook_id": playbook_id,
+                    "step": {"id": current_step_id},
+                    "phase": "enrich",
+                    "ended_at": datetime.now(timezone.utc).isoformat(),
+                    "status": "enrichment_completed",
+                },
+                workspace_id=workspace_id,
+                playbook_id=playbook_id,
+                step_id=current_step_id,
+                phase="enrich",
+                strategy=strategy,
+                emitter="capability_executor",
+                correlation_id=correlation_id,
+            )
+            await publisher.publish_once(
+                runs_repo=runs_repo,
+                run_id=run_uuid,
+                event="step.completed",
+                payload={
+                    "run_id": str(run_uuid),
+                    "workspace_id": workspace_id,
+                    "playbook_id": playbook_id,
+                    "step": {"id": current_step_id},
+                    "ended_at": datetime.now(timezone.utc).isoformat(),
+                    "status": "completed",
+                },
+                workspace_id=workspace_id,
+                playbook_id=playbook_id,
+                step_id=current_step_id,
+                strategy=strategy,
+                emitter="capability_executor",
+                correlation_id=correlation_id,
+            )
+
             step_idx += 1
             current_step_id = None
             phase = "discover"
-            last_enrich = {}  # consumed
             logger.info("[capability_executor] enrichment_complete advancing_to_step_idx=%d", step_idx)
 
         # Guard invalid inputs -> persist_run
@@ -182,6 +292,29 @@ def capability_executor_node(*, runs_repo: RunRepository):
                 step_id,
                 cap_id,
             )
+            # Emit step.failed (discover)
+            await publisher.publish_once(
+                runs_repo=runs_repo,
+                run_id=run_uuid,
+                event="step.failed",
+                payload={
+                    "run_id": str(run_uuid),
+                    "workspace_id": workspace_id,
+                    "playbook_id": playbook_id,
+                    "step": {"id": step_id},
+                    "phase": "discover",
+                    "ended_at": datetime.now(timezone.utc).isoformat(),
+                    "error": f"Capability '{cap_id}' not found in pack.",
+                    "status": "failed",
+                },
+                workspace_id=workspace_id,
+                playbook_id=playbook_id,
+                step_id=step_id,
+                phase="discover",
+                strategy=strategy,
+                emitter="capability_executor",
+                correlation_id=correlation_id,
+            )
             return Command(
                 goto="capability_executor",
                 update={
@@ -204,6 +337,52 @@ def capability_executor_node(*, runs_repo: RunRepository):
 
         # Start step only when (re)entering discovery for this step
         await runs_repo.step_started(run_uuid, step_id)
+
+        # Emit step.started (once per step)
+        await publisher.publish_once(
+            runs_repo=runs_repo,
+            run_id=run_uuid,
+            event="step.started",
+            payload={
+                "run_id": str(run_uuid),
+                "workspace_id": workspace_id,
+                "playbook_id": playbook_id,
+                "step": {"id": step_id, "capability_id": cap_id, "name": step.get("name")},
+                "params": step.get("params") or {},
+                "produces_kinds": (cap.get("produces_kinds") or []),
+                "started_at": datetime.now(timezone.utc).isoformat(),
+                "status": "started",
+            },
+            workspace_id=workspace_id,
+            playbook_id=playbook_id,
+            step_id=step_id,
+            strategy=strategy,
+            emitter="capability_executor",
+            correlation_id=correlation_id,
+        )
+
+        # Emit discovery_started
+        await publisher.publish_once(
+            runs_repo=runs_repo,
+            run_id=run_uuid,
+            event="step.discovery_started",
+            payload={
+                "run_id": str(run_uuid),
+                "workspace_id": workspace_id,
+                "playbook_id": playbook_id,
+                "step": {"id": step_id},
+                "phase": "discover",
+                "started_at": datetime.now(timezone.utc).isoformat(),
+                "status": "discovery_started",
+            },
+            workspace_id=workspace_id,
+            playbook_id=playbook_id,
+            step_id=step_id,
+            phase="discover",
+            strategy=strategy,
+            emitter="capability_executor",
+            correlation_id=correlation_id,
+        )
 
         # Only this node writes current_step_id and phase
         base_update = {
@@ -232,6 +411,29 @@ def capability_executor_node(*, runs_repo: RunRepository):
                 step_idx,
                 step_id,
                 mode,
+            )
+            # Emit step.failed (discover)
+            await publisher.publish_once(
+                runs_repo=runs_repo,
+                run_id=run_uuid,
+                event="step.failed",
+                payload={
+                    "run_id": str(run_uuid),
+                    "workspace_id": workspace_id,
+                    "playbook_id": playbook_id,
+                    "step": {"id": step_id},
+                    "phase": "discover",
+                    "ended_at": datetime.now(timezone.utc).isoformat(),
+                    "error": f"Unsupported mode '{mode}'",
+                    "status": "failed",
+                },
+                workspace_id=workspace_id,
+                playbook_id=playbook_id,
+                step_id=step_id,
+                phase="discover",
+                strategy=strategy,
+                emitter="capability_executor",
+                correlation_id=correlation_id,
             )
             return Command(
                 goto="capability_executor",
