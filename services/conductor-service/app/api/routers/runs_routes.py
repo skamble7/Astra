@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
+from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks, Request
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Request, Query
+from pydantic import UUID4
 
 from app.config import settings
 from app.db.mongodb import get_client
@@ -116,3 +118,27 @@ async def start_run(payload: StartRunRequest, request: Request, background: Back
         "strategy": run.strategy.value if hasattr(run.strategy, "value") else str(run.strategy),
         "message": "Run accepted and scheduled.",
     }
+
+
+@router.get("", response_model=List[PlaybookRun])
+async def list_runs(
+    workspace_id: Optional[UUID4] = Query(default=None),
+    status: Optional[str] = Query(default=None),
+    pack_id: Optional[str] = Query(default=None),
+    playbook_id: Optional[str] = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    skip: int = Query(default=0, ge=0),
+) -> List[PlaybookRun]:
+    """
+    List runs with optional filters (workspace_id, status, pack_id, playbook_id),
+    sorted by created_at descending. Mirrors Renova's list endpoint.
+    """
+    runs_repo = _repo()
+    return await runs_repo.list_runs(
+        workspace_id=UUID(str(workspace_id)) if workspace_id else None,
+        status=status,
+        pack_id=pack_id,
+        playbook_id=playbook_id,
+        limit=limit,
+        skip=skip,
+    )

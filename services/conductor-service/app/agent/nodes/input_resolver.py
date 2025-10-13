@@ -258,6 +258,29 @@ def input_resolver_node(
         if failures:
             validations.append({"severity": "high", "message": f"Failed to load {failures} artifact kind spec(s)"})
 
+        # --- NEW: compact artifact_kinds catalog dump for visibility ----------
+        try:
+            catalog = [
+                {
+                    "id": k,
+                    "latest": (v or {}).get("latest_schema_version"),
+                    "has_prompt_system": bool(
+                        next(
+                            (
+                                sv.get("prompt", {}).get("system")
+                                for sv in (v or {}).get("schema_versions", [])
+                                if sv.get("version") == (v or {}).get("latest_schema_version")
+                            ),
+                            None,
+                        )
+                    ),
+                }
+                for k, v in kinds_map.items()
+            ]
+            logger.info("[input_resolver] artifact_kinds.catalog %s", json.dumps(catalog, ensure_ascii=False))
+        except Exception:
+            logger.exception("[input_resolver] failed to log artifact_kinds catalog")
+
         # --- Input validation against pack_input schema ----------------------
         pack_input = pack.get("pack_input") or {}
         json_schema = (pack_input.get("json_schema") or {})

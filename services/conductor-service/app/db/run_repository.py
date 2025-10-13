@@ -68,6 +68,46 @@ class RunRepository:
         )
         return [PlaybookRun.model_validate(d) async for d in cursor]
 
+    async def list_runs(
+        self,
+        *,
+        workspace_id: Optional[UUID] = None,
+        status: Optional[str] = None,
+        pack_id: Optional[str] = None,
+        playbook_id: Optional[str] = None,
+        limit: int = 50,
+        skip: int = 0,
+    ) -> List[PlaybookRun]:
+        """
+        List runs with common filters. Sorted by created_at desc by default.
+        Mirrors Renova's learning-service list_runs.
+        """
+        query: Dict[str, Any] = {}
+        if workspace_id:
+            query["workspace_id"] = str(workspace_id)
+        if status:
+            # Accept either enum name/value or raw string already stored
+            try:
+                status_val = RunStatus(status).value  # e.g., "running"
+            except Exception:
+                status_val = status
+            query["status"] = status_val
+        if pack_id:
+            query["pack_id"] = pack_id
+        if playbook_id:
+            query["playbook_id"] = playbook_id
+
+        cursor = (
+            self._col.find(query)
+            .sort("created_at", DESCENDING)
+            .skip(max(skip, 0))
+            .limit(max(min(limit, 200), 1))
+        )
+        results: List[PlaybookRun] = []
+        async for doc in cursor:
+            results.append(PlaybookRun.model_validate(doc))
+        return results
+
     # ---------- lifecycle transitions ---------- #
 
     async def mark_started(self, run_id: UUID) -> Optional[PlaybookRun]:
@@ -326,4 +366,3 @@ class RunRepository:
             set_ops["run_summary.duration_s"] = duration_s
 
         await self._col.update_one({"run_id": str(run_id)}, {"$set": set_ops})
-    

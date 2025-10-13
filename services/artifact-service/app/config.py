@@ -13,7 +13,7 @@ class Settings(BaseModel):
 
     # RabbitMQ
     rabbitmq_uri: str = os.getenv("RABBITMQ_URI", "amqp://guest:guest@localhost:5672/")
-    rabbitmq_exchange: str = os.getenv("RABBITMQ_EXCHANGE", "astra.events")
+    rabbitmq_exchange: str = os.getenv("RABBITMQ_EXCHANGE", "raina.events")
 
     # Events: org/tenant segment for versioned routing keys
     # Final RK shape => <events_org>.<service>.<event>.v1

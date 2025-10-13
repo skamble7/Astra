@@ -758,6 +758,10 @@ async def seed_capabilities() -> None:
                 connection={"singleton": True, "share_across_steps": True},
             ),
         ),
+
+        # ---------------------------------------------------------------------
+        # UPDATED (LLM): cap.entity.detect — OpenAI with api_key auth alias
+        # ---------------------------------------------------------------------
         GlobalCapabilityCreate(
             id="cap.entity.detect",
             name="Detect Entities and Business Terms",
@@ -767,12 +771,15 @@ async def seed_capabilities() -> None:
                 mode="llm",
                 llm_config={
                     "provider": "openai",
-                    "model": "gpt-4.1",
+                    "model": "gpt-4o-mini",
                     "parameters": {"temperature": 0, "max_tokens": 2000},
-                    "output_contracts": ["cam.data.model", "cam.domain.dictionary"],
+                    # IMPORTANT: Using api_key (not bearer) per instruction.
+                    "auth": {"method": "api_key", "alias_key": "OPENAI_API_KEY"},
                 },
+                # (Optional) If you later want strict I/O, add io=ExecutionIO(...).
             ),
         ),
+
         GlobalCapabilityCreate(
             id="cap.lineage.derive",
             name="Derive Data Lineage",
@@ -793,26 +800,10 @@ async def seed_capabilities() -> None:
                 connection={"singleton": True, "share_across_steps": True},
             ),
         ),
-        GlobalCapabilityCreate(
-            id="cap.workflow.mine_batch",
-            name="Mine Batch Workflows",
-            description="Mines batch workflows from JCL job flows and COBOL call graphs.",
-            produces_kinds=["cam.workflow.process"],
-            execution=McpExecution(
-                mode="mcp",
-                transport=workflow_miner_stdio,
-                tool_calls=[
-                    ToolCallSpec(
-                        tool="mine_batch",
-                        output_kinds=["cam.workflow.process"],
-                        timeout_sec=LONG_TIMEOUT,
-                        retries=1,
-                    )
-                ],
-                discovery={"validate_tools": True, "fail_fast": True},
-                connection={"singleton": True, "share_across_steps": True},
-            ),
-        ),
+
+        # ---------------------------------------------------------------------
+        # UPDATED (LLM): cap.workflow.mine_entity — OpenAI with api_key auth alias
+        # ---------------------------------------------------------------------
         GlobalCapabilityCreate(
             id="cap.workflow.mine_entity",
             name="Mine Entity Workflows",
@@ -822,12 +813,14 @@ async def seed_capabilities() -> None:
                 mode="llm",
                 llm_config={
                     "provider": "openai",
-                    "model": "gpt-4.1",
+                    "model": "gpt-4o-mini",
                     "parameters": {"temperature": 0, "max_tokens": 2000},
-                    "output_contracts": ["cam.workflow.process"],
+                    # IMPORTANT: Using api_key (not bearer) per instruction.
+                    "auth": {"method": "api_key", "alias_key": "OPENAI_API_KEY"},
                 },
             ),
         ),
+
         GlobalCapabilityCreate(
             id="cap.diagram.render",
             name="Render Diagrams",

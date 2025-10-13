@@ -186,9 +186,34 @@ class LlmParameters(BaseModel):
     max_tokens: Optional[int] = Field(default=None, ge=1)
 
 
+# NEW: Provider-agnostic LLM configuration with auth support (alias-based; no secrets stored here)
+class LlmConfig(BaseModel):
+    provider: Literal["openai", "azure_openai", "anthropic", "bedrock", "vertex", "ollama", "openrouter", "cohere", "generic_http"]
+    model: str
+    base_url: Optional[Union[AnyUrl, str]] = None                     # e.g., Azure endpoint, OpenRouter, self-hosted, Ollama
+    organization: Optional[str] = None                                # provider-specific (e.g., OpenAI org)
+    headers: Dict[str, str] = Field(default_factory=dict)             # non-secret static headers
+    query_params: Dict[str, str] = Field(default_factory=dict)        # non-secret static query params
+    timeout_sec: int = Field(default=60, ge=1)
+    retry: Optional[RetryPolicy] = None
+    parameters: Optional[LlmParameters] = None
+    auth: Optional[AuthAlias] = None                                   # <— API key / bearer / basic via alias
+
+    @model_validator(mode="after")
+    def _validate_auth(self) -> "LlmConfig":
+        if self.auth and self.auth.method != "none":
+            if self.auth.method == "bearer" and not self.auth.alias_token:
+                raise ValueError("LlmConfig.auth: 'alias_token' required for bearer auth.")
+            if self.auth.method == "basic" and (not self.auth.alias_user or not self.auth.alias_password):
+                raise ValueError("LlmConfig.auth: 'alias_user' and 'alias_password' required for basic auth.")
+            if self.auth.method == "api_key" and not self.auth.alias_key:
+                raise ValueError("LlmConfig.auth: 'alias_key' required for api_key auth.")
+        return self
+
+
 class LlmExecution(BaseModel):
     mode: Literal["llm"]
-    llm_config: Dict[str, Any]  # { provider, model, parameters?: LlmParameters, output_contracts?: [cam.*] }
+    llm_config: LlmConfig  # { provider, model, parameters?: LlmParameters, output_contracts?: [cam.*], auth?: AuthAlias (alias-based) }
     # Allow LLM executions to also declare structured I/O if desired
     io: Optional[ExecutionIO] = None
 

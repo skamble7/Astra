@@ -65,6 +65,7 @@ async def seed_packs() -> None:
     pack_key = "cobol-mainframe"
     full_version = "v1.0.1"
     mini_version = "v1.0.2"
+    mini_v103 = "v1.0.3"  # NEW: minimal three-step pack
 
     # -------------------------------
     # Pack #1: Full-flow v1.0.1
@@ -189,7 +190,6 @@ async def seed_packs() -> None:
             "cap.workflow.mine_entity",
             "cap.diagram.render",
         ],
-        # NEW: agent-scoped capabilities (keep empty for now)
         agent_capability_ids=[
             "cap.diagram.mermaid"
         ],
@@ -245,7 +245,6 @@ async def seed_packs() -> None:
             "cap.repo.clone",
             "cap.cobol.parse",
         ],
-        # NEW: agent-scoped capabilities (keep empty for now)
         agent_capability_ids=[
             "cap.diagram.mermaid"
         ],
@@ -254,4 +253,76 @@ async def seed_packs() -> None:
 
     await _create_and_maybe_publish(svc, payload_mini, publish_on_seed)
 
-    log.info("[capability.seeds.packs] Done (seeded %s@%s and %s@%s)", pack_key, full_version, pack_key, mini_version)
+    # -------------------------------
+    # Pack #3: Minimal three-step v1.0.3 (NEW)
+    # -------------------------------
+    await _delete_pack_if_exists(svc, pack_key, mini_v103)
+
+    pb_core_v103 = Playbook(
+        id="pb.core",
+        name="Core Clone + Parse + Entities",
+        description="Clone a repository, parse COBOL sources, then lift entities and a domain dictionary.",
+        steps=[
+            PlaybookStep(
+                id="s1.clone",
+                name="Clone Repo",
+                capability_id="cap.repo.clone",
+                description="Clone source repository; records commit and paths_root.",
+                params={
+                    "url": "${git.url}",
+                    "branch": "${git.branch:-main}",
+                    "depth": 0,
+                },
+            ),
+            PlaybookStep(
+                id="s2.cobol",
+                name="Parse COBOL",
+                capability_id="cap.cobol.parse",
+                description="ProLeap/cb2xml parse of programs and copybooks into normalized CAM kinds.",
+                params={
+                    "root": "${repo.paths_root}",
+                    "paths": [],
+                    "dialect": "COBOL85",
+                    "file_limit": 24,
+                    "budget_seconds": 20,
+                },
+            ),
+            PlaybookStep(
+                id="s3.entities",
+                name="Detect Entities & Domain Terms",
+                capability_id="cap.entity.detect",
+                description="Derive a logical data model and a domain dictionary from parsed copybooks and DB2 schemas.",
+                params={
+                    "source_root": "${repo.paths_root}",
+                    "artifact_filters": ["cam.cobol.copybook", "cam.db2.schema"],
+                    "budget_seconds": 60,
+                },
+            ),
+        ],
+    )
+
+    payload_mini_v103 = CapabilityPackCreate(
+        key=pack_key,
+        version=mini_v103,
+        title="COBOL Mainframe Modernization (Core)",
+        description="Derived minimal pack with a three-step playbook: clone a repo, parse COBOL, then detect entities and domain terms.",
+        pack_input_id=renova_input_id,
+        capability_ids=[
+            "cap.repo.clone",
+            "cap.cobol.parse",
+            "cap.entity.detect",
+        ],
+        agent_capability_ids=[
+            "cap.diagram.mermaid"
+        ],
+        playbooks=[pb_core_v103],
+    )
+
+    await _create_and_maybe_publish(svc, payload_mini_v103, publish_on_seed)
+
+    log.info(
+        "[capability.seeds.packs] Done (seeded %s@%s, %s@%s, %s@%s)",
+        pack_key, full_version,
+        pack_key, mini_version,
+        pack_key, mini_v103,
+    )
