@@ -201,5 +201,9 @@ async def run_input_bootstrap(
         "persist_summary": {},
     }
 
-    final_state: Dict[str, Any] = await compiled.ainvoke(initial_state)
+    # >>> CHANGE: raise recursion limit to handle long playbooks w/ enrichment passes
+    final_state: Dict[str, Any] = await compiled.ainvoke(
+        initial_state,
+        config={"recursion_limit": 256},
+    )
     return final_state

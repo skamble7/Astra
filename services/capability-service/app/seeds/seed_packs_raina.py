@@ -208,7 +208,7 @@ async def seed_packs_raina() -> None:
         pack_input_id=pack_input_id,
         capability_ids=capability_ids,
         # No agent-only capabilities specified for this pack; add later if needed
-        agent_capability_ids=[],
+        agent_capability_ids=["cap.diagram.mermaid"],
         playbooks=[pb_micro_plus],
     )
 

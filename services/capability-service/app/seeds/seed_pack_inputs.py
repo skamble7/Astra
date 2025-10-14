@@ -13,7 +13,9 @@ async def seed_pack_inputs() -> None:
     Seed pack inputs.
 
     - Keeps the existing Renova input contract (form-based) AS IS.
-    - Adds a new Astra Discovery input contract (AVC/FSS/PSS).
+    - Replaces the Astra Discovery input contract with a form-style schema
+      whose root requires only "inputs" so it works with the current input_resolver,
+      which validates {"inputs": <...>} against the schema.
     """
     svc = PackInputService()
 
@@ -130,47 +132,31 @@ async def seed_pack_inputs() -> None:
     log.info("[pack_inputs.seeds] created: %s", created.id)
 
     # ─────────────────────────────────────────────────────────────
-    # New Astra Discovery input (AVC/FSS/PSS)
+    # Astra Discovery input (AVC/FSS/PSS) — FORM-STYLE ROOT
     # ─────────────────────────────────────────────────────────────
+    # IMPORTANT: Root requires ONLY "inputs" so input_resolver's validation of {"inputs": <...>} passes.
     discovery_target = PackInputCreate(
         id="input.astra.discovery.avc-fss-pss",
-        name="Astra – Discovery Inputs (AVC/FSS/PSS)",
+        name="Astra – Discovery Inputs (AVC/FSS/PSS) – Form",
         description=(
-            "Input contract for Astra discovery runs combining AVC (vision/problem/goals/NFRs/context/"
-            "constraints/assumptions/success criteria), FSS (feature/user stories), and PSS (architecture "
-            "paradigm/style/tech stack), plus execution options. Mirrors StartDiscoveryRequest."
+            "Form-style input contract for Astra discovery runs combining AVC (vision/problem/goals/NFRs/"
+            "context/constraints/assumptions/success criteria), FSS (feature/user stories), and PSS "
+            "(architecture paradigm/style/tech stack). Designed to validate a payload shaped as "
+            '{"inputs": <DiscoveryInputs>}, matching the current input_resolver.'
         ),
-        tags=["astra", "discovery", "inputs", "avc", "fss", "pss"],
+        tags=["astra", "discovery", "inputs", "avc", "fss", "pss", "form"],
         json_schema={
             "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "$id": "https://astra.example/schemas/astra-discovery-avc-fss-pss.json",
-            "title": "Astra Discovery – StartDiscoveryRequest",
+            "$id": "https://astra.example/schemas/astra-discovery-avc-fss-pss.form.json",
+            "title": "Astra Discovery – Inputs Form",
             "type": "object",
             "additionalProperties": False,
-            "required": ["playbook_id", "workspace_id", "inputs"],
+            "required": ["inputs"],
             "properties": {
-                "playbook_id": {
-                    "type": "string",
-                    "title": "Playbook Id",
-                    "minLength": 1
-                },
-                "workspace_id": {
-                    "type": "string",
-                    "title": "Workspace Id (UUID4)",
-                    "format": "uuid"
-                },
-                "inputs": { "$ref": "#/$defs/DiscoveryInputs" },
-                "options": { "$ref": "#/$defs/DiscoveryOptions" },
-                "title": {
-                    "type": ["string", "null"],
-                    "maxLength": 200,
-                    "description": "Human-friendly title for the run."
-                },
-                "description": {
-                    "type": ["string", "null"],
-                    "maxLength": 2000,
-                    "description": "Optional description for the run."
-                }
+                # The resolver passes {"inputs": <DiscoveryInputs>} to validation.
+                "inputs": {"$ref": "#/$defs/DiscoveryInputs"},
+                # Keep options available but NOT required; the resolver won't include it in the validated object.
+                "options": {"$ref": "#/$defs/DiscoveryOptions"}
             },
             "$defs": {
                 "AVCGoal": {
@@ -178,9 +164,9 @@ async def seed_pack_inputs() -> None:
                     "additionalProperties": False,
                     "required": ["id", "text"],
                     "properties": {
-                        "id":   { "type": "string", "minLength": 1 },
-                        "text": { "type": "string", "minLength": 1 },
-                        "metric": { "type": ["string", "null"] }
+                        "id": {"type": "string", "minLength": 1},
+                        "text": {"type": "string", "minLength": 1},
+                        "metric": {"type": ["string", "null"]}
                     }
                 },
                 "AVCNonFunctional": {
@@ -188,18 +174,18 @@ async def seed_pack_inputs() -> None:
                     "additionalProperties": False,
                     "required": ["type", "target"],
                     "properties": {
-                        "type":   { "type": "string", "minLength": 1 },
-                        "target": { "type": "string", "minLength": 1 }
+                        "type": {"type": "string", "minLength": 1},
+                        "target": {"type": "string", "minLength": 1}
                     }
                 },
                 "AVCContext": {
                     "type": "object",
                     "additionalProperties": False,
                     "properties": {
-                        "domain": { "type": ["string", "null"] },
+                        "domain": {"type": ["string", "null"]},
                         "actors": {
                             "type": "array",
-                            "items": { "type": "string" },
+                            "items": {"type": "string"},
                             "default": []
                         }
                     }
@@ -209,8 +195,8 @@ async def seed_pack_inputs() -> None:
                     "additionalProperties": False,
                     "required": ["kpi", "target"],
                     "properties": {
-                        "kpi":    { "type": "string", "minLength": 1 },
-                        "target": { "type": "string", "minLength": 1 }
+                        "kpi": {"type": "string", "minLength": 1},
+                        "target": {"type": "string", "minLength": 1}
                     }
                 },
                 "AVC": {
@@ -219,41 +205,41 @@ async def seed_pack_inputs() -> None:
                     "properties": {
                         "vision": {
                             "type": "array",
-                            "items": { "type": "string" },
+                            "items": {"type": "string"},
                             "default": []
                         },
                         "problem_statements": {
                             "type": "array",
-                            "items": { "type": "string" },
+                            "items": {"type": "string"},
                             "default": []
                         },
                         "goals": {
                             "type": "array",
-                            "items": { "$ref": "#/$defs/AVCGoal" },
+                            "items": {"$ref": "#/$defs/AVCGoal"},
                             "default": []
                         },
                         "non_functionals": {
                             "type": "array",
-                            "items": { "$ref": "#/$defs/AVCNonFunctional" },
+                            "items": {"$ref": "#/$defs/AVCNonFunctional"},
                             "default": []
                         },
                         "constraints": {
                             "type": "array",
-                            "items": { "type": "string" },
+                            "items": {"type": "string"},
                             "default": []
                         },
                         "assumptions": {
                             "type": "array",
-                            "items": { "type": "string" },
+                            "items": {"type": "string"},
                             "default": []
                         },
                         "context": {
-                            "allOf": [ { "$ref": "#/$defs/AVCContext" } ],
+                            "allOf": [{"$ref": "#/$defs/AVCContext"}],
                             "default": {}
                         },
                         "success_criteria": {
                             "type": "array",
-                            "items": { "$ref": "#/$defs/AVCSuccessCriterion" },
+                            "items": {"$ref": "#/$defs/AVCSuccessCriterion"},
                             "default": []
                         }
                     },
@@ -264,24 +250,24 @@ async def seed_pack_inputs() -> None:
                     "additionalProperties": False,
                     "required": ["key", "title"],
                     "properties": {
-                        "key":   { "type": "string", "minLength": 1 },
-                        "title": { "type": "string", "minLength": 1 },
+                        "key": {"type": "string", "minLength": 1},
+                        "title": {"type": "string", "minLength": 1},
                         "description": {
                             "oneOf": [
-                                { "type": "string" },
-                                { "type": "array", "items": { "type": "string" } },
-                                { "type": "null" }
+                                {"type": "string"},
+                                {"type": "array", "items": {"type": "string"}},
+                                {"type": "null"}
                             ],
                             "description": "Freeform text or bullet list."
                         },
                         "acceptance_criteria": {
                             "type": "array",
-                            "items": { "type": "string" },
+                            "items": {"type": "string"},
                             "default": []
                         },
                         "tags": {
                             "type": "array",
-                            "items": { "type": "string" },
+                            "items": {"type": "string"},
                             "description": "Structured tags like prefix:value (e.g., domain:auth).",
                             "default": []
                         }
@@ -293,7 +279,7 @@ async def seed_pack_inputs() -> None:
                     "properties": {
                         "stories": {
                             "type": "array",
-                            "items": { "$ref": "#/$defs/FSSStory" },
+                            "items": {"$ref": "#/$defs/FSSStory"},
                             "default": []
                         }
                     },
@@ -304,15 +290,15 @@ async def seed_pack_inputs() -> None:
                     "additionalProperties": False,
                     "required": ["paradigm", "style", "tech_stack"],
                     "properties": {
-                        "paradigm": { "type": "string", "minLength": 1 },
+                        "paradigm": {"type": "string", "minLength": 1},
                         "style": {
                             "type": "array",
-                            "items": { "type": "string" },
+                            "items": {"type": "string"},
                             "default": []
                         },
                         "tech_stack": {
                             "type": "array",
-                            "items": { "type": "string" },
+                            "items": {"type": "string"},
                             "default": []
                         }
                     }
@@ -322,107 +308,61 @@ async def seed_pack_inputs() -> None:
                     "additionalProperties": False,
                     "required": ["avc", "fss", "pss"],
                     "properties": {
-                        "avc": { "$ref": "#/$defs/AVC" },
-                        "fss": { "$ref": "#/$defs/FSS" },
-                        "pss": { "$ref": "#/$defs/PSS" }
+                        "avc": {"$ref": "#/$defs/AVC"},
+                        "fss": {"$ref": "#/$defs/FSS"},
+                        "pss": {"$ref": "#/$defs/PSS"}
                     }
                 },
                 "DiscoveryOptions": {
                     "type": "object",
                     "additionalProperties": False,
                     "properties": {
-                        "model":        { "type": ["string", "null"] },
-                        "dry_run":      { "type": "boolean", "default": False },
-                        "validate":     { "type": "boolean", "default": True },
-                        "pack_key":     { "type": ["string", "null"] },
-                        "pack_version": { "type": ["string", "null"] }
+                        "model": {"type": ["string", "null"]},
+                        "dry_run": {"type": "boolean", "default": False},
+                        "validate": {"type": "boolean", "default": True},
+                        "pack_key": {"type": ["string", "null"]},
+                        "pack_version": {"type": ["string", "null"]}
                     }
                 }
             }
         },
+        # Example shaped exactly how the resolver validates: {"inputs": ...}
         examples=[
             {
-                "playbook_id": "playbook.astra.discovery.default",
-                "workspace_id": "6c3f2a2b-19a8-4c79-9b9a-2c8a2f7e2a11",
-                "title": "Astra Discovery – Payments Domain",
-                "description": "Explore goals, scope, and architecture for next-gen payments.",
                 "inputs": {
                     "avc": {
                         "vision": [
-                            "Unified, real-time payments experience across channels",
-                            "Reduce settlement time and operational risk"
+                            "Modernize COBOL CardDemo into secure, scalable microservices",
+                            "Retain core capabilities for back-office operations and batch"
                         ],
-                        "problem_statements": [
-                            "Batch-oriented legacy is causing high latency",
-                            "Manual reconciliation increases errors and cost"
-                        ],
+                        "problem_statements": ["Tightly coupled monolith impedes feature velocity"],
                         "goals": [
-                            { "id": "G1", "text": "Cut settlement time to < T+0", "metric": "avg_settlement_duration" },
-                            { "id": "G2", "text": "99.95% uptime for core payment flows" }
+                            {"id": "G1", "text": "Microservices with clear bounded contexts", "metric": "services decomposed by domain"}
                         ],
                         "non_functionals": [
-                            { "type": "availability", "target": ">= 99.95%" },
-                            { "type": "latency_p95", "target": "< 200ms" }
+                            {"type": "performance", "target": "p95<200ms"}
                         ],
-                        "constraints": [
-                            "PCI-DSS compliance",
-                            "Must integrate with existing core banking APIs"
-                        ],
-                        "assumptions": [
-                            "Traffic growth 2x over 12 months",
-                            "Multi-region deployment feasible"
-                        ],
-                        "context": {
-                            "domain": "payments",
-                            "actors": ["customer", "merchant", "risk-engine", "settlement-service"]
-                        },
-                        "success_criteria": [
-                            { "kpi": "chargeback_rate", "target": "< 0.2%" },
-                            { "kpi": "operational_incidents_per_quarter", "target": "< 2" }
-                        ]
+                        "constraints": ["cloud: aws"],
+                        "assumptions": ["Greenfield microservices can coexist with legacy batch for a period"],
+                        "context": {"domain": "Cards", "actors": ["Customer", "BackOfficeUser"]},
+                        "success_criteria": [{"kpi": "deployment_frequency", "target": ">= daily"}]
                     },
                     "fss": {
                         "stories": [
-                            {
-                                "key": "PAY-101",
-                                "title": "As a customer, I can pay with a saved card",
-                                "description": [
-                                    "Support card-on-file",
-                                    "Handle 3DS challenge when required"
-                                ],
-                                "acceptance_criteria": [
-                                    "Declined transactions return reason codes",
-                                    "3DS step-up is audited"
-                                ],
-                                "tags": ["domain:payments", "capability:card-on-file"]
-                            },
-                            {
-                                "key": "PAY-205",
-                                "title": "As an analyst, I can view near-real-time settlement status",
-                                "description": "Dashboard refresh <= 1 minute",
-                                "acceptance_criteria": ["P95 API latency < 200ms"],
-                                "tags": ["domain:analytics", "capability:settlement-tracking"]
-                            }
+                            {"key": "CARD-101", "title": "As a user, I can log in and navigate the portal"}
                         ]
                     },
                     "pss": {
-                        "paradigm": "event-driven microservices",
-                        "style": ["saga", "hexagonal", "CQRS"],
-                        "tech_stack": ["Kafka", "PostgreSQL", "gRPC", "OpenTelemetry"]
+                        "paradigm": "Service-Based",
+                        "style": ["Microservices"],
+                        "tech_stack": ["FastAPI", "MongoDB"]
                     }
-                },
-                "options": {
-                    "model": "gpt-4o-mini",
-                    "dry_run": False,
-                    "validate": True,
-                    "pack_key": "pack.astra.discovery",
-                    "pack_version": "1.0.0"
                 }
             }
         ],
     )
 
-    # Idempotent replace-by-id for new Astra input
+    # Idempotent replace-by-id for Astra input
     try:
         existing_discovery = await svc.get(discovery_target.id)
     except Exception:

@@ -70,6 +70,108 @@ def str_enum(vals: List[str]) -> Dict[str, Any]:
     return {"type": "string", "enum": vals}
 
 # ---------------------------------------------------------------------------
+# Diagram kinds (added)
+# ---------------------------------------------------------------------------
+def _diagram_schema() -> Dict[str, Any]:
+    """
+    Minimal, relaxed schema for diagrams that unblocks registry lookups
+    and LLM execution. 'instructions' carries the full Draw.io XML.
+    """
+    node = obj({
+        "id": {"type": "string"},
+        "name": {"type": "string"},
+        "type": {"type": ["string", "null"]},
+        "meta": obj({}, addl=True),
+    })
+    edge = obj({
+        "from": {"type": "string"},
+        "to": {"type": "string"},
+        "label": {"type": ["string", "null"]},
+        "meta": obj({}, addl=True),
+    })
+    return obj({
+        "language": str_enum(["drawio"]),
+        "instructions": {"type": "string", "minLength": 20},
+        "nodes": arr(node),
+        "edges": arr(edge),
+        "notes": {"type": ["string", "null"]},
+    })
+
+def _diagram_prompt(diagram_type: str) -> str:
+    # Keep it short; Astra uses only prompt.system here.
+    return (
+        "You are RAINA: Diagram Extractor. Produce exactly one JSON object. "
+        "Set `language` to `drawio` and put a complete Draw.io <mxfile> XML document in `instructions`. "
+        "Keep any discovered nodes/edges in the arrays when available. No prose."
+    )
+
+diagram_docs: List[Dict[str, Any]] = []
+diagram_docs.append(make_kind_doc(
+    _id="cam.diagram.context",
+    title="Context Diagram",
+    category="diagram",
+    json_schema=_diagram_schema(),
+    prompt_system=_diagram_prompt("context"),
+))
+diagram_docs.append(make_kind_doc(
+    _id="cam.diagram.class",
+    title="Class Diagram",
+    category="diagram",
+    json_schema=_diagram_schema(),
+    prompt_system=_diagram_prompt("class"),
+    aliases=["cam.erd"],
+))
+diagram_docs.append(make_kind_doc(
+    _id="cam.diagram.sequence",
+    title="Sequence Diagram",
+    category="diagram",
+    json_schema=_diagram_schema(),
+    prompt_system=_diagram_prompt("sequence"),
+))
+diagram_docs.append(make_kind_doc(
+    _id="cam.diagram.component",
+    title="Component Diagram",
+    category="diagram",
+    json_schema=_diagram_schema(),
+    prompt_system=_diagram_prompt("component"),
+))
+diagram_docs.append(make_kind_doc(
+    _id="cam.diagram.deployment",
+    title="Deployment Diagram",
+    category="diagram",
+    json_schema=_diagram_schema(),
+    prompt_system=_diagram_prompt("deployment"),
+))
+diagram_docs.append(make_kind_doc(
+    _id="cam.diagram.state",
+    title="State Diagram",
+    category="diagram",
+    json_schema=_diagram_schema(),
+    prompt_system=_diagram_prompt("state"),
+))
+diagram_docs.append(make_kind_doc(
+    _id="cam.diagram.activity",
+    title="Activity Diagram",
+    category="diagram",
+    json_schema=_diagram_schema(),
+    prompt_system=_diagram_prompt("activity"),
+))
+diagram_docs.append(make_kind_doc(
+    _id="cam.diagram.dataflow",
+    title="Dataflow Diagram",
+    category="diagram",
+    json_schema=_diagram_schema(),
+    prompt_system=_diagram_prompt("dataflow"),
+))
+diagram_docs.append(make_kind_doc(
+    _id="cam.diagram.network",
+    title="Network Diagram",
+    category="diagram",
+    json_schema=_diagram_schema(),
+    prompt_system=_diagram_prompt("network"),
+))
+
+# ---------------------------------------------------------------------------
 # Canonical list from RainaV2 (non-diagram only)
 # ---------------------------------------------------------------------------
 KINDS = [
@@ -112,12 +214,14 @@ KINDS = [
 
 ALIASES = {
     "cam.contract.api": ["ext.legacy.openapi_doc"],
+    # NOTE: class diagram alias handled above on the diagram doc itself
 }
 
 # ---------------------------------------------------------------------------
 # Per-family schema & recipes (minimal, relaxed, Astra-compatible)
 # ---------------------------------------------------------------------------
 docs: List[Dict[str, Any]] = []
+docs.extend(diagram_docs)  # ← add the new diagram kinds first
 
 # ---- PAT -------------------------------------------------------------------
 # moscow_prioritization
@@ -1219,4 +1323,4 @@ def seed_registry_raina() -> None:
 
 if __name__ == "__main__":
     seed_registry_raina()
-    print(f"Seeded {len(docs)} non-diagram kinds into registry.")
+    print(f"Seeded {len(docs)} kinds into registry.")
