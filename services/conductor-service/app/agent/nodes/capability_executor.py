@@ -338,7 +338,7 @@ def capability_executor_node(*, runs_repo: RunRepository):
         # Start step only when (re)entering discovery for this step
         await runs_repo.step_started(run_uuid, step_id)
 
-        # Emit step.started (once per step)
+        # Emit step.started (once per step)  — NOTE: params removed from payload
         await publisher.publish_once(
             runs_repo=runs_repo,
             run_id=run_uuid,
@@ -348,7 +348,6 @@ def capability_executor_node(*, runs_repo: RunRepository):
                 "workspace_id": workspace_id,
                 "playbook_id": playbook_id,
                 "step": {"id": step_id, "capability_id": cap_id, "name": step.get("name")},
-                "params": step.get("params") or {},
                 "produces_kinds": (cap.get("produces_kinds") or []),
                 "started_at": datetime.now(timezone.utc).isoformat(),
                 "status": "started",

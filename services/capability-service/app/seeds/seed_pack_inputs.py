@@ -12,18 +12,18 @@ async def seed_pack_inputs() -> None:
     """
     Seed pack inputs.
 
-    - Keeps the existing Renova input contract (form-based) AS IS.
-    - Replaces the Astra Discovery input contract with a form-style schema
-      whose root requires only "inputs" so it works with the current input_resolver,
-      which validates {"inputs": <...>} against the schema.
+    - Keeps (and replaces-by-id) the Renova input contract (form-based).
+    - Keeps (and replaces-by-id) the Astra Discovery input contract with a form-style root {"inputs": ...}.
+    - ADDS a new Renova Workspace Summary input contract for generating a COBOL artifacts summary
+      Markdown document for a given workspace.
     """
     svc = PackInputService()
 
     # ─────────────────────────────────────────────────────────────
-    # Existing seed (UNCHANGED)
+    # Renova – Minimal COBOL Pack Run Form (REPLACE-BY-ID)
     # ─────────────────────────────────────────────────────────────
     renova_target = PackInputCreate(
-        id="input.renova.repo",  # keep the same ID to replace the existing one
+        id="input.renova.repo",
         name="Renova – Minimal COBOL Pack Run Form",
         description=(
             "Form definition for a minimal COBOL pack run. Captures title, description, "
@@ -108,11 +108,9 @@ async def seed_pack_inputs() -> None:
                 }
             }
         },
-        # Remove existing example value(s)
         examples=[],
     )
 
-    # Idempotent replace-by-id for existing Renova input
     try:
         existing = await svc.get(renova_target.id)
     except Exception:
@@ -132,9 +130,8 @@ async def seed_pack_inputs() -> None:
     log.info("[pack_inputs.seeds] created: %s", created.id)
 
     # ─────────────────────────────────────────────────────────────
-    # Astra Discovery input (AVC/FSS/PSS) — FORM-STYLE ROOT
+    # Astra Discovery input (AVC/FSS/PSS) — FORM-STYLE ROOT (REPLACE-BY-ID)
     # ─────────────────────────────────────────────────────────────
-    # IMPORTANT: Root requires ONLY "inputs" so input_resolver's validation of {"inputs": <...>} passes.
     discovery_target = PackInputCreate(
         id="input.astra.discovery.avc-fss-pss",
         name="Astra – Discovery Inputs (AVC/FSS/PSS) – Form",
@@ -153,9 +150,7 @@ async def seed_pack_inputs() -> None:
             "additionalProperties": False,
             "required": ["inputs"],
             "properties": {
-                # The resolver passes {"inputs": <DiscoveryInputs>} to validation.
                 "inputs": {"$ref": "#/$defs/DiscoveryInputs"},
-                # Keep options available but NOT required; the resolver won't include it in the validated object.
                 "options": {"$ref": "#/$defs/DiscoveryOptions"}
             },
             "$defs": {
@@ -183,11 +178,7 @@ async def seed_pack_inputs() -> None:
                     "additionalProperties": False,
                     "properties": {
                         "domain": {"type": ["string", "null"]},
-                        "actors": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "default": []
-                        }
+                        "actors": {"type": "array", "items": {"type": "string"}, "default": []}
                     }
                 },
                 "AVCSuccessCriterion": {
@@ -203,45 +194,14 @@ async def seed_pack_inputs() -> None:
                     "type": "object",
                     "additionalProperties": False,
                     "properties": {
-                        "vision": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "default": []
-                        },
-                        "problem_statements": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "default": []
-                        },
-                        "goals": {
-                            "type": "array",
-                            "items": {"$ref": "#/$defs/AVCGoal"},
-                            "default": []
-                        },
-                        "non_functionals": {
-                            "type": "array",
-                            "items": {"$ref": "#/$defs/AVCNonFunctional"},
-                            "default": []
-                        },
-                        "constraints": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "default": []
-                        },
-                        "assumptions": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "default": []
-                        },
-                        "context": {
-                            "allOf": [{"$ref": "#/$defs/AVCContext"}],
-                            "default": {}
-                        },
-                        "success_criteria": {
-                            "type": "array",
-                            "items": {"$ref": "#/$defs/AVCSuccessCriterion"},
-                            "default": []
-                        }
+                        "vision": {"type": "array", "items": {"type": "string"}, "default": []},
+                        "problem_statements": {"type": "array", "items": {"type": "string"}, "default": []},
+                        "goals": {"type": "array", "items": {"$ref": "#/$defs/AVCGoal"}, "default": []},
+                        "non_functionals": {"type": "array", "items": {"$ref": "#/$defs/AVCNonFunctional"}, "default": []},
+                        "constraints": {"type": "array", "items": {"type": "string"}, "default": []},
+                        "assumptions": {"type": "array", "items": {"type": "string"}, "default": []},
+                        "context": {"allOf": [{"$ref": "#/$defs/AVCContext"}], "default": {}},
+                        "success_criteria": {"type": "array", "items": {"$ref": "#/$defs/AVCSuccessCriterion"}, "default": []}
                     },
                     "required": ["context"]
                 },
@@ -257,14 +217,9 @@ async def seed_pack_inputs() -> None:
                                 {"type": "string"},
                                 {"type": "array", "items": {"type": "string"}},
                                 {"type": "null"}
-                            ],
-                            "description": "Freeform text or bullet list."
+                            ]
                         },
-                        "acceptance_criteria": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "default": []
-                        },
+                        "acceptance_criteria": {"type": "array", "items": {"type": "string"}, "default": []},
                         "tags": {
                             "type": "array",
                             "items": {"type": "string"},
@@ -277,11 +232,7 @@ async def seed_pack_inputs() -> None:
                     "type": "object",
                     "additionalProperties": False,
                     "properties": {
-                        "stories": {
-                            "type": "array",
-                            "items": {"$ref": "#/$defs/FSSStory"},
-                            "default": []
-                        }
+                        "stories": {"type": "array", "items": {"$ref": "#/$defs/FSSStory"}, "default": []}
                     },
                     "required": ["stories"]
                 },
@@ -291,16 +242,8 @@ async def seed_pack_inputs() -> None:
                     "required": ["paradigm", "style", "tech_stack"],
                     "properties": {
                         "paradigm": {"type": "string", "minLength": 1},
-                        "style": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "default": []
-                        },
-                        "tech_stack": {
-                            "type": "array",
-                            "items": {"type": "string"},
-                            "default": []
-                        }
+                        "style": {"type": "array", "items": {"type": "string"}, "default": []},
+                        "tech_stack": {"type": "array", "items": {"type": "string"}, "default": []}
                     }
                 },
                 "DiscoveryInputs": {
@@ -326,7 +269,6 @@ async def seed_pack_inputs() -> None:
                 }
             }
         },
-        # Example shaped exactly how the resolver validates: {"inputs": ...}
         examples=[
             {
                 "inputs": {
@@ -339,9 +281,7 @@ async def seed_pack_inputs() -> None:
                         "goals": [
                             {"id": "G1", "text": "Microservices with clear bounded contexts", "metric": "services decomposed by domain"}
                         ],
-                        "non_functionals": [
-                            {"type": "performance", "target": "p95<200ms"}
-                        ],
+                        "non_functionals": [{"type": "performance", "target": "p95<200ms"}],
                         "constraints": ["cloud: aws"],
                         "assumptions": ["Greenfield microservices can coexist with legacy batch for a period"],
                         "context": {"domain": "Cards", "actors": ["Customer", "BackOfficeUser"]},
@@ -362,7 +302,6 @@ async def seed_pack_inputs() -> None:
         ],
     )
 
-    # Idempotent replace-by-id for Astra input
     try:
         existing_discovery = await svc.get(discovery_target.id)
     except Exception:
@@ -380,3 +319,63 @@ async def seed_pack_inputs() -> None:
 
     created_discovery = await svc.create(discovery_target, actor="seed")
     log.info("[pack_inputs.seeds] created: %s", created_discovery.id)
+
+    # ─────────────────────────────────────────────────────────────
+    # NEW: Renova – COBOL Workspace Summary (REPLACE-BY-ID)
+    # ─────────────────────────────────────────────────────────────
+    workspace_summary = PackInputCreate(
+        id="input.renova.workspace_summary",
+        name="Renova – COBOL Workspace Summary",
+        description="Input contract to generate a single Markdown document summarizing COBOL artifacts for a given workspace.",
+        tags=["renova", "cobol", "summary", "inputs", "form"],
+        json_schema={
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": "https://astra.example/schemas/cobol-workspace-summary-input.json",
+            "title": "COBOL Workspace Summary – Input",
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace_id"],
+            "properties": {
+                "workspace_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Workspace identifier to summarize.",
+                    "examples": ["0084b4c5-b11b-44d3-8ec3-d616dfa3e873"]
+                },
+                "kind_id": {
+                    "type": "string",
+                    "const": "cam.asset.cobol_artifacts_summary",
+                    "description": "Fixed to the COBOL workspace document kind."
+                }
+            }
+        },
+        examples=[
+            {
+                "workspace_id": "0084b4c5-b11b-44d3-8ec3-d616dfa3e873",
+                "kind_id": "cam.asset.cobol_artifacts_summary"
+            }
+        ],
+        schema_guide=(
+            "Call the MCP server to generate a single Markdown document summarizing COBOL artifacts for the given workspace.\n"
+            "- **workspace_id** (required): The workspace whose artifacts will be summarized.\n"
+            "- **kind_id** (fixed): `cam.asset.cobol_artifacts_summary`."
+        ),
+    )
+
+    try:
+        existing_ws = await svc.get(workspace_summary.id)
+    except Exception:
+        existing_ws = None
+
+    if existing_ws:
+        try:
+            ok = await svc.delete(workspace_summary.id, actor="seed")
+            if ok:
+                log.info("[pack_inputs.seeds] replaced existing: %s", workspace_summary.id)
+            else:
+                log.warning("[pack_inputs.seeds] could not delete existing: %s (continuing)", workspace_summary.id)
+        except Exception as e:
+            log.warning("[pack_inputs.seeds] delete failed for %s: %s (continuing)", workspace_summary.id, e)
+
+    created_ws = await svc.create(workspace_summary, actor="seed")
+    log.info("[pack_inputs.seeds] created: %s", created_ws.id)

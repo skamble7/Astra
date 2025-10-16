@@ -19,6 +19,20 @@ from app.events.rabbit import get_bus, EventPublisher  # NEW
 logger = logging.getLogger("app.agent.nodes.input_resolver")
 
 
+def _json_preview(obj: Any, limit: int = 4000) -> str:
+    """
+    Best-effort compact preview for logging. Clipped to avoid massive log lines.
+    """
+    try:
+        s = obj if isinstance(obj, str) else json.dumps(obj, ensure_ascii=False)
+    except Exception:
+        try:
+            s = str(obj)
+        except Exception:
+            s = "<unserializable>"
+    return s[:limit] + ("…" if len(s) > limit else "")
+
+
 async def _try_call(method: Optional[TCallable[..., Awaitable[Any]]], *args, **kwargs) -> Optional[Any]:
     if not callable(method):
         return None
@@ -72,6 +86,44 @@ async def _resolve_agent_capabilities(
     return resolved
 
 
+async def _resolve_input_contract(
+    cap_client: CapabilityServiceClient,
+    *,
+    pack: Dict[str, Any],
+    input_id: Optional[str],
+) -> Optional[Dict[str, Any]]:
+    """
+    Find the concrete input contract document for the playbook.
+    Resolution order:
+      1) If pack already carries a resolved list under 'pack_inputs', pick by id.
+      2) If client exposes a getter, fetch by id.
+      3) Best-effort: return None (validation will be soft if schema missing).
+    """
+    if not input_id:
+        return None
+
+    # 1) Look inside the resolved pack (if present)
+    pack_inputs = pack.get("pack_inputs")
+    if isinstance(pack_inputs, list) and pack_inputs:
+        for it in pack_inputs:
+            if isinstance(it, dict) and it.get("id") == input_id:
+                return it
+
+    # 2) Try client methods (be liberal in method names)
+    candidates = [
+        getattr(cap_client, "get_pack_input", None),
+        getattr(cap_client, "get_input_contract", None),
+        getattr(cap_client, "get_run_input_contract", None),
+        getattr(cap_client, "get_form_by_id", None),
+    ]
+    for m in candidates:
+        doc = await _try_call(m, input_id)
+        if isinstance(doc, dict) and doc.get("id") == input_id:
+            return doc
+
+    return None
+
+
 def input_resolver_node(
     *,
     runs_repo: RunRepository,
@@ -90,6 +142,12 @@ def input_resolver_node(
         validations: List[Dict[str, Any]] = state.get("validations", [])
         request: Dict[str, Any] = state["request"]
         run_doc: Dict[str, Any] = state["run"]
+
+        # --- NEW: Log the full request object (clipped) so we can verify it's in state
+        try:
+            logger.info("[input_resolver] state.request %s", _json_preview(request, 4000))
+        except Exception:
+            logger.exception("[input_resolver] failed to log state.request preview")
 
         pack_id: str = request["pack_id"]
         playbook_id: str = request["playbook_id"]
@@ -129,20 +187,59 @@ def input_resolver_node(
         pack = await cap_client.get_pack_resolved(pack_id)
         state["pack"] = pack
 
-        try:
-            pack_preview = {
-                "pack_id": pack.get("pack_id") or pack_id,
-                "version": pack.get("version"),
-                "capability_ids_count": len(list(pack.get("capability_ids") or [])),
-                "agent_capability_ids_count": len(list(pack.get("agent_capability_ids") or [])),
-                "capabilities_count": len(pack.get("capabilities") or []),
-                "agent_capabilities_count": len(pack.get("agent_capabilities") or []),
-                "playbooks_count": len(pack.get("playbooks") or []),
-                "pack_input_id": pack.get("pack_input_id"),
-            }
-            logger.info("[input_resolver] pack_resolved %s", json.dumps(pack_preview, ensure_ascii=False))
-        except Exception:
-            logger.exception("[input_resolver] pack_resolved summary logging failed")
+        # --- Playbook presence check ----------------------------------------
+        pb = next((p for p in pack.get("playbooks", []) if p.get("id") == playbook_id), None)
+        if not pb:
+            msg = f"Playbook '{playbook_id}' not found in pack '{pack_id}'."
+            validations.append({"severity": "high", "message": msg})
+
+            await publisher.publish_once(
+                runs_repo=runs_repo,
+                run_id=run_id,
+                event="inputs.resolved",
+                payload={
+                    "run_id": str(run_id),
+                    "workspace_id": workspace_id,
+                    "playbook_id": playbook_id,
+                    "inputs_valid": False,
+                    "errors": [msg],
+                    "validations": validations,
+                    "input_fingerprint": None,
+                },
+                workspace_id=workspace_id,
+                playbook_id=playbook_id,
+                strategy=strategy,
+                emitter="input_resolver",
+                correlation_id=correlation_id,
+            )
+
+            state.update(
+                {
+                    "inputs_valid": False,
+                    "input_errors": [msg],
+                    "validations": validations,
+                    "logs": logs,
+                    "agent_capabilities": [],
+                    "agent_capabilities_map": {},
+                }
+            )
+            try:
+                logger.info(
+                    "[input_resolver] final_state early_failure %s",
+                    json.dumps(
+                        {
+                            "pack_id": pack_id,
+                            "playbook_id": playbook_id,
+                            "artifact_kinds_count": 0,
+                            "agent_capabilities_count": 0,
+                            "inputs_valid": False,
+                        },
+                        ensure_ascii=False,
+                    ),
+                )
+            except Exception:
+                logger.exception("[input_resolver] early_failure summary logging failed")
+            return state
 
         # --- Agent capability resolution (for agent-side enrichment, etc.) ---
         agent_caps: List[Dict[str, Any]] = []
@@ -170,62 +267,34 @@ def input_resolver_node(
             if isinstance(cid, str) and cid and cid not in agent_caps_map:
                 agent_caps_map[cid] = c
 
-        # --- Playbook presence check ----------------------------------------
-        pb = next((p for p in pack.get("playbooks", []) if p.get("id") == playbook_id), None)
-        if not pb:
-            msg = f"Playbook '{playbook_id}' not found in pack '{pack_id}'."
-            validations.append({"severity": "high", "message": msg})
+        # --- Pack & playbook input wiring (new model) ------------------------
+        pack_input_ids = list(pack.get("pack_input_ids") or [])
+        playbook_input_id: Optional[str] = pb.get("input_id")
 
-            # inputs.resolved (failure)
-            await publisher.publish_once(
-                runs_repo=runs_repo,
-                run_id=run_id,
-                event="inputs.resolved",
-                payload={
-                    "run_id": str(run_id),
-                    "workspace_id": workspace_id,
-                    "playbook_id": playbook_id,
-                    "inputs_valid": False,
-                    "errors": [msg],
-                    "validations": validations,
-                    "input_fingerprint": None,
-                },
-                workspace_id=workspace_id,
-                playbook_id=playbook_id,
-                strategy=strategy,
-                emitter="input_resolver",
-                correlation_id=correlation_id,
-            )
+        try:
+            pack_preview = {
+                "pack_id": pack.get("pack_id") or pack_id,
+                "version": pack.get("version"),
+                "capability_ids_count": len(list(pack.get("capability_ids") or [])),
+                "agent_capability_ids_count": len(list(pack.get("agent_capability_ids") or [])),
+                "capabilities_count": len(pack.get("capabilities") or []),
+                "agent_capabilities_count": len(pack.get("agent_capabilities") or []),
+                "playbooks_count": len(pack.get("playbooks") or []),
+                "pack_input_ids_count": len(pack_input_ids),
+                "playbook_input_id": playbook_input_id,
+            }
+            logger.info("[input_resolver] pack_resolved %s", json.dumps(pack_preview, ensure_ascii=False))
+        except Exception:
+            logger.exception("[input_resolver] pack_resolved summary logging failed")
 
-            state.update(
-                {
-                    "inputs_valid": False,
-                    "input_errors": [msg],
-                    "validations": validations,
-                    "logs": logs,
-                    "agent_capabilities": agent_caps,
-                    "agent_capabilities_map": agent_caps_map,
-                }
-            )
-            try:
-                logger.info(
-                    "[input_resolver] final_state early_failure %s",
-                    json.dumps(
-                        {
-                            "pack_id": pack_id,
-                            "playbook_id": playbook_id,
-                            "artifact_kinds_count": 0,
-                            "agent_capabilities_count": len(agent_caps),
-                            "inputs_valid": False,
-                        },
-                        ensure_ascii=False,
-                    ),
-                )
-            except Exception:
-                logger.exception("[input_resolver] early_failure summary logging failed")
-            return state
+        # Validate playbook.input_id against pack.pack_input_ids
+        if playbook_input_id and pack_input_ids and playbook_input_id not in pack_input_ids:
+            validations.append({
+                "severity": "high",
+                "message": f"Playbook input_id '{playbook_input_id}' is not listed in pack.pack_input_ids."
+            })
 
-        # --- Artifact kind specs (union from playbook capabilities) ----------
+        # --- Artifact kind specs (union from pack capabilities) --------------
         caps: List[Dict[str, Any]] = pack.get("capabilities", []) or []
         produces: List[str] = []
         for c in caps:
@@ -258,34 +327,19 @@ def input_resolver_node(
         if failures:
             validations.append({"severity": "high", "message": f"Failed to load {failures} artifact kind spec(s)"})
 
-        # --- NEW: compact artifact_kinds catalog dump for visibility ----------
-        try:
-            catalog = [
-                {
-                    "id": k,
-                    "latest": (v or {}).get("latest_schema_version"),
-                    "has_prompt_system": bool(
-                        next(
-                            (
-                                sv.get("prompt", {}).get("system")
-                                for sv in (v or {}).get("schema_versions", [])
-                                if sv.get("version") == (v or {}).get("latest_schema_version")
-                            ),
-                            None,
-                        )
-                    ),
-                }
-                for k, v in kinds_map.items()
-            ]
-            logger.info("[input_resolver] artifact_kinds.catalog %s", json.dumps(catalog, ensure_ascii=False))
-        except Exception:
-            logger.exception("[input_resolver] failed to log artifact_kinds catalog")
-
-        # --- Input validation against pack_input schema ----------------------
-        pack_input = pack.get("pack_input") or {}
-        json_schema = (pack_input.get("json_schema") or {})
+        # --- Input validation against the selected input contract ------------
         errors: List[str] = []
         inputs_valid = True
+
+        input_contract = await _resolve_input_contract(cap_client, pack=pack, input_id=playbook_input_id)
+        if not input_contract:
+            validations.append({
+                "severity": "low",
+                "message": "Input contract not found/resolved; skipping strict validation."
+            })
+            json_schema = {}
+        else:
+            json_schema = (input_contract.get("json_schema") or {})
 
         if json_schema:
             try:
@@ -298,7 +352,8 @@ def input_resolver_node(
                 inputs_valid = False
                 errors.append(ve.message)
         else:
-            validations.append({"severity": "low", "message": "Pack input schema missing; skipping strict validation."})
+            # no schema -> keep inputs_valid True but note it
+            validations.append({"severity": "low", "message": "Pack/playbook input schema missing; skipping strict validation."})
 
         # Fingerprint only if valid to avoid misleading hashes
         fingerprint = sha256_fingerprint(inputs) if inputs_valid else None
@@ -318,10 +373,14 @@ def input_resolver_node(
         if steps_for_db:
             await runs_repo.init_steps(run_id, steps_for_db)
 
-        # Persist run input metadata
+        # Persist run input metadata (store the concrete playbook-level input_id)
         await runs_repo._col.update_one(  # using DAL's collection per current design
             {"run_id": str(run_id)},
-            {"$set": {"pack_input_id": pack.get("pack_input_id"), "inputs": inputs, "input_fingerprint": fingerprint}},
+            {"$set": {
+                "pack_input_id": playbook_input_id,  # keep name for backward-compat; value now sourced from playbook.input_id
+                "inputs": inputs,
+                "input_fingerprint": fingerprint
+            }},
         )
 
         logger.info(
@@ -344,6 +403,9 @@ def input_resolver_node(
                 "errors": errors,
                 "validations": validations,
                 "input_fingerprint": fingerprint,
+                # optional visibility:
+                "pack_input_ids": pack_input_ids,
+                "playbook_input_id": playbook_input_id,
             },
             workspace_id=workspace_id,
             playbook_id=playbook_id,
@@ -378,6 +440,7 @@ def input_resolver_node(
                 "artifact_kinds_count": len(kinds_map),
                 "inputs_keys": sorted(list(inputs.keys())),
                 "inputs_valid": inputs_valid,
+                "playbook_input_id": playbook_input_id,
             }
             logger.info("[input_resolver] handoff %s", json.dumps(summary, ensure_ascii=False))
         except Exception:

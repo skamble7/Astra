@@ -43,7 +43,8 @@ class PackDAL:
             "version": payload.version,
             "title": payload.title,
             "description": payload.description,
-            "pack_input_id": getattr(payload, "pack_input_id", None),
+            # CHANGED: plural inputs
+            "pack_input_ids": getattr(payload, "pack_input_ids", None) or [],
             "capability_ids": payload.capability_ids or [],
             # NEW: persist agent-scoped capability ids
             "agent_capability_ids": getattr(payload, "agent_capability_ids", None) or [],

@@ -18,7 +18,6 @@ class ResolvedPlaybookStep(BaseModel):
     id: str
     name: str
     capability_id: str
-    params: dict = Field(default_factory=dict)
 
     execution_mode: ExecutionMode
     produces_kinds: List[str] = Field(default_factory=list)
@@ -30,6 +29,8 @@ class ResolvedPlaybook(BaseModel):
     id: str
     name: str
     description: Optional[str] = None
+    # Mirrors Playbook.input_id
+    input_id: Optional[str] = None
     steps: List[ResolvedPlaybookStep] = Field(default_factory=list)
 
 
@@ -37,8 +38,8 @@ class ResolvedPackView(BaseModel):
     """
     Full resolved view for executors/UI:
       - pack header
-      - pack_input_id (declares which registered input shape can trigger this pack)
-      - pack_input (full PackInput definition; optional if not found)
+      - pack_input_ids (declare which registered input shapes can trigger this pack)
+      - pack_inputs (full PackInput definitions; optional if not found)
       - capability_ids (as stored on the pack; used by playbook steps)
       - agent_capability_ids (ids of capabilities the agent may use outside steps)
       - capabilities: full GlobalCapability documents for capability_ids (ordered)
@@ -51,8 +52,8 @@ class ResolvedPackView(BaseModel):
     title: str
     description: str
 
-    pack_input_id: Optional[str] = None
-    pack_input: Optional[PackInput] = None
+    pack_input_ids: List[str] = Field(default_factory=list)
+    pack_inputs: List[PackInput] = Field(default_factory=list)
 
     capability_ids: List[str] = Field(default_factory=list)
     agent_capability_ids: List[str] = Field(default_factory=list)

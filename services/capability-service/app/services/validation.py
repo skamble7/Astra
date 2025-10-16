@@ -15,3 +15,17 @@ def ensure_pack_capabilities_exist(pack: CapabilityPack, existing_capability_ids
     missing = missing_steps + missing_agent
     if missing:
         raise ValueError(f"Unknown capability ids in pack: {missing}")
+
+
+def ensure_playbook_inputs_valid(pack: CapabilityPack) -> None:
+    """
+    Invariant: if a playbook specifies input_id, it MUST be a member of pack.pack_input_ids.
+    """
+    allowed = set(getattr(pack, "pack_input_ids", []) or [])
+    if not pack.playbooks:
+        return
+    for pb in pack.playbooks:
+        if getattr(pb, "input_id", None) and pb.input_id not in allowed:
+            raise ValueError(
+                f"Playbook '{pb.name}' input_id '{pb.input_id}' is not in pack_input_ids {sorted(allowed)}"
+            )

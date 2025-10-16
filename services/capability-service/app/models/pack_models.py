@@ -16,13 +16,15 @@ class PlaybookStep(BaseModel):
     name: str
     capability_id: str
     description: Optional[str] = None
-    params: Dict[str, Any] = Field(default_factory=dict)
+    # REMOVED: params (step-level params are redundant with capability execution config)
 
 
 class Playbook(BaseModel):
     id: str
     name: str
     description: Optional[str] = None
+    # NEW: input_id per playbook (must be in pack_input_ids)
+    input_id: Optional[str] = None
     steps: List[PlaybookStep] = Field(default_factory=list)
 
 
@@ -43,17 +45,16 @@ class CapabilityPack(BaseModel):
     title: str
     description: str
 
-    # Reference to a registered pack input contract (optional)
-    pack_input_id: Optional[str] = Field(
-        default=None,
-        description="Id of a PackInput in the registry. Declares the input contract needed to run this pack."
+    # CHANGED: Reference to registered pack input contracts (plural)
+    pack_input_ids: List[str] = Field(
+        default_factory=list,
+        description="Ids of PackInputs in the registry. Declare the input contracts allowed to trigger this pack."
     )
 
     # Capabilities referenced by playbooks (used within steps)
     capability_ids: List[str] = Field(default_factory=list)
 
-    # NEW: Capabilities the agent may use outside explicit playbook steps
-    # (e.g., preparation, orchestration, cross-cutting utilities).
+    # Capabilities the agent may use outside explicit playbook steps
     agent_capability_ids: List[str] = Field(
         default_factory=list,
         description="Capability ids required by the agent to execute the pack (not necessarily used as playbook steps)."
@@ -78,13 +79,13 @@ class CapabilityPackCreate(BaseModel):
     version: str
     title: str
     description: str
-    pack_input_id: Optional[str] = Field(
-        default=None,
-        description="Id of a PackInput in the registry."
-    )
+
+    # CHANGED: plural inputs at creation time
+    pack_input_ids: List[str] = Field(default_factory=list)
+
     capability_ids: List[str] = Field(default_factory=list)
 
-    # NEW: include agent-scoped capability ids at creation time
+    # include agent-scoped capability ids at creation time
     agent_capability_ids: List[str] = Field(
         default_factory=list,
         description="Capability ids needed by the agent (outside of playbook steps)."
@@ -96,10 +97,11 @@ class CapabilityPackCreate(BaseModel):
 class CapabilityPackUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
-    pack_input_id: Optional[str] = None
-    capability_ids: Optional[List[str]] = None
 
-    # NEW: allow patching agent-scoped capability ids
+    # CHANGED: plural inputs at update time
+    pack_input_ids: Optional[List[str]] = None
+
+    capability_ids: Optional[List[str]] = None
     agent_capability_ids: Optional[List[str]] = None
 
     playbooks: Optional[List[Playbook]] = None

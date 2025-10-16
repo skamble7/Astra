@@ -319,6 +319,23 @@ def llm_execution_node(*, runs_repo: RunRepository):
 
                 user_prompt, json_schema = _mk_user_prompt(kind_id, schema_entry, dep_payload)
 
+                # >>> Append RUN INPUTS to the user prompt (authoritative request inputs: avc/fss/pss/etc.)
+                try:
+                    run_inputs = ((state.get("request") or {}).get("inputs") or {})
+                    def _clip(s: str, n: int = 24000) -> str:
+                        try:
+                            return s if len(s) <= n else (s[:n] + "…")
+                        except Exception:
+                            return s
+                    user_prompt += (
+                        "\n\n=== RUN INPUTS (authoritative, from request.inputs) ===\n"
+                        + _clip(json.dumps(run_inputs, ensure_ascii=False))
+                        + "\n"
+                    )
+                except Exception:
+                    # Non-fatal; proceed without RUN INPUTS if something goes wrong
+                    logger.exception("[llm] failed to append RUN INPUTS for kind=%s", kind_id)
+
                 # Per-kind visibility
                 try:
                     logger.info(

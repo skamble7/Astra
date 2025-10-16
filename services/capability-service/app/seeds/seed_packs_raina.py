@@ -85,98 +85,84 @@ async def seed_packs_raina() -> None:
     # Remove any existing pack@version to ensure clean replace
     await _delete_pack_if_exists(svc, pack_key, pack_version)
 
-    # Playbook (exact flow from RainaV2 with minimal params; keep ids stable)
+    # Playbook (exact flow from RainaV2; step params removed per refactor)
     pb_micro_plus = Playbook(
         id="pb.micro.plus",
         name="Microservices Discovery (Lean v1.4)",
         description="Essentials-only flow using validated CAM kinds.",
+        input_id=pack_input_id,  # NEW: must be a member of pack_input_ids
         steps=[
             PlaybookStep(
                 id="ctx-1",
                 name="Discover Context Map",
                 capability_id="cap.discover.context_map",
                 description=None,
-                params={},
             ),
             PlaybookStep(
                 id="dict-1",
                 name="Domain Dictionary",
                 capability_id="cap.data.dictionary",
                 description=None,
-                params={},
             ),
             PlaybookStep(
                 id="svc-1",
                 name="Build Service Catalog",
                 capability_id="cap.catalog.services",
                 description=None,
-                params={},
             ),
             PlaybookStep(
                 id="erd-1",
                 name="Generate Class/ER Diagram",
                 capability_id="cap.generate.class_diagram",
                 description=None,
-                params={},
             ),
             PlaybookStep(
                 id="act-1",
                 name="Key Flows (Activity)",
                 capability_id="cap.diagram.activity",
                 description=None,
-                params={
-                    # Optional guidance example from the pack; keep lightweight
-                    "flows": ["Card Activation", "Refund"],
-                },
             ),
             PlaybookStep(
                 id="evt-1",
                 name="Event Contracts",
                 capability_id="cap.contracts.event",
                 description=None,
-                params={},
             ),
             PlaybookStep(
                 id="api-1",
                 name="API Contracts",
                 capability_id="cap.contracts.api",
                 description=None,
-                params={},
             ),
             PlaybookStep(
                 id="data-1",
                 name="Logical Data Model",
                 capability_id="cap.data.model",
                 description=None,
-                params={},
             ),
             PlaybookStep(
                 id="dep-1",
                 name="Deployment View",
                 capability_id="cap.diagram.deployment",
                 description=None,
-                params={},
             ),
             PlaybookStep(
                 id="inv-1",
                 name="Service Inventory",
                 capability_id="cap.asset.service_inventory",
                 description=None,
-                params={},
             ),
             PlaybookStep(
                 id="inv-2",
                 name="Dependency Inventory",
                 capability_id="cap.asset.dependency_inventory",
                 description=None,
-                params={},
             ),
             PlaybookStep(
                 id="inv-3",
                 name="API Inventory",
                 capability_id="cap.asset.api_inventory",
                 description=None,
-                params={},
             ),
         ],
     )
@@ -205,7 +191,7 @@ async def seed_packs_raina() -> None:
             "Focused microservices discovery using only validated CAM kinds: "
             "context → services → interactions → contracts → data → deployment → inventories."
         ),
-        pack_input_id=pack_input_id,
+        pack_input_ids=[pack_input_id],  # CHANGED: collection form
         capability_ids=capability_ids,
         # No agent-only capabilities specified for this pack; add later if needed
         agent_capability_ids=["cap.diagram.mermaid"],
