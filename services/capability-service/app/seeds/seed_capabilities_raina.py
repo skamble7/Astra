@@ -1,4 +1,4 @@
-# services/capability-registry/app/seeds/capabilities_raina.py
+# services/capability-service/app/seeds/seed_capabilities_raina.py
 from __future__ import annotations
 
 import logging

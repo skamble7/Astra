@@ -2,47 +2,53 @@
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime
-from typing import Dict, Any, Set, List
+from typing import Dict, Any, Set, List, Tuple
 
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.dal.kind_registry_dal import KINDS, upsert_kind, ensure_registry_indexes
 from app.seeds.seed_categories import ensure_categories_seed
 
-# Import BOTH seed sources:
-# - The existing Astra seed (e.g., COBOL/domain seeds)
-# - The new Raina→Astra seed (non-diagram kinds you asked to port)
+# Seed sources (ordered by precedence: earlier wins on _id conflicts)
 from app.seeds.seed_registry import KIND_DOCS as ASTRA_KIND_DOCS
-from app.seeds.seed_registry_raina import docs as RAINA_KIND_DOCS  # list of dicts
+# from app.seeds.seed_registry_raina import docs as RAINA_KIND_DOCS
+from app.seeds.seed_data_pipeline_registry import KIND_DOCS as DATA_PIPELINE_KIND_DOCS
 
 log = logging.getLogger(__name__)
 
+OVERWRITE_ALL = os.getenv("ASTRA_SEED_OVERWRITE", "").strip() in {"1", "true", "True", "yes"}
+FORCE_DATA_PIPELINE = os.getenv("ASTRA_SEED_FORCE_DATAPIPELINE", "").strip() in {"1", "true", "True", "yes"}
 
-def _combine_and_dedupe_kind_docs() -> List[Dict[str, Any]]:
+
+def _combine_and_dedupe_kind_docs() -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
     """
-    Merge KIND_DOCS from the existing Astra seed and the new Raina→Astra seed.
-    If there are duplicate _id values, keep the FIRST occurrence (Astra seed wins),
-    then append the rest from the Raina seed.
+    Merge KIND_DOCS from multiple seed sources in precedence order.
+    If duplicate _id values exist, keep the FIRST occurrence.
+    Returns (combined_docs, counts_by_name)
     """
+    # Name each source explicitly so logging is stable even if some are commented out.
+    sources: List[Tuple[str, List[Dict[str, Any]]]] = [
+        ("astra", ASTRA_KIND_DOCS),
+        # ("raina", RAINA_KIND_DOCS),
+        ("data_pipeline", DATA_PIPELINE_KIND_DOCS),
+    ]
+
+    counts: Dict[str, int] = {}
     combined: List[Dict[str, Any]] = []
     seen: Set[str] = set()
 
-    # Astra seed first (existing canonical kinds)
-    for d in ASTRA_KIND_DOCS:
-        _id = d.get("_id")
-        if _id and _id not in seen:
+    for name, src in sources:
+        counts[name] = len(src)
+        for d in src:
+            _id = d.get("_id")
+            if not _id or _id in seen:
+                continue
             combined.append(d)
             seen.add(_id)
 
-    # Then add Raina→Astra non-diagram kinds
-    for d in RAINA_KIND_DOCS:
-        _id = d.get("_id")
-        if _id and _id not in seen:
-            combined.append(d)
-            seen.add(_id)
-
-    return combined
+    return combined, counts
 
 
 def _kind_ids(docs: List[Dict[str, Any]]) -> List[str]:
@@ -52,39 +58,72 @@ def _kind_ids(docs: List[Dict[str, Any]]) -> List[str]:
 async def ensure_registry_seed(db: AsyncIOMotorDatabase) -> Dict[str, Any]:
     """
     Ensures all canonical kind documents exist in the registry.
-    Behavior:
-      - Insert only the missing kinds (do NOT mass overwrite existing docs).
-      - Adds created_at/updated_at if absent.
-      - Merges Astra + Raina (non-diagram) seeds.
+
+    Default: insert only missing kinds (no overwrite).
+    Env flags:
+      - ASTRA_SEED_OVERWRITE=1 → overwrite (upsert) all desired docs.
+      - ASTRA_SEED_FORCE_DATAPIPELINE=1 → only seed Data-Pipeline kinds.
     """
     await ensure_registry_indexes(db)
     col = db[KINDS]
 
-    desired_docs = _combine_and_dedupe_kind_docs()
+    desired_docs, counts = _combine_and_dedupe_kind_docs()
+
+    if FORCE_DATA_PIPELINE:
+        desired_docs = list(DATA_PIPELINE_KIND_DOCS)  # copy
+        log.warning("ASTRA_SEED_FORCE_DATAPIPELINE=1 → only seeding Data-Pipeline kinds (%d)", len(desired_docs))
+
     desired_ids = set(_kind_ids(desired_docs))
     existing: Set[str] = {d["_id"] async for d in col.find({}, {"_id": 1})}
-    missing_ids = [k for k in desired_ids if k not in existing]
 
-    # Map for quick access
+    if OVERWRITE_ALL:
+        target_ids = sorted(desired_ids)
+        mode = "overwrite"
+    else:
+        missing_ids = sorted(k for k in desired_ids if k not in existing)
+        target_ids = missing_ids
+        mode = "fresh" if not existing else ("partial" if missing_ids else "skip")
+
+    log.info(
+        "Seed sources: astra=%d, data_pipeline=%d (combined unique=%d). Existing in DB=%d.",
+        counts.get("astra", 0),
+        counts.get("data_pipeline", 0),
+        len(desired_ids),
+        len(existing),
+    )
+    if not OVERWRITE_ALL and target_ids:
+        log.info("Missing (to seed) [%d]: %s", len(target_ids), ", ".join(target_ids[:50]) + ("..." if len(target_ids) > 50 else ""))
+    elif not OVERWRITE_ALL and not target_ids:
+        log.info("No missing kinds detected; nothing to seed.")
+
     by_id: Dict[str, Dict[str, Any]] = {d["_id"]: d for d in desired_docs}
 
     seeded = 0
     now = datetime.utcnow()
 
-    for kind_id in missing_ids:
+    for kind_id in target_ids:
         doc = dict(by_id[kind_id])  # shallow copy
-        # Ensure common timestamps if not present
         doc.setdefault("created_at", now)
         doc["updated_at"] = now
         await upsert_kind(db, doc)
         seeded += 1
 
-    mode = "fresh" if not existing else ("partial" if missing_ids else "skip")
     log.info(
-        "Kind registry seed: mode=%s existing=%d seeded=%d (desired_total=%d)",
+        "Kind registry seed: mode=%s existing=%d upserts=%d (desired_total=%d)",
         mode, len(existing), seeded, len(desired_ids)
     )
-    return {"mode": mode, "existing": len(existing), "seeded": seeded, "desired": len(desired_ids)}
+    if seeded and (OVERWRITE_ALL or FORCE_DATA_PIPELINE):
+        log.debug("Upserted kind ids: %s", ", ".join(target_ids))
+
+    return {
+        "mode": mode,
+        "existing": len(existing),
+        "seeded": seeded,
+        "desired": len(desired_ids),
+        "sources": counts,
+        "force_data_pipeline": FORCE_DATA_PIPELINE,
+        "overwrite_all": OVERWRITE_ALL,
+    }
 
 
 async def ensure_all_seeds(db: AsyncIOMotorDatabase) -> Dict[str, Any]:

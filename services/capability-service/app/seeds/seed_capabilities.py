@@ -475,6 +475,140 @@ async def seed_capabilities() -> None:
         ),
 
         # ---------------------------------------------------------------------
+        # NEW: cap.cobol.workspace_doc (HTTP MCP, blocking tool)
+        # ---------------------------------------------------------------------
+        GlobalCapabilityCreate(
+            id="cap.cobol.workspace_doc",
+            name="Generate COBOL Workspace Document",
+            description="Generates a Markdown document summarizing COBOL artifacts in a workspace and emits cam.asset.cobol_artifacts_summary with storage and (optionally pre-signed) download info.",
+            tags=["cobol", "docs", "summary", "mcp"],
+            parameters_schema=None,
+            produces_kinds=["cam.asset.cobol_artifacts_summary"],
+            agent=None,
+            execution=McpExecution(
+                mode="mcp",
+                transport=HTTPTransport(
+                    kind="http",
+                    base_url="http://host.docker.internal:8002",
+                    headers={},
+                    auth={"method": "none"},
+                    timeout_sec=180,
+                    verify_tls=False,
+                    retry={"max_attempts": 2, "backoff_ms": 250, "jitter_ms": 50},
+                    health_path="/health",
+                    protocol_path="/mcp",
+                ),
+                tool_calls=[
+                    ToolCallSpec(
+                        tool="generate.workspace.document",
+                        args_schema={
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["workspace_id"],
+                            "properties": {
+                                "workspace_id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "description": "Workspace identifier whose artifacts should be summarized.",
+                                },
+                                "kind_id": {
+                                    "type": "string",
+                                    "const": "cam.asset.cobol_artifacts_summary",
+                                    "description": "Driver kind for the document generation.",
+                                },
+                            },
+                        },
+                        output_kinds=["cam.asset.cobol_artifacts_summary"],
+                        result_schema=None,
+                        timeout_sec=LONG_TIMEOUT,
+                        retries=1,
+                        expects_stream=False,
+                        cancellable=True,
+                    )
+                ],
+                discovery={"validate_tools": True, "validate_resources": False, "validate_prompts": False, "fail_fast": True},
+                connection={"singleton": True, "share_across_steps": True},
+                io=ExecutionIO(
+                    input_contract=ExecutionInput(
+                        json_schema={
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["workspace_id"],
+                            "properties": {
+                                "workspace_id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "description": "Workspace identifier to summarize.",
+                                    "examples": ["0084b4c5-b11b-44d3-8ec3-d616dfa3e873"],
+                                },
+                                "kind_id": {
+                                    "type": "string",
+                                    "const": "cam.asset.cobol_artifacts_summary",
+                                    "description": "Fixed to the COBOL workspace document kind.",
+                                },
+                            },
+                        },
+                        schema_guide=(
+                            "Call the MCP server to generate a single Markdown document summarizing COBOL artifacts for the given workspace.\n"
+                            "- **workspace_id** (required): The workspace whose artifacts will be summarized.\n"
+                            "- **kind_id** (fixed): `cam.asset.cobol_artifacts_summary`."
+                        ),
+                    ),
+                    output_contract=ExecutionOutputContract(
+                        artifact_type="cam",
+                        kinds=["cam.asset.cobol_artifacts_summary"],
+                        result_schema=None,
+                        extra_schema={
+                            "type": "object",
+                            "additionalProperties": True,
+                            "properties": {
+                                "name": {"type": ["string", "null"]},
+                                "description": {"type": ["string", "null"]},
+                                "filename": {"type": ["string", "null"]},
+                                "path": {"type": ["string", "null"]},
+                                "storage_uri": {"type": ["string", "null"]},
+                                "download_url": {"type": ["string", "null"], "format": "uri"},
+                                "download_expires_at": {"type": ["string", "null"], "format": "date-time"},
+                                "size_bytes": {"type": ["integer", "string", "null"]},
+                                "mime_type": {"type": ["string", "null"]},
+                                "encoding": {"type": ["string", "null"]},
+                                "checksum": {
+                                    "type": ["object", "null"],
+                                    "additionalProperties": True,
+                                    "properties": {
+                                        "md5": {"type": ["string", "null"]},
+                                        "sha1": {"type": ["string", "null"]},
+                                        "sha256": {"type": ["string", "null"]},
+                                    },
+                                },
+                                "source_system": {"type": ["string", "null"]},
+                                "tags": {"type": ["array", "null"], "items": {"type": "string"}},
+                                "created_at": {"type": ["string", "null"], "format": "date-time"},
+                                "updated_at": {"type": ["string", "null"], "format": "date-time"},
+                                "preview": {
+                                    "type": ["object", "null"],
+                                    "additionalProperties": True,
+                                    "properties": {
+                                        "thumbnail_url": {"type": ["string", "null"], "format": "uri"},
+                                        "text_excerpt": {"type": ["string", "null"]},
+                                        "page_count": {"type": ["integer", "string", "null"]},
+                                    },
+                                },
+                                "metadata": {"type": ["object", "null"], "additionalProperties": True},
+                            },
+                        },
+                        schema_guide=(
+                            "The MCP server returns one artifact of kind `cam.asset.cobol_artifacts_summary` with file metadata and links:\n"
+                            "- `storage_uri` (e.g., `s3://astra-docs/<key>`) and `download_url` (may be pre-signed).\n"
+                            "- If pre-signed, `download_expires_at` may be present; consumers should respect it.\n"
+                            "- Other fields include `filename`, `path`, `size_bytes`, `mime_type`, `encoding`, and checksums."
+                        ),
+                    ),
+                ),
+            ),
+        ),
+
+        # ---------------------------------------------------------------------
         # NEW: cap.mermaid.generate (HTTP MCP, freeform output contract)
         # ---------------------------------------------------------------------
         GlobalCapabilityCreate(
