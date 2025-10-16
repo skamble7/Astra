@@ -83,10 +83,14 @@ def _views_for_kind(kind_spec: Dict[str, Any]) -> List[str]:
 
 
 def _select_artifacts_for_step(*, staged: List[Dict[str, Any]], step_id: Optional[str]) -> List[Dict[str, Any]]:
-    if not staged:
+    """
+    STRICT SCOPING: Only return artifacts produced in the current step.
+    Never fall back to all staged artifacts; that caused cross-step leakage.
+    """
+    if not staged or not step_id:
         return []
     tagged = [a for a in staged if isinstance(a, dict) and a.get("produced_in_step_id") == step_id]
-    return tagged if tagged else staged[:]
+    return tagged
 
 
 def _json_sample(val: Any, limit: int = 1000) -> str:
@@ -133,8 +137,8 @@ def diagram_enrichment_node(*, runs_repo: RunRepository):
 
         artifacts = _select_artifacts_for_step(staged=staged, step_id=current_step_id)
         if not artifacts:
-            note = "No staged artifacts available to diagram; enrichment skipped."
-            logger.info("[enrich] skip reason=no_artifacts step_id=%s", current_step_id)
+            note = "No staged artifacts for current step; enrichment skipped."
+            logger.info("[enrich] skip reason=no_artifacts_for_step step_id=%s", current_step_id)
             return Command(
                 goto="capability_executor",
                 update={

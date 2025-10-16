@@ -406,23 +406,38 @@ def mcp_execution_node(*, runs_repo: RunRepository):
                 metrics={"mode": "mcp", "duration_ms": duration_ms_total, "artifact_count": len(all_artifacts)},
             )
 
+            # ---- annotate artifacts with step_id (and normalize kind_id) before staging
+            annotated: List[Dict[str, Any]] = []
+            for a in all_artifacts:
+                na = dict(a)
+                na.setdefault("produced_in_step_id", step_id)
+                # normalize kind id for downstream consumers
+                if "kind_id" not in na:
+                    if isinstance(na.get("kind"), str):
+                        na["kind_id"] = na["kind"]
+                    elif isinstance(na.get("_kind"), str):
+                        na["kind_id"] = na["_kind"]
+                    elif isinstance(na.get("artifact_kind"), str):
+                        na["kind_id"] = na["artifact_kind"]
+                annotated.append(na)
+
             # concise handoff summary
             logger.info(
                 "[mcp] handoff step_id=%s cap_id=%s tool=%s calls=%d artifacts=%d pages=%d duration_ms=%d",
-                step_id, cap_id, tool_name, len(call_audits), len(all_artifacts), pages_fetched, duration_ms_total
+                step_id, cap_id, tool_name, len(call_audits), len(annotated), pages_fetched, duration_ms_total
             )
 
             return Command(
                 goto="capability_executor",
                 update={
                     "dispatch": {},
-                    "staged_artifacts": (state.get("staged_artifacts") or []) + all_artifacts,
+                    "staged_artifacts": (state.get("staged_artifacts") or []) + annotated,
                     "last_mcp_summary": {
                         "tool_calls": [
                             {"name": c.tool_name, "status": c.status, "duration_ms": c.duration_ms}
                             for c in call_audits
                         ],
-                        "artifact_count": len(all_artifacts),
+                        "artifact_count": len(annotated),
                         "completed_step_id": step_id,
                         "pages_fetched": pages_fetched,
                     },

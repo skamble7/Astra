@@ -409,6 +409,7 @@ def llm_execution_node(*, runs_repo: RunRepository):
                             {
                                 "kind": kind_id,
                                 "data": data_obj,
+                                "produced_in_step_id": step_id,  # <-- tag for strict enrichment scoping
                                 "provenance": {
                                     "step_id": step_id,
                                     "capability_id": cap_id,
