@@ -15,7 +15,12 @@ async def seed_data_pipeline_packs() -> None:
     Seeds the Data Engineering Architecture Discovery capability pack.
 
     Pack key: data-pipeline-arch@v1.0
-    Depends on pack input: input.astra.discovery.avc-fss-pss
+    Adds pack inputs:
+      - input.astra.discovery.avc-fss-pss
+      - input.data-eng.architecture-guide
+    Updates existing playbook (pb.data-arch.v1) to use input.astra.discovery.avc-fss-pss.
+    Adds a new guidance playbook (pb.data-arch.guidance.v1) that runs cap.data-eng.generate-arch-diagram
+    with input.data-eng.architecture-guide.
     """
     svc = PackService()  # ✅ fixed class name
 
@@ -29,9 +34,14 @@ async def seed_data_pipeline_packs() -> None:
         description=(
             "Generates an implementation-ready data pipeline architecture from AVC/FSS/PSS inputs, including patterns "
             "(batch/stream/lambda/event-driven), dataset contracts, transformations, lineage, governance, SLAs/observability, "
-            "orchestration, topology, tech stack ranking, data products, and a concrete deployment plan."
+            "orchestration, topology, tech stack ranking, data products, a concrete deployment plan, and an optional "
+            "architecture guidance document grounded in discovered artifacts."
         ),
-        pack_input_id="input.astra.discovery.avc-fss-pss",
+        # ⬇️ switched from single `pack_input_id` to plural `pack_input_ids`
+        pack_input_ids=[
+            "input.astra.discovery.avc-fss-pss",
+            "input.data-eng.architecture-guide",
+        ],
         capability_ids=[
             "cap.inventory.sources_sinks",
             "cap.discover.business_flows",
@@ -53,6 +63,8 @@ async def seed_data_pipeline_packs() -> None:
             "cap.catalog.data_products",
             "cap.assemble.pipeline_architecture",
             "cap.plan.deployment",
+            # ⬇️ include the new guidance capability so playbook can reference it
+            "cap.data-eng.generate-arch-diagram",
         ],
         agent_capability_ids=[
             "cap.diagram.mermaid",
@@ -66,6 +78,8 @@ async def seed_data_pipeline_packs() -> None:
                     "lineage → governance & security → SLAs/observability → topology → stack ranking → data products → "
                     "assembly → deployment plan."
                 ),
+                # ⬇️ updated to use the discovery input contract
+                "input_id": "input.astra.discovery.avc-fss-pss",
                 "steps": [
                     {"id": "src-1", "name": "Inventory Sources & Sinks", "capability_id": "cap.inventory.sources_sinks"},
                     {"id": "flow-1", "name": "Discover Business Flows", "capability_id": "cap.discover.business_flows"},
@@ -88,7 +102,24 @@ async def seed_data_pipeline_packs() -> None:
                     {"id": "asm-1", "name": "Assemble Pipeline Architecture", "capability_id": "cap.assemble.pipeline_architecture"},
                     {"id": "dep-1", "name": "Deployment Plan", "capability_id": "cap.plan.deployment"},
                 ],
-            }
+            },
+            # ⬇️ NEW guidance playbook that runs the single MCP capability
+            {
+                "id": "pb.data-arch.guidance.v1",
+                "name": "Data Pipeline Architecture Guidance (v1)",
+                "description": (
+                    "Generate a comprehensive, prose-style architecture guidance document grounded in the artifacts "
+                    "produced by the discovery flow (patterns, datasets, lineage, SLAs, topology, etc.)."
+                ),
+                "input_id": "input.data-eng.architecture-guide",
+                "steps": [
+                    {
+                        "id": "guide-1",
+                        "name": "Generate Architecture Guidance Document",
+                        "capability_id": "cap.data-eng.generate-arch-diagram",
+                    }
+                ],
+            },
         ],
         status="published",
         created_by="seed",

@@ -14,8 +14,9 @@ async def seed_pack_inputs() -> None:
 
     - Keeps (and replaces-by-id) the Renova input contract (form-based).
     - Keeps (and replaces-by-id) the Astra Discovery input contract with a form-style root {"inputs": ...}.
-    - ADDS a new Renova Workspace Summary input contract for generating a COBOL artifacts summary
-      Markdown document for a given workspace.
+    - Keeps (and replaces-by-id) the Renova Workspace Summary input contract for generating a COBOL artifacts summary.
+    - ADDS a new Data Engineering Architecture Guidance input contract that targets
+      cam.documents.data-pipeline-arch-guidance and is used to drive the MCP-based document generation.
     """
     svc = PackInputService()
 
@@ -321,7 +322,7 @@ async def seed_pack_inputs() -> None:
     log.info("[pack_inputs.seeds] created: %s", created_discovery.id)
 
     # ─────────────────────────────────────────────────────────────
-    # NEW: Renova – COBOL Workspace Summary (REPLACE-BY-ID)
+    # Renova – COBOL Workspace Summary (REPLACE-BY-ID)
     # ─────────────────────────────────────────────────────────────
     workspace_summary = PackInputCreate(
         id="input.renova.workspace_summary",
@@ -379,3 +380,69 @@ async def seed_pack_inputs() -> None:
 
     created_ws = await svc.create(workspace_summary, actor="seed")
     log.info("[pack_inputs.seeds] created: %s", created_ws.id)
+
+    # ─────────────────────────────────────────────────────────────
+    # NEW: Data Engineering – Architecture Guidance (REPLACE-BY-ID)
+    # ─────────────────────────────────────────────────────────────
+    data_eng_arch = PackInputCreate(
+        id="input.data-eng.architecture-guide",
+        name="Data Engineering – Architecture Guidance",
+        description=(
+            "Input contract to generate a single Markdown architecture guidance document grounded on the workspace’s "
+            "discovered data-engineering artifacts (FSS, PSS, AVC, models, patterns, jobs, lineage, governance, SLAs, "
+            "observability, topology, tech stack, products, deployment)."
+        ),
+        tags=["data-eng", "architecture", "guidance", "inputs", "form"],
+        json_schema={
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": "https://astra.example/schemas/data-eng-arch-guidance-input.json",
+            "title": "Data Pipeline Architecture Guidance – Input",
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace_id"],
+            "properties": {
+                "workspace_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Workspace identifier to analyze for guidance generation.",
+                    "examples": ["0084b4c5-b11b-44d3-8ec3-d616dfa3e873"]
+                },
+                "kind_id": {
+                    "type": "string",
+                    "const": "cam.documents.data-pipeline-arch-guidance",
+                    "description": "Fixed to the data-engineering architecture guidance document kind."
+                }
+            }
+        },
+        examples=[
+            {
+                "workspace_id": "0084b4c5-b11b-44d3-8ec3-d616dfa3e873",
+                "kind_id": "cam.documents.data-pipeline-arch-guidance"
+            }
+        ],
+        schema_guide=(
+            "Request the MCP server to produce a comprehensive data-engineering architecture guidance document, grounded "
+            "in artifacts already present in the workspace (patterns, datasets, contracts, lineage, governance, SLAs, "
+            "orchestration, topology, stack rankings, data products, and deployment plan).\n"
+            "- **workspace_id** (required): Target workspace to read artifacts from.\n"
+            "- **kind_id** (fixed): `cam.documents.data-pipeline-arch-guidance`."
+        ),
+    )
+
+    try:
+        existing_arch = await svc.get(data_eng_arch.id)
+    except Exception:
+        existing_arch = None
+
+    if existing_arch:
+        try:
+            ok = await svc.delete(data_eng_arch.id, actor="seed")
+            if ok:
+                log.info("[pack_inputs.seeds] replaced existing: %s", data_eng_arch.id)
+            else:
+                log.warning("[pack_inputs.seeds] could not delete existing: %s (continuing)", data_eng_arch.id)
+        except Exception as e:
+            log.warning("[pack_inputs.seeds] delete failed for %s: %s (continuing)", data_eng_arch.id, e)
+
+    created_arch = await svc.create(data_eng_arch, actor="seed")
+    log.info("[pack_inputs.seeds] created: %s", created_arch.id)
