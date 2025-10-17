@@ -69,7 +69,11 @@ def _collect_dependencies(staged: List[Dict[str, Any]], depends_on: Dict[str, An
     return by_kind
 
 
-def _mk_user_prompt(kind_id: str, schema_entry: Dict[str, Any], dep_payload: Dict[str, List[Dict[str, Any]]]) -> Tuple[str, Dict[str, Any]]:
+def _mk_user_prompt(
+    kind_id: str,
+    schema_entry: Dict[str, Any],
+    dep_payload: Dict[str, List[Dict[str, Any]]]
+) -> Tuple[str, Dict[str, Any]]:
     """
     Builds a strict user prompt instructing the LLM to emit JSON only,
     consistent with the artifact kind's json_schema.
@@ -94,6 +98,7 @@ def _mk_user_prompt(kind_id: str, schema_entry: Dict[str, Any], dep_payload: Dic
         " - Emit one valid JSON object conforming to the schema.\n"
         " - Do not include any wrapper keys like 'result' or 'data'.\n"
         " - No markdown, no backticks, no explanations.\n"
+        " - Do not add any properties that are not defined in the schema.\n"
     )
     if strict_json:
         usr += " - STRICT: Any deviation from the schema is an error.\n"
@@ -292,6 +297,15 @@ def llm_execution_node(*, runs_repo: RunRepository):
         produced: List[Dict[str, Any]] = []
         call_audits: List[ToolCallAudit] = []
 
+        # visibility: what inputs are we about to pass into prompts?
+        try:
+            _ri = ((state.get("request") or {}).get("inputs") or {})
+            ri_keys = list(_ri.keys())
+            ri_size = len(json.dumps(_ri, ensure_ascii=False))
+            logger.info("[llm] run_inputs keys=%s approx_size_bytes=%d", ri_keys, ri_size)
+        except Exception:
+            logger.exception("[llm] failed to log run_inputs overview")
+
         try:
             for kind_id in produces_kinds:
                 kind_spec = kinds_map.get(kind_id) or {}
@@ -322,15 +336,22 @@ def llm_execution_node(*, runs_repo: RunRepository):
                 # >>> Append RUN INPUTS to the user prompt (authoritative request inputs: avc/fss/pss/etc.)
                 try:
                     run_inputs = ((state.get("request") or {}).get("inputs") or {})
+
                     def _clip(s: str, n: int = 24000) -> str:
                         try:
                             return s if len(s) <= n else (s[:n] + "…")
                         except Exception:
                             return s
+
                     user_prompt += (
                         "\n\n=== RUN INPUTS (authoritative, from request.inputs) ===\n"
                         + _clip(json.dumps(run_inputs, ensure_ascii=False))
                         + "\n"
+                    )
+                    logger.info(
+                        "[llm] appended run_inputs to prompt kind=%s inputs_keys=%d",
+                        kind_id,
+                        len(list(run_inputs.keys())),
                     )
                 except Exception:
                     # Non-fatal; proceed without RUN INPUTS if something goes wrong
@@ -457,19 +478,38 @@ def llm_execution_node(*, runs_repo: RunRepository):
                         step_id=step_id,
                         capability_id=cap_id,
                         mode="llm",
-                        inputs_preview={"produces_kinds": produces_kinds},
+                        inputs_preview={
+                            "produces_kinds": produces_kinds,
+                            "request_inputs_keys": list(((state.get("request") or {}).get("inputs") or {}).keys()),
+                        },
                         calls=call_audits,
                     ),
                 )
 
             if not produced:
-                # Treat as failed discovery (like MCP error) so the router can move on.
+                # Non-terminal: mark the step failed but allow graph to continue.
                 err = "LLM produced no valid artifacts"
-                logger.error("[llm] %s step_id=%s cap_id=%s", err, step_id, cap_id)
+                logger.error("[llm] %s step_id=%s cap_id=%s (continuing to next step; non-terminal)", err, step_id, cap_id)
                 await runs_repo.step_failed(run_uuid, step_id, error=err)
                 return Command(
                     goto="capability_executor",
-                    update={"dispatch": {}, "last_mcp_error": err},  # mirror MCP error channel
+                    update={
+                        "dispatch": {},
+                        "last_mcp_summary": {
+                            "tool_calls": [
+                                {
+                                    "name": "llm.generate",
+                                    "status": "failed",
+                                    "duration_ms": None,
+                                }
+                            ],
+                            "artifact_count": 0,
+                            "completed_step_id": step_id,
+                            "pages_fetched": 0,
+                        },
+                        # IMPORTANT: do not set last_mcp_error here so router doesn't terminate the run
+                        "last_mcp_error": None,
+                    },
                 )
 
             # Success path
