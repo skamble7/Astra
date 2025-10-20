@@ -61,6 +61,13 @@ def capability_executor_node(*, runs_repo: RunRepository):
         # Terminate on executor-reported discovery failure -> persist_run
         if last_mcp_error and current_step_id:
             logs.append(f"MCP failure: {last_mcp_error}")
+            
+            # Get step details for the event
+            pb = next((p for p in (pack.get("playbooks") or []) if p.get("id") == playbook_id), None)
+            current_step = None
+            if pb:
+                current_step = next((s for s in pb.get("steps", []) if s.get("id") == current_step_id), None)
+            
             # Emit step.failed (discover)
             await publisher.publish_once(
                 runs_repo=runs_repo,
@@ -70,7 +77,11 @@ def capability_executor_node(*, runs_repo: RunRepository):
                     "run_id": str(run_uuid),
                     "workspace_id": workspace_id,
                     "playbook_id": playbook_id,
-                    "step": {"id": current_step_id},
+                    "step": {
+                        "id": current_step_id,
+                        "name": current_step.get("name") if current_step else None,
+                        "description": current_step.get("description") if current_step else None
+                    },
                     "phase": "discover",
                     "ended_at": datetime.now(timezone.utc).isoformat(),
                     "error": str(last_mcp_error),
@@ -101,6 +112,12 @@ def capability_executor_node(*, runs_repo: RunRepository):
 
         # Consume completion breadcrumbs depending on phase
         if phase == "discover" and current_step_id and last_mcp.get("completed_step_id") == current_step_id:
+            # Get step details for events
+            pb = next((p for p in (pack.get("playbooks") or []) if p.get("id") == playbook_id), None)
+            current_step = None
+            if pb:
+                current_step = next((s for s in pb.get("steps", []) if s.get("id") == current_step_id), None)
+            
             # Discovery done for this step -> emit discovery_completed, then switch to enrichment phase
             await publisher.publish_once(
                 runs_repo=runs_repo,
@@ -110,7 +127,11 @@ def capability_executor_node(*, runs_repo: RunRepository):
                     "run_id": str(run_uuid),
                     "workspace_id": workspace_id,
                     "playbook_id": playbook_id,
-                    "step": {"id": current_step_id},
+                    "step": {
+                        "id": current_step_id,
+                        "name": current_step.get("name") if current_step else None,
+                        "description": current_step.get("description") if current_step else None
+                    },
                     "phase": "discover",
                     "ended_at": datetime.now(timezone.utc).isoformat(),
                     "status": "discovery_completed",
@@ -144,7 +165,11 @@ def capability_executor_node(*, runs_repo: RunRepository):
                     "run_id": str(run_uuid),
                     "workspace_id": workspace_id,
                     "playbook_id": playbook_id,
-                    "step": {"id": current_step_id},
+                    "step": {
+                        "id": current_step_id,
+                        "name": current_step.get("name") if current_step else None,
+                        "description": current_step.get("description") if current_step else None
+                    },
                     "phase": "enrich",
                     "started_at": datetime.now(timezone.utc).isoformat(),
                     "status": "enrichment_started",
@@ -160,6 +185,12 @@ def capability_executor_node(*, runs_repo: RunRepository):
             return Command(goto="diagram_enrichment", update=base_update)
 
         if phase == "enrich" and current_step_id and last_enrich.get("completed_step_id") == current_step_id:
+            # Get step details for events
+            pb = next((p for p in (pack.get("playbooks") or []) if p.get("id") == playbook_id), None)
+            current_step = None
+            if pb:
+                current_step = next((s for s in pb.get("steps", []) if s.get("id") == current_step_id), None)
+            
             # Enrichment done for this step -> emit enrichment_completed and step.completed, then advance
             await publisher.publish_once(
                 runs_repo=runs_repo,
@@ -169,7 +200,11 @@ def capability_executor_node(*, runs_repo: RunRepository):
                     "run_id": str(run_uuid),
                     "workspace_id": workspace_id,
                     "playbook_id": playbook_id,
-                    "step": {"id": current_step_id},
+                    "step": {
+                        "id": current_step_id,
+                        "name": current_step.get("name") if current_step else None,
+                        "description": current_step.get("description") if current_step else None
+                    },
                     "phase": "enrich",
                     "ended_at": datetime.now(timezone.utc).isoformat(),
                     "status": "enrichment_completed",
@@ -190,7 +225,11 @@ def capability_executor_node(*, runs_repo: RunRepository):
                     "run_id": str(run_uuid),
                     "workspace_id": workspace_id,
                     "playbook_id": playbook_id,
-                    "step": {"id": current_step_id},
+                    "step": {
+                        "id": current_step_id,
+                        "name": current_step.get("name") if current_step else None,
+                        "description": current_step.get("description") if current_step else None
+                    },
                     "ended_at": datetime.now(timezone.utc).isoformat(),
                     "status": "completed",
                 },
@@ -301,7 +340,11 @@ def capability_executor_node(*, runs_repo: RunRepository):
                     "run_id": str(run_uuid),
                     "workspace_id": workspace_id,
                     "playbook_id": playbook_id,
-                    "step": {"id": step_id},
+                    "step": {
+                        "id": step_id,
+                        "name": step.get("name"),
+                        "description": step.get("description")
+                    },
                     "phase": "discover",
                     "ended_at": datetime.now(timezone.utc).isoformat(),
                     "error": f"Capability '{cap_id}' not found in pack.",
@@ -347,7 +390,12 @@ def capability_executor_node(*, runs_repo: RunRepository):
                 "run_id": str(run_uuid),
                 "workspace_id": workspace_id,
                 "playbook_id": playbook_id,
-                "step": {"id": step_id, "capability_id": cap_id, "name": step.get("name")},
+                "step": {
+                    "id": step_id, 
+                    "capability_id": cap_id, 
+                    "name": step.get("name"),
+                    "description": step.get("description")
+                },
                 "produces_kinds": (cap.get("produces_kinds") or []),
                 "started_at": datetime.now(timezone.utc).isoformat(),
                 "status": "started",
@@ -369,7 +417,11 @@ def capability_executor_node(*, runs_repo: RunRepository):
                 "run_id": str(run_uuid),
                 "workspace_id": workspace_id,
                 "playbook_id": playbook_id,
-                "step": {"id": step_id},
+                "step": {
+                    "id": step_id,
+                    "name": step.get("name"),
+                    "description": step.get("description")
+                },
                 "phase": "discover",
                 "started_at": datetime.now(timezone.utc).isoformat(),
                 "status": "discovery_started",
@@ -420,7 +472,11 @@ def capability_executor_node(*, runs_repo: RunRepository):
                     "run_id": str(run_uuid),
                     "workspace_id": workspace_id,
                     "playbook_id": playbook_id,
-                    "step": {"id": step_id},
+                    "step": {
+                        "id": step_id,
+                        "name": step.get("name"),
+                        "description": step.get("description")
+                    },
                     "phase": "discover",
                     "ended_at": datetime.now(timezone.utc).isoformat(),
                     "error": f"Unsupported mode '{mode}'",
