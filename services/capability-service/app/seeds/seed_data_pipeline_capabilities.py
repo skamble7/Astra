@@ -8,6 +8,7 @@ from datetime import datetime
 from app.models import (
     GlobalCapabilityCreate,
     LlmExecution,
+    McpExecution,  # <-- NEW: MCP execution model
 )
 from app.services import CapabilityService
 
@@ -64,16 +65,170 @@ def _llm_cap(
                 "timeout_sec": 90,
                 "retry": None,
                 "parameters": {"temperature": 0, "top_p": None, "max_tokens": 4000},
-                "auth": {"method": "api_key", "alias_token": None, "alias_user": None, "alias_password": None, "alias_key": "OPENAI_API_KEY"},
+                "auth": {
+                    "method": "api_key",
+                    "alias_token": None,
+                    "alias_user": None,
+                    "alias_password": None,
+                    "alias_key": "OPENAI_API_KEY",
+                },
             },
             io=None,
         ),
     )
 
 
+# ------------ NEW: MCP-based capability (raina input fetcher) ------------
+def _mcp_cap_raina_fetch_input() -> GlobalCapabilityCreate:
+    """
+    Builds MCP capability that calls the raina-input-fetcher MCP server to fetch and validate
+    a Raina input JSON, emitting a cam.inputs.raina artifact.
+    """
+    return GlobalCapabilityCreate(
+        id="cap.raina.fetch_input",
+        name="Fetch Raina Input (AVC/FSS/PSS)",
+        description=(
+            "Fetches a Raina input JSON (AVC/FSS/PSS) from a URL via the MCP raina-input-fetcher "
+            "and emits a validated cam.inputs.raina artifact."
+        ),
+        tags=["inputs", "raina", "discovery", "mcp"],
+        parameters_schema=None,
+        produces_kinds=["cam.inputs.raina"],
+        agent=None,
+        execution=McpExecution(
+            mode="mcp",
+            transport={
+                "kind": "http",
+                "base_url": "http://host.docker.internal:8003",  # matches compose (RAINA_INPUT_PORT=8003)
+                "headers": {},
+                "auth": {
+                    "method": "none",
+                    "alias_token": None,
+                    "alias_user": None,
+                    "alias_password": None,
+                    "alias_key": None,
+                },
+                "timeout_sec": 180,
+                "verify_tls": False,
+                "retry": {
+                    "max_attempts": 2,
+                    "backoff_ms": 250,
+                    "jitter_ms": 50,
+                },
+                "health_path": "/health",
+                "protocol_path": "/mcp",
+            },
+            tool_calls=[
+                {
+                    "tool": "raina.input.fetch",
+                    "args_schema": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["url"],
+                        "properties": {
+                            "url": {
+                                "type": "string",
+                                "format": "uri",
+                                "minLength": 1,
+                                "description": "HTTP(S) endpoint returning the Raina input JSON.",
+                            },
+                            "name": {
+                                "type": ["string", "null"],
+                                "description": "Optional human-friendly title for the artifact.",
+                            },
+                            "auth_bearer": {
+                                "type": ["string", "null"],
+                                "description": "Optional Bearer token if the endpoint requires authentication.",
+                            },
+                        },
+                    },
+                    "output_kinds": ["cam.inputs.raina"],
+                    "result_schema": None,
+                    "timeout_sec": 600,
+                    "retries": 1,
+                    "expects_stream": False,
+                    "cancellable": True,
+                }
+            ],
+            discovery={
+                "validate_tools": True,
+                "validate_resources": False,
+                "validate_prompts": False,
+                "fail_fast": True,
+            },
+            connection={
+                "singleton": True,
+                "share_across_steps": True,
+            },
+            io={
+                "input_contract": {
+                    "json_schema": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["url"],
+                        "properties": {
+                            "url": {
+                                "type": "string",
+                                "format": "uri",
+                                "minLength": 1,
+                                "description": "HTTP(S) endpoint for the Raina input JSON.",
+                            },
+                            "name": {
+                                "type": ["string", "null"],
+                                "description": "Optional title applied to the emitted artifact.",
+                            },
+                            "auth_bearer": {
+                                "type": ["string", "null"],
+                                "description": "Optional Bearer token if the endpoint is protected.",
+                            },
+                        },
+                    },
+                    "schema_guide": (
+                        "Provide the URL that serves a Raina input JSON (AVC/FSS/PSS). "
+                        "Optionally include a display name and a Bearer token when the endpoint requires authentication."
+                    ),
+                },
+                "output_contract": {
+                    "artifact_type": "cam",
+                    "kinds": ["cam.inputs.raina"],
+                    "result_schema": None,
+                    "schema_guide": (
+                        "Emits a single artifact of kind `cam.inputs.raina` with `data.inputs = { avc, fss, pss }` "
+                        "validated against the registry schema."
+                    ),
+                    "extra_schema": {
+                        "type": "object",
+                        "additionalProperties": True,
+                        "properties": {
+                            "kind_id": {"type": "string"},
+                            "name": {"type": ["string", "null"]},
+                            "data": {
+                                "type": "object",
+                                "additionalProperties": True,
+                                "properties": {
+                                    "inputs": {"type": "object"}
+                                },
+                            },
+                            "mime_type": {"type": ["string", "null"]},
+                            "encoding": {"type": ["string", "null"]},
+                            "tags": {
+                                "type": ["array", "null"],
+                                "items": {"type": "string"},
+                            },
+                            "created_at": {"type": ["string", "null"], "format": "date-time"},
+                            "updated_at": {"type": ["string", "null"], "format": "date-time"},
+                            "preview": {"type": ["object", "null"], "additionalProperties": True},
+                        },
+                    },
+                },
+            },
+        ),
+    )
+
+
 async def seed_capabilities() -> None:
     """
-    Seeds data-pipeline LLM capabilities (OpenAI, api_key).
+    Seeds data-pipeline LLM capabilities (OpenAI, api_key) and the MCP raina-input fetch capability.
     """
     log.info("[capability.seeds.data-pipeline] Begin")
 
@@ -85,6 +240,10 @@ async def seed_capabilities() -> None:
         log.info("[capability.seeds.data-pipeline] No wipe method found; proceeding with replace-by-id")
 
     targets: list[GlobalCapabilityCreate] = [
+        # ---- NEW MCP capability ----
+        _mcp_cap_raina_fetch_input(),
+
+        # ---- Existing LLM capabilities ----
         _llm_cap(
             "cap.discover.logical_data_model",
             "Discover Logical Data Model",

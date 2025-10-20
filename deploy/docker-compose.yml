@@ -74,3 +74,20 @@ services:
       - ../data/workspace:/workspace
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+# NEW: Raina Input Service (FastAPI)
+  astra-raina-input-service:
+    build:
+      context: ..
+      dockerfile: services/raina-input-service/Dockerfile
+    container_name: astra-raina-input-service
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: raina-input-service
+      APP_PORT: ${APP_PORT:-9023}
+      # Optional CORS origins (comma-separated). "*" by default.
+      CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-*}
+    ports:
+      - "9023:9023"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

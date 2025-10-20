@@ -15,8 +15,8 @@ async def seed_pack_inputs() -> None:
     - Keeps (and replaces-by-id) the Renova input contract (form-based).
     - Keeps (and replaces-by-id) the Astra Discovery input contract with a form-style root {"inputs": ...}.
     - Keeps (and replaces-by-id) the Renova Workspace Summary input contract for generating a COBOL artifacts summary.
-    - ADDS a new Data Engineering Architecture Guidance input contract that targets
-      cam.documents.data-pipeline-arch-guidance and is used to drive the MCP-based document generation.
+    - Keeps (and replaces-by-id) the Data Engineering Architecture Guidance input contract.
+    - ADDS a new "Raina – User Stories Source URL" input contract that points to the Raina Input Service.
     """
     svc = PackInputService()
 
@@ -382,7 +382,7 @@ async def seed_pack_inputs() -> None:
     log.info("[pack_inputs.seeds] created: %s", created_ws.id)
 
     # ─────────────────────────────────────────────────────────────
-    # NEW: Data Engineering – Architecture Guidance (REPLACE-BY-ID)
+    # Data Engineering – Architecture Guidance (REPLACE-BY-ID)
     # ─────────────────────────────────────────────────────────────
     data_eng_arch = PackInputCreate(
         id="input.data-eng.architecture-guide",
@@ -446,3 +446,64 @@ async def seed_pack_inputs() -> None:
 
     created_arch = await svc.create(data_eng_arch, actor="seed")
     log.info("[pack_inputs.seeds] created: %s", created_arch.id)
+
+    # ─────────────────────────────────────────────────────────────
+    # NEW: Raina – User Stories Source URL (REPLACE-BY-ID)
+    # ─────────────────────────────────────────────────────────────
+    stories_url_input = PackInputCreate(
+        id="input.raina.user-stories-url",
+        name="Raina – User Stories Source URL",
+        description=(
+            "Input contract providing the URL endpoint that returns user stories (e.g., AVC, FSS, PSS) "
+            "to be used by the Raina package."
+        ),
+        tags=["raina", "inputs", "user-stories", "url", "fetch"],
+        json_schema={
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": "https://astra.example/schemas/raina-user-stories-url-input.json",
+            "title": "Raina – User Stories Source URL",
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["stories_url"],
+            "properties": {
+                "stories_url": {
+                    "type": "string",
+                    "format": "uri",
+                    "minLength": 1,
+                    "title": "User Stories URL",
+                    "description": "HTTP endpoint exposing user stories consumed by the Raina package.",
+                    "default": "http://127.0.0.1:9023/raina-input/data-pipeline-arch%40v1.0",
+                    "examples": [
+                        "http://127.0.0.1:9023/raina-input/data-pipeline-arch%40v1.0"
+                    ]
+                }
+            }
+        },
+        examples=[
+            {
+                "stories_url": "http://127.0.0.1:9023/raina-input/data-pipeline-arch%40v1.0"
+            }
+        ],
+        schema_guide=(
+            "Provide a single URL for the Raina package to fetch user stories (and related AVC/FSS/PSS). "
+            "This service is typically backed by the Raina Input Service (`/raina-input/{pack_id}`)."
+        ),
+    )
+
+    try:
+        existing_stories = await svc.get(stories_url_input.id)
+    except Exception:
+        existing_stories = None
+
+    if existing_stories:
+        try:
+            ok = await svc.delete(stories_url_input.id, actor="seed")
+            if ok:
+                log.info("[pack_inputs.seeds] replaced existing: %s", stories_url_input.id)
+            else:
+                log.warning("[pack_inputs.seeds] could not delete existing: %s (continuing)", stories_url_input.id)
+        except Exception as e:
+            log.warning("[pack_inputs.seeds] delete failed for %s: %s (continuing)", stories_url_input.id, e)
+
+    created_stories = await svc.create(stories_url_input, actor="seed")
+    log.info("[pack_inputs.seeds] created: %s", created_stories.id)

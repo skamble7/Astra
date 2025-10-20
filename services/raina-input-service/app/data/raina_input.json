@@ -1,0 +1,280 @@
+{
+  "inputs": {
+    "avc": {
+      "vision": [
+        "Modernize the COBOL‑based retail equity post‑trade system into a real‑time, scalable pipeline that processes trades and market data as streams instead of overnight batches.",
+        "Provide transparent analytics (minute bars, rolling statistics, slippage quantiles) for traders, risk managers and operations via a modern data platform.",
+        "Leverage parallel and GPU‑accelerated computation where beneficial (e.g., sorting, bar building, percentile estimation) while remaining technology‑agnostic." 
+      ],
+      "problem_statements": [
+        "The current mainframe application is a batch monolith that processes trades after market close; this delays risk insights and impedes intraday decision‑making.",
+        "Data formats are tied to COBOL copybooks and JCL orchestration, making it hard to integrate with modern analytics and to scale for higher volumes.",
+        "Existing programs perform complex netting, clearing and analytics in sequential steps; there is an opportunity to parallelise and optimise these workflows using modern data engineering patterns." 
+      ],
+      "goals": [
+        {
+          "id": "G1",
+          "text": "Ingest and validate trade and quote streams in real time and output clean, normalised records ready for downstream processing",
+          "metric": "validation throughput in trades per second"
+        },
+        {
+          "id": "G2",
+          "text": "Support per‑account and per‑symbol netting, clearing and general‑ledger posting with correct handling of fees, taxes and currency",
+          "metric": "netting accuracy and reconciliation rate"
+        },
+        {
+          "id": "G3",
+          "text": "Generate minute‑level bars (OHLCV and VWAP), rolling statistics and slippage measurements to provide timely analytics",
+          "metric": "latency from quote ingestion to analytics availability"
+        },
+        {
+          "id": "G4",
+          "text": "Compute distribution metrics (P50/P95/P99) of slippage per account and symbol using a scalable algorithm",
+          "metric": "percentile computation time per day"
+        },
+        {
+          "id": "G5",
+          "text": "Enable the pipeline to scale horizontally and leverage GPU or SIMD acceleration for computationally intensive steps without locking the design to a single vendor",
+          "metric": "relative speed‑up when using accelerators"
+        }
+      ],
+      "non_functionals": [
+        {"type": "performance", "target": "Process daily trade and quote volumes with sub‑minute latency and handle peak loads of millions of events per hour"},
+        {"type": "scalability", "target": "Pipeline scales horizontally across compute nodes and supports dynamic partitioning by account and symbol"},
+        {"type": "reliability", "target": "At‑least‑once processing with exactly‑once semantics for financial calculations; ability to replay streams from checkpoints"},
+        {"type": "accuracy", "target": "Netting, fees and taxes computed precisely to the cent with no rounding errors"},
+        {"type": "security", "target": "All data in transit and at rest encrypted and access controlled; audit trails for all transformations"},
+        {"type": "regulatory_compliance", "target": "Conform to financial regulations such as MiFID II regarding timestamp precision, record retention and auditability"},
+        {"type": "extensibility", "target": "Modular design allows new analytics (e.g., additional window statistics or risk metrics) to be plugged in with minimal impact"}
+      ],
+      "constraints": [
+        "Must operate on multiple currencies (USD/EUR/GBP) as per existing copybooks【878129830638816†L0-L14】",
+        "Trade and quote inputs may arrive slightly out of order; the system must reorder or window them appropriately",
+        "Fees, taxes and clearing fee rates are adjustable parameters but start with current COBOL rates (fees=0.0005 bps, taxes=0.0001 bps, clearing fee=0.00002 bps) found in net aggregation logic【448254611259883†L3-L114】",
+        "Settlement cycles and ledger posting rules follow industry standards and cannot be broken" 
+      ],
+      "assumptions": [
+        "Trade records include ID, date, time, settle date, account ID, symbol, side, quantity, price, gross amount, currency, venue and execution ID as defined in TRADE copybook【878129830638816†L0-L14】.",
+        "Validated trade records add a validation status field to indicate whether the trade passed sanity checks【106476001500982†L0-L15】.",
+        "Netting keys consist of account ID, symbol and trade date【758559553759877†L0-L2】, and net record fields include buy/sell quantities and cash, gross cash, fees, taxes, clearing fee, net cash and net quantity【57918549229451†L0-L18】.",
+        "Clearing obligations include account, symbol, settle date, action (receive/deliver), quantity, cash direction (pay/receive), cash amount and currency【666027056547495†L0-L7】.",
+        "Minute bars consist of symbol, bar date, bar minute, open, high, low, close, VWAP and volume【866167102755352†L0-L8】, and slippage records include account, symbol, trade date, trade minute, fill price, mid price and slippage in basis points【365495770882051†L0-L7】.",
+        "Quantile records report P50/P95/P99 basis points and sample count per account, symbol and trade date【109888581884606†L0-L6】.",
+        "Modern platform will have access to GPU resources for compute‑heavy parts (sorting, histogram binning) but should gracefully fallback to CPU when unavailable.",
+        "Actors include Traders submitting orders, Market Data Feeds providing quotes, Clearing House/Settlement system, Risk and Operations analysts and the General Ledger accounting system." 
+      ],
+      "context": {
+        "domain": "Retail Equity Post‑Trade",
+        "actors": [
+          "Trader",
+          "MarketDataFeed",
+          "ClearingHouse",
+          "RiskAnalyst",
+          "OperationsUser",
+          "AccountingSystem"
+        ]
+      },
+      "success_criteria": [
+        {"kpi": "validation_latency", "target": "< 1 second from trade ingestion to validation result"},
+        {"kpi": "netting_completion_time", "target": "netting, clearing and GL posting for a trading day completes within 5 minutes of last trade"},
+        {"kpi": "analytics_latency", "target": "minute bars and rolling stats available within 1 minute of quote arrival"},
+        {"kpi": "percentile_accuracy", "target": "P50/P95/P99 estimates within ±1 bps of exact computation"},
+        {"kpi": "accelerator_utilisation", "target": ">= 30% speed‑up on GPU‑enabled nodes"}
+      ]
+    },
+    "fss": {
+      "stories": [
+        {
+          "key": "EPT-101",
+          "title": "Ingest and validate trades",
+          "description": [
+            "As the system, I need to ingest raw trade events from upstream order management systems and perform sanity checks so that downstream processes receive clean and consistent data.",
+            "Validation rules mirror those in the COBOL VALIDATE‑TRADES program: side must be 'B' or 'S'; quantity and price must be positive; currency must be one of USD/EUR/GBP; trade date must not exceed settle date; and gross amount is computed when missing【769083914505524†L0-L74】.",
+            "Invalid trades are flagged with a validation status and sent to an exceptions queue for manual review, while valid trades are normalised into a standard record structure (trade ID, timestamps, account, symbol, side, quantity, price, gross, currency, venue, execution ID, validation status) for streaming." 
+          ],
+          "acceptance_criteria": [
+            "Trades with invalid side values (not 'B' or 'S') are marked invalid and do not proceed downstream【769083914505524†L0-L74】.",
+            "Trades with non‑positive quantity or price are marked invalid and do not proceed downstream.",
+            "Trades with unsupported currency codes are marked invalid.",
+            "Trades with trade date later than settle date are marked invalid.",
+            "Gross amount is calculated as quantity × price when missing and preserved when provided.",
+            "Valid trades are enriched with normalised timestamps and validation status 'Y' and published to the validated trade stream." 
+          ],
+          "tags": ["domain:trade", "function:validation", "actor:Trader"]
+        },
+        {
+          "key": "EPT-102",
+          "title": "Group trades for netting and analytics",
+          "description": [
+            "As the system, I must partition validated trades by account, symbol and trade date to support both netting and minute‑level analytics.",
+            "Trades are sorted by (account ID, symbol, trade date) to produce a stream keyed by NET‑KEY for net aggregation【962068780804493†L0-L55】, and separately sorted by (symbol, trade date, trade minute) for time‑based joins【835614640559976†L0-L59】.",
+            "The sort/partition step must be scalable and order‑preserving to handle millions of trades daily and to feed both the netting and slippage pipelines." 
+          ],
+          "acceptance_criteria": [
+            "Trades are partitioned into streams keyed by (account, symbol, trade date) and by (symbol, trade date, HHMM minute).",
+            "Sorting preserves the original event time ordering within each key.",
+            "The partitioner accommodates late or out‑of‑order trades within a bounded time window (e.g., 1 minute) before committing order.",
+            "Downstream netting and analytics consumers can subscribe to their respective partitioned streams without needing to re‑sort." 
+          ],
+          "tags": ["domain:trade", "function:partition", "actor:DataPipeline"]
+        },
+        {
+          "key": "EPT-103",
+          "title": "Aggregate and net trades per account/symbol/date",
+          "description": [
+            "As a back‑office operator, I need the system to compute net positions for each account and symbol per trade date so that we understand final exposures and cash obligations.",
+            "The aggregation logic mirrors the NET‑AGGREGATE program: accumulate buy and sell quantities and cash, compute gross cash, apply fees (0.0005 bps), taxes (0.0001 bps) and clearing fees (0.00002 bps), and derive net cash and net quantity【448254611259883†L3-L114】.",
+            "The algorithm should allow configurable fee/tax rates and support GPU‑accelerated vectorised operations for large batches." 
+          ],
+          "acceptance_criteria": [
+            "For each (account, symbol, trade date) group, output includes buy quantity, sell quantity, buy cash (negative), sell cash (positive), gross cash, fees, taxes, clearing fee, net cash and net quantity【57918549229451†L0-L18】.",
+            "Fee/tax rates are parameterised and can be updated without code changes.",
+            "Net positions reconcile with raw trades when aggregated manually.",
+            "When GPU resources are available, netting computations leverage parallelised operations; otherwise they run on CPU with equivalent results." 
+          ],
+          "tags": ["domain:trade", "function:aggregation", "actor:BackOffice"]
+        },
+        {
+          "key": "EPT-104",
+          "title": "Generate clearing obligations",
+          "description": [
+            "As a clearing processor, I need to convert net positions into settlement obligations that instruct us to receive or deliver securities and to pay or receive cash.",
+            "Using the CLEARING program logic, if net quantity is positive we receive securities; if negative we deliver; cash direction depends on the sign of net cash【751695337042723†L24-L66】.",
+            "Clearing obligations include account ID, symbol, settle date (equal to trade date), action (RECEIVE/DELIVER), quantity, cash direction (PAY/RECEIVE), cash amount and currency【666027056547495†L0-L7】." 
+          ],
+          "acceptance_criteria": [
+            "For each net position, an obligation record is produced with correct action and quantity based on net quantity sign.",
+            "Cash direction and amount reflect the sign and magnitude of net cash【751695337042723†L24-L66】.",
+            "If net quantity is zero, the action defaults to RECEIVE with zero quantity and cash direction/payments follow net cash sign.",
+            "Obligation records are published to the clearing stream and archived for audit." 
+          ],
+          "tags": ["domain:clearing", "function:obligation", "actor:ClearingHouse"]
+        },
+        {
+          "key": "EPT-105",
+          "title": "Post to general ledger",
+          "description": [
+            "As an accounting system, I need double‑entry postings for net positions and associated fees so that our ledger remains balanced and auditable.",
+            "For each net record, the POST‑GL logic produces security versus cash entries: buy nets result in a debit to securities and a credit to cash; sell nets result in the opposite; fees, taxes and clearing fees generate expenses debited and cash credited【798171557297137†L23-L108】.",
+            "Each entry includes general ledger date, account code, debit amount, credit amount, currency, reference account, reference symbol and description【634751615072731†L0-L7】【798171557297137†L23-L108】." 
+          ],
+          "acceptance_criteria": [
+            "For each net record, two postings are generated for the net security vs cash movement with correct debit/credit orientation.",
+            "For each non‑zero fee, tax and clearing fee, two postings (expense and cash) are generated【798171557297137†L23-L108】.",
+            "Totals of debits equal totals of credits across all postings.",
+            "Reference fields (account, symbol, description) are populated for audit, and ledger files are partitioned by date." 
+          ],
+          "tags": ["domain:accounting", "function:ledger", "actor:AccountingSystem"]
+        },
+        {
+          "key": "EPT-106",
+          "title": "Build minute bars from quote data",
+          "description": [
+            "As a market analytics consumer, I need per‑symbol per‑minute OHLCV and VWAP bars built from quote events so that we can compute intraday statistics and slippage.",
+            "The process uses the BUILD‑BARS algorithm: for each new symbol or new minute (HHMM), emit the previous bar and initialise a new bar; update open, high, low, close, volume and VWAP accumulators as quotes arrive【508910267819622†L4-L75】.",
+            "Assume incoming quote stream is roughly ordered by symbol and time; out‑of‑order events within a small window are buffered before bar finalisation." 
+          ],
+          "acceptance_criteria": [
+            "Bar records include symbol, bar date, bar minute, open, high, low, close, VWAP and volume【866167102755352†L0-L8】.",
+            "For each minute, open is the first quote price, high/low track extremes, close is the last price, VWAP is volume‑weighted average, and volume sums sizes【508910267819622†L4-L75】.",
+            "Bars are emitted when a symbol or minute changes or at the end of input (flush).",
+            "Buffering ensures no quotes are lost when events arrive slightly out of order." 
+          ],
+          "tags": ["domain:market", "function:bar-building", "actor:MarketDataFeed"]
+        },
+        {
+          "key": "EPT-107",
+          "title": "Compute rolling window statistics",
+          "description": [
+            "As a quantitative analyst, I need rolling 5‑minute statistics (mean and standard deviation) of close prices to understand short‑term volatility.",
+            "The WINDOW‑STATS process maintains a ring buffer of the last five bar closes per symbol and updates sum and sum‑of‑squares to compute mean and standard deviation on the fly【391194669379944†L4-L88】.",
+            "The algorithm should be implemented as a stateful windowed aggregation in the streaming framework, with options to adjust the window length and to accelerate computation using parallel GPU operations." 
+          ],
+          "acceptance_criteria": [
+            "For each symbol and minute, output includes mean5 and std5 of the last up to five close prices【391194669379944†L4-L88】.",
+            "The window resets when a new symbol is encountered.",
+            "Results are emitted incrementally as new bars arrive with no need to store all historical bars.",
+            "Parameterising window length is supported (e.g., 5‑minute or 15‑minute windows)." 
+          ],
+          "tags": ["domain:market", "function:rolling-stats", "actor:RiskAnalyst"]
+        },
+        {
+          "key": "EPT-108",
+          "title": "Compute trade slippage versus minute bars",
+          "description": [
+            "As a trader, I want to understand the price slippage of my fills relative to mid‑prices so that I can evaluate execution quality.",
+            "Trades are merge‑joined with bars on (symbol, trade date, trade minute) and slippage is computed as 10,000 × (fill price – mid price) / mid price, where mid price is (open + close)/2【61092866491266†L66-L82】.",
+            "The system should handle cases where bars are missing (e.g., no quotes) by skipping or flagging those trades, and should support GPU acceleration for join and computation when large volumes are present." 
+          ],
+          "acceptance_criteria": [
+            "For each matching trade and bar, slippage record includes account ID, symbol, trade date, trade minute, fill price, mid price and slippage in bps【365495770882051†L0-L7】【61092866491266†L66-L82】.",
+            "If no bar exists for a trade, the slippage is not computed and an exception is logged.",
+            "The join preserves order and handles late trades within a configurable lateness window.",
+            "Use vectorised or GPU implementations when available for compute intensive join operations." 
+          ],
+          "tags": ["domain:analytics", "function:slippage", "actor:Trader"]
+        },
+        {
+          "key": "EPT-109",
+          "title": "Compute slippage quantiles per account/symbol/date",
+          "description": [
+            "As a risk manager, I need to know the distribution of slippage across trades to identify execution outliers and adjust strategies.",
+            "The QUANTILES logic uses a fixed‑bin histogram (201 bins covering –1000 to +1000 bps) to approximate the distribution and compute P50, P95 and P99 percentiles【879905769055113†L4-L64】.",
+            "In the modern system, this histogram should be maintained as a keyed state per account/symbol/date group; GPU‑accelerated histogramming (e.g., using CUDA or RAPIDS cuDF) may be used to speed up updates and percentile extraction." 
+          ],
+          "acceptance_criteria": [
+            "For each (account, symbol, trade date) group, output includes P50-BPS, P95-BPS, P99-BPS and sample count【109888581884606†L0-L6】.",
+            "Histogram bin range and count are configurable; default is 201 bins with 10 bps width covering –1000 to +1000 bps【879905769055113†L4-L64】.",
+            "Percentile estimates are within a specified tolerance (e.g., ±1 bps) of exact quantiles when compared on sample data.",
+            "Algorithm supports on‑the‑fly updates in a streaming context and uses GPU acceleration when available." 
+          ],
+          "tags": ["domain:analytics", "function:quantile", "actor:RiskAnalyst"]
+        },
+        {
+          "key": "EPT-110",
+          "title": "Administer fee and tax configuration",
+          "description": [
+            "As an operations user, I need to maintain the parameters for fees, taxes and clearing fees so that changes in rates are reflected immediately without code deployment.",
+            "The fee schedule (0.0005 bps), tax rate (0.0001 bps) and clearing fee (0.00002 bps) from the original COBOL netting logic【448254611259883†L3-L114】 should be externalised to configuration storage.",
+            "When these values are updated, the netting computation automatically picks up the new rates and logs changes for auditing." 
+          ],
+          "acceptance_criteria": [
+            "Fee, tax and clearing fee parameters are stored in a configuration service or table and can be updated via an interface.",
+            "Netting logic reads the latest parameters for each calculation cycle without requiring redeployment.",
+            "Updates are versioned and audit trails record who changed the rates and when.",
+            "Default rates match the COBOL implementation and can be overridden per product or account if needed." 
+          ],
+          "tags": ["domain:operations", "function:configuration", "actor:OperationsUser"]
+        },
+        {
+          "key": "EPT-111",
+          "title": "Provide data lineage and audit trails",
+          "description": [
+            "As compliance and audit teams require, the system must maintain data lineage across all transformations (validation, sorting, netting, clearing, posting, bars, stats, slippage, quantiles) so that every output record can be traced back to its source trades and quotes.",
+            "Each stage annotates records with metadata such as source offsets, timestamps, version numbers and transformation identifiers; this metadata persists through the pipeline and is stored in a lineage catalogue.",
+            "Lineage information facilitates regulatory audits, debugging and back‑testing of analytics." 
+          ],
+          "acceptance_criteria": [
+            "Every output record includes metadata identifying the input records or stream offsets it derived from.",
+            "Lineage is queryable via an interface that shows the chain of transformations for any record.",
+            "Audit logs capture transformation versions and code references, enabling reproducible runs.",
+            "Lineage collection imposes minimal overhead and is optional for non‑regulated environments." 
+          ],
+          "tags": ["domain:compliance", "function:lineage", "actor:Compliance"]
+        }
+      ]
+    },
+    "pss": {
+      "paradigm": "Data Engineering",
+      "style": ["Streaming Pipeline", "Batch‑able Steps for Back‑Filling"],
+      "tech_stack": [
+        "Apache Kafka or Amazon Kinesis for trade and quote ingestion and partitioned streams",
+        "Apache Flink or Spark Structured Streaming for validation, windowed aggregation, joins and quantile computation",
+        "RAPIDS cuDF/cuML or other CUDA libraries to accelerate sorting, histogramming and rolling statistics",
+        "Object storage (e.g., Amazon S3 or Hadoop HDFS) for durable staging of raw and intermediate files",
+        "Relational or NoSQL database (e.g., Amazon DynamoDB or PostgreSQL) for configuration and audit metadata",
+        "General ledger integration via message bus or API to downstream accounting systems"
+      ]
+    }
+  }
+}

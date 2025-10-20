@@ -103,16 +103,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": (
-                        "Produce a strict JSON Logical Data Model (entities, attributes, keys, relationships) that conforms "
-                        "exactly to the JSON Schema. "
-                        "Read the section titled '=== RUN INPUTS (authoritative, from request.inputs) ===' appended to your prompt; "
-                        "treat the AVC/FSS/PSS, goals, functional & non-functional requirements, constraints, assumptions, "
-                        "and context there as the source of truth. "
-                        "Do not include any keys that are not defined in the schema (AdditionalProperties=false). "
-                        "Prefer entities and attributes that map directly to FSS stories and AVC domain language. "
-                        "Deduplicate entities; choose stable primary keys; mark PII thoughtfully. Emit JSON only."
-                    ),
+                    "system": ("Produce a strict JSON Logical Data Model (entities, attributes, keys, relationships) that conforms exactly to the JSON Schema. Use the provided `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss, plus goals, non-functionals, constraints, assumptions, and context) as the single source of truth. Do not include any keys that are not defined in the schema (AdditionalProperties=false). Prefer entities and attributes that map directly to FSS stories and AVC domain language. Deduplicate entities; choose stable primary keys; mark PII thoughtfully. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -162,7 +153,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": [],
+                    "hard": ["cam.inputs.raina"],
                     "soft": ["cam.architecture.pipeline_patterns"],
                     "context_hint": "Ground entities in FSS stories and AVC context.",
                 },
@@ -216,13 +207,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": (
-                        "Extract key business flows and emit strict JSON conforming to the schema. "
-                        "Read the appended section '=== RUN INPUTS (authoritative, from request.inputs) ===' and use AVC/FSS/PSS, FR/NFR "
-                        "as the basis for flows, actors, steps, and datasets_touched. "
-                        "Do not invent properties not in the schema; AdditionalProperties=false. "
-                        "Map steps to datasets using the Logical Data Model when possible. Emit JSON only."
-                    ),
+                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Extract key business flows and emit strict JSON conforming to the schema. Read the appended section '=== RUN INPUTS (authoritative, from inputs) ===' and use AVC/FSS/PSS, FR/NFR as the basis for flows, actors, steps, and datasets_touched. Do not invent properties not in the schema; AdditionalProperties=false. Map steps to datasets using the Logical Data Model when possible. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -276,7 +261,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.data.model_logical"],
+                    "hard": ["cam.inputs.raina", "cam.data.model_logical"],
                     "soft": [],
                     "context_hint": "Use FSS stories to enumerate flows.",
                 },
@@ -317,12 +302,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": (
-                        "Pick and justify data pipeline patterns strictly per the schema. "
-                        "Use the appended '=== RUN INPUTS (authoritative, from request.inputs) ===' (AVC/FSS/PSS, FR/NFR) to decide. "
-                        "Be explicit about why selected vs alternatives, aligning to latency, throughput, availability, privacy, and ops constraints. "
-                        "Do not emit properties not defined by the schema. Emit JSON only."
-                    ),
+                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Pick and justify data pipeline patterns strictly per the schema. Use the appended '=== RUN INPUTS (authoritative, from inputs) ===' (AVC/FSS/PSS, FR/NFR) to decide. Be explicit about why selected vs alternatives, aligning to latency, throughput, availability, privacy, and ops constraints. Do not emit properties not defined by the schema. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -359,7 +339,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": [],
+                    "hard": ["cam.inputs.raina"],
                     "soft": [],
                     "context_hint": "Base selection on FR/NFR and PSS style.",
                 },
@@ -508,14 +488,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": (
-                        "Generate a strictly-typed Dataset Contract that conforms exactly to the JSON Schema. "
-                        "Read the appended '=== RUN INPUTS (authoritative, from request.inputs) ===' and base your design on AVC/FSS/PSS, goals, and NFRs. "
-                        "Use the 'schema' array for columns; DO NOT use an 'attributes' key anywhere. "
-                        "Keep key definitions ONLY in the top-level 'keys' object (primary/unique/foreign); "
-                        "DO NOT add 'keys' at the column level. "
-                        "Respect AdditionalProperties=false: do not emit any properties not defined by the schema. Emit JSON only."
-                    ),
+                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Generate a strictly-typed Dataset Contract that conforms exactly to the JSON Schema. Read the appended '=== RUN INPUTS (authoritative, from inputs) ===' and base your design on AVC/FSS/PSS, goals, and NFRs. Use the 'schema' array for columns; DO NOT use an 'attributes' key anywhere. Keep key definitions ONLY in the top-level 'keys' object (primary/unique/foreign); DO NOT add 'keys' at the column level. Respect AdditionalProperties=false: do not emit any properties not defined by the schema. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -564,7 +537,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": [],
+                    "hard": ["cam.inputs.raina"],
                     "soft": [
                         "cam.data.model_logical",
                         "cam.architecture.pipeline_patterns",
@@ -714,12 +687,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": (
-                        "Emit strict JSON pipeline architecture conforming to the schema: patterns, stages, routing, idempotency, SLAs, and ranked tech-stack recommendations. "
-                        "Read and base your design on the appended '=== RUN INPUTS (authoritative, from request.inputs) ===' (AVC/FSS/PSS, goals, NFRs, constraints). "
-                        "Align stages and routing to latency/freshness/availability requirements; choose stack consistent with constraints. "
-                        "Do not add properties outside the schema. Emit JSON only."
-                    ),
+                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.Emit strict JSON pipeline architecture conforming to the schema: patterns, stages, routing, idempotency, SLAs, and ranked tech-stack recommendations. Read and base your design on the appended '=== RUN INPUTS (authoritative, from inputs) ===' (AVC/FSS/PSS, goals, NFRs, constraints). Align stages and routing to latency/freshness/availability requirements; choose stack consistent with constraints. Do not add properties outside the schema. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -821,11 +789,9 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": [
-                        "cam.data.model_logical",
+                    "hard": ["cam.inputs.raina", "cam.data.model_logical",
                         "cam.data.dataset_contract",
-                        "cam.architecture.pipeline_patterns",
-                    ],
+                        "cam.architecture.pipeline_patterns",],
                     "soft": ["cam.deployment.data_platform_topology"],
                     "context_hint": "Derive from flows, entities, and NFRs.",
                 },
@@ -891,11 +857,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": (
-                        "Create a strict JSON Batch Job Spec from AVC/FSS/PSS, FR/NFR found in the appended '=== RUN INPUTS (authoritative, from request.inputs) ==='. "
-                        "Map stories to batch steps, set schedules to meet freshness/latency SLAs, and ensure idempotency. "
-                        "Do not include any properties not defined in the schema. Emit JSON only."
-                    ),
+                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Create a strict JSON Batch Job Spec from AVC/FSS/PSS, FR/NFR found in the appended '=== RUN INPUTS (authoritative, from inputs) ==='. Map stories to batch steps, set schedules to meet freshness/latency SLAs, and ensure idempotency. Do not include any properties not defined in the schema. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -944,7 +906,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.workflow.data_pipeline_architecture"],
+                    "hard": ["cam.inputs.raina", "cam.workflow.data_pipeline_architecture"],
                     "soft": ["cam.data.dataset_contract"],
                     "context_hint": "Adhere to pipeline SLAs and dataset contracts.",
                 },
@@ -1014,11 +976,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": (
-                        "Generate a strict JSON Stream Job Spec using the appended '=== RUN INPUTS (authoritative, from request.inputs) ===' (AVC/FSS/PSS). "
-                        "Define sources, sinks, and a minimal sequence of ops (map/filter/join/aggregate/window) with windowing and exactly-once if NFRs require. "
-                        "Do not add properties outside the schema. Emit JSON only."
-                    ),
+                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Generate a strict JSON Stream Job Spec using the appended '=== RUN INPUTS (authoritative, from inputs) ===' (AVC/FSS/PSS). Define sources, sinks, and a minimal sequence of ops (map/filter/join/aggregate/window) with windowing and exactly-once if NFRs require. Do not add properties outside the schema. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -1067,7 +1025,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.workflow.data_pipeline_architecture"],
+                    "hard": ["cam.inputs.raina", "cam.workflow.data_pipeline_architecture"],
                     "soft": ["cam.data.dataset_contract"],
                     "context_hint": "Follow stream SLAs and idempotency requirements.",
                 },
@@ -1112,11 +1070,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": (
-                        "Emit strict JSON transformation specs (input→output with logic and DQ checks) using the appended "
-                        "'=== RUN INPUTS (authoritative, from request.inputs) ===' and derived datasets. "
-                        "Keep only schema-allowed fields; AdditionalProperties=false. Emit JSON only."
-                    ),
+                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Emit strict JSON transformation specs (input→output with logic and DQ checks) using the appended '=== RUN INPUTS (authoritative, from inputs) ===' and derived datasets. Keep only schema-allowed fields; AdditionalProperties=false. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -1159,7 +1113,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.data.dataset_contract"],
+                    "hard": ["cam.inputs.raina", "cam.data.dataset_contract"],
                     "soft": ["cam.data.model_logical"],
                     "context_hint": "Use dataset schemas to validate logic.",
                 },
@@ -1223,11 +1177,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": (
-                        "Produce strict JSON lineage nodes/edges derived from datasets and jobs. "
-                        "Read the appended '=== RUN INPUTS (authoritative, from request.inputs) ===' for AVC/FSS/PSS, FR/NFR to ensure coverage of critical flows and compliance datasets. "
-                        "Do not add fields outside the schema. Emit JSON only."
-                    ),
+                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Produce strict JSON lineage nodes/edges derived from datasets and jobs. Read the appended '=== RUN INPUTS (authoritative, from inputs) ===' for AVC/FSS/PSS, FR/NFR to ensure coverage of critical flows and compliance datasets. Do not add fields outside the schema. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -1280,10 +1230,8 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": [
-                        "cam.workflow.data_pipeline_architecture",
-                        "cam.data.dataset_contract",
-                    ],
+                    "hard": ["cam.inputs.raina", "cam.workflow.data_pipeline_architecture",
+                        "cam.data.dataset_contract",],
                     "soft": [
                         "cam.workflow.batch_job_spec",
                         "cam.workflow.stream_job_spec",
@@ -1348,11 +1296,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": (
-                        "Emit strict JSON governance policies derived from AVC constraints/NFRs in the appended "
-                        "'=== RUN INPUTS (authoritative, from request.inputs) ==='. "
-                        "Respect the schema only; do not add extra properties. Emit JSON only."
-                    ),
+                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Emit strict JSON governance policies derived from AVC constraints/NFRs in the appended '=== RUN INPUTS (authoritative, from inputs) ==='. Respect the schema only; do not add extra properties. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -1379,7 +1323,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": [],
+                    "hard": ["cam.inputs.raina"],
                     "soft": ["cam.data.dataset_contract"],
                     "context_hint": "Map dataset classifications to policy.",
                 },
@@ -1424,11 +1368,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": (
-                        "Derive strict JSON access control policies from dataset classification and privacy constraints in the appended "
-                        "'=== RUN INPUTS (authoritative, from request.inputs) ==='. "
-                        "Emit only schema-allowed properties. Emit JSON only."
-                    ),
+                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Derive strict JSON access control policies from dataset classification and privacy constraints in the appended '=== RUN INPUTS (authoritative, from inputs) ==='. Emit only schema-allowed properties. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -1456,10 +1396,8 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": [
-                        "cam.data.dataset_contract",
-                        "cam.governance.data_governance_policies",
-                    ],
+                    "hard": ["cam.inputs.raina", "cam.data.dataset_contract",
+                        "cam.governance.data_governance_policies",],
                     "soft": [],
                     "context_hint": "Join dataset classification with governance policy to decide access.",
                 },
@@ -1507,11 +1445,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": (
-                        "From dataset contracts and privacy-related AVC/NFRs in the appended "
-                        "'=== RUN INPUTS (authoritative, from request.inputs) ===', produce strict JSON field-level masking/anonymization rules. "
-                        "Do not emit extra properties beyond the schema. Emit JSON only."
-                    ),
+                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.From dataset contracts and privacy-related AVC/NFRs in the appended '=== RUN INPUTS (authoritative, from inputs) ===', produce strict JSON field-level masking/anonymization rules. Do not emit extra properties beyond the schema. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -1539,7 +1473,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.data.dataset_contract"],
+                    "hard": ["cam.inputs.raina", "cam.data.dataset_contract"],
                     "soft": ["cam.governance.data_governance_policies"],
                     "context_hint": "Map classification/PII flags to masking strategies.",
                 },
@@ -1606,11 +1540,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": (
-                        "Define quality/SLA targets and monitors based on NFRs/AVC goals in the appended "
-                        "'=== RUN INPUTS (authoritative, from request.inputs) ===' and the pipeline architecture. "
-                        "Only use schema-allowed fields. Emit JSON only."
-                    ),
+                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.Define quality/SLA targets and monitors based on NFRs/AVC goals in the appended '=== RUN INPUTS (authoritative, from inputs) ===' and the pipeline architecture. Only use schema-allowed fields. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -1650,7 +1580,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.workflow.data_pipeline_architecture"],
+                    "hard": ["cam.inputs.raina", "cam.workflow.data_pipeline_architecture"],
                     "soft": ["cam.data.dataset_contract"],
                     "context_hint": "Align monitors with SLAs and critical datasets.",
                 },
@@ -1684,11 +1614,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": (
-                        "Define data observability signals (metrics/logs/traces) and exporters based on FR/NFR in the appended "
-                        "'=== RUN INPUTS (authoritative, from request.inputs) ===' and the pipeline architecture. "
-                        "Only emit schema-allowed properties. Emit JSON only."
-                    ),
+                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Define data observability signals (metrics/logs/traces) and exporters based on FR/NFR in the appended '=== RUN INPUTS (authoritative, from inputs) ===' and the pipeline architecture. Only emit schema-allowed properties. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -1717,7 +1643,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.quality.data_sla"],
+                    "hard": ["cam.inputs.raina", "cam.quality.data_sla"],
                     "soft": ["cam.workflow.data_pipeline_architecture"],
                     "context_hint": "Observability derived from SLAs and stages.",
                 },
@@ -1765,12 +1691,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": (
-                        "Create a strict JSON orchestration spec wiring batch and stream jobs with dependencies aligned to SLAs/NFRs. "
-                        "Choose the orchestrator consistent with PSS and stack rankings. "
-                        "Use the appended '=== RUN INPUTS (authoritative, from request.inputs) ===' as the basis; "
-                        "emit only schema-allowed properties. Emit JSON only."
-                    ),
+                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Create a strict JSON orchestration spec wiring batch and stream jobs with dependencies aligned to SLAs/NFRs. Choose the orchestrator consistent with PSS and stack rankings. Use the appended '=== RUN INPUTS (authoritative, from inputs) ===' as the basis; emit only schema-allowed properties. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -1808,11 +1729,9 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": [
-                        "cam.workflow.batch_job_spec",
+                    "hard": ["cam.inputs.raina", "cam.workflow.batch_job_spec",
                         "cam.workflow.stream_job_spec",
-                        "cam.quality.data_sla",
-                    ],
+                        "cam.quality.data_sla",],
                     "soft": [],
                     "context_hint": "Topologically order jobs to hit freshness/latency targets.",
                 },
@@ -1876,11 +1795,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": (
-                        "Produce ranked tech-stack candidates by category with rationale, strictly following the schema. "
-                        "Base recommendations on AVC/FSS/PSS, FR/NFR in the appended '=== RUN INPUTS (authoritative, from request.inputs) ==='. "
-                        "No extra properties. Emit JSON only."
-                    ),
+                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.Produce ranked tech-stack candidates by category with rationale, strictly following the schema. Base recommendations on AVC/FSS/PSS, FR/NFR in the appended '=== RUN INPUTS (authoritative, from inputs) ==='. No extra properties. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -1918,7 +1833,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": [],
+                    "hard": ["cam.inputs.raina"],
                     "soft": ["cam.workflow.data_pipeline_architecture"],
                     "context_hint": "Echo/extend pipeline-level stack recommendations.",
                 },
@@ -1946,11 +1861,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": (
-                        "List principal sources and sinks implied by AVC/FSS/PSS and NFRs in the appended "
-                        "'=== RUN INPUTS (authoritative, from request.inputs) ==='. "
-                        "Emit strict JSON arrays only; no extra properties."
-                    ),
+                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.List principal sources and sinks implied by AVC/FSS/PSS and NFRs in the appended '=== RUN INPUTS (authoritative, from inputs) ==='. Emit strict JSON arrays only; no extra properties."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -1973,7 +1884,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": [],
+                    "hard": ["cam.inputs.raina"],
                     "soft": [
                         "cam.flow.business_flow_catalog",
                         "cam.data.model_logical",
@@ -2019,11 +1930,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": (
-                        "Propose Data-as-a-Product entries bundling datasets with ownership and SLO, strictly per the schema. "
-                        "Base on AVC/FSS/PSS, FR/NFR in the appended '=== RUN INPUTS (authoritative, from request.inputs) ==='. "
-                        "Do not add extra properties. Emit JSON only."
-                    ),
+                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.Propose Data-as-a-Product entries bundling datasets with ownership and SLO, strictly per the schema. Base on AVC/FSS/PSS, FR/NFR in the appended '=== RUN INPUTS (authoritative, from inputs) ==='. Do not add extra properties. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -2052,7 +1959,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.data.dataset_contract", "cam.quality.data_sla"],
+                    "hard": ["cam.inputs.raina", "cam.data.dataset_contract", "cam.quality.data_sla"],
                     "soft": [],
                     "context_hint": "Use dataset contracts + SLAs to define products.",
                 },
@@ -2121,11 +2028,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": (
-                        "Output a strict JSON deployment topology covering components and links, derived from PSS stack and NFRs in the "
-                        "appended '=== RUN INPUTS (authoritative, from request.inputs) ==='. "
-                        "Include target environments. No extra properties. Emit JSON only."
-                    ),
+                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.Output a strict JSON deployment topology covering components and links, derived from PSS stack and NFRs in the appended '=== RUN INPUTS (authoritative, from inputs) ==='. Include target environments. No extra properties. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -2179,7 +2082,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.workflow.data_pipeline_architecture"],
+                    "hard": ["cam.inputs.raina", "cam.workflow.data_pipeline_architecture"],
                     "soft": ["cam.observability.data_observability_spec"],
                     "context_hint": "Topology must host the proposed stages and observability.",
                 },
@@ -2209,11 +2112,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": (
-                        "Create a strict JSON deployment plan across environments based on NFRs, topology, and orchestration, "
-                        "reading the appended '=== RUN INPUTS (authoritative, from request.inputs) ==='. "
-                        "Include phased rollout, migration/backfill, and backout. No extra properties. Emit JSON only."
-                    ),
+                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.Create a strict JSON deployment plan across environments based on NFRs, topology, and orchestration, reading the appended '=== RUN INPUTS (authoritative, from inputs) ==='. Include phased rollout, migration/backfill, and backout. No extra properties. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -2255,10 +2154,8 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": [
-                        "cam.deployment.data_platform_topology",
-                        "cam.workflow.orchestration_spec",
-                    ],
+                    "hard": ["cam.inputs.raina", "cam.deployment.data_platform_topology",
+                        "cam.workflow.orchestration_spec",],
                     "soft": ["cam.quality.data_sla"],
                     "context_hint": "Plan must be feasible on platform and meet SLAs.",
                 },
@@ -2407,7 +2304,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     "strict_json": True,
                 },
                 "depends_on": {
-                    "hard": ["cam.cobol.program", "cam.cobol.copybook"],
+                    "hard": ["cam.inputs.raina", "cam.cobol.program", "cam.cobol.copybook"],
                     "soft": [],
                 },
                 "identity": {
@@ -2610,12 +2507,11 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "allow",
                 "prompt": {
-                    "system": 'You are to author a comprehensive **Architecture Guidance Document** for a *data engineering* pipeline as the lead architect instructing delivery teams.\n\n# Grounding sources (MUST cite both)\n1) The section labeled exactly: `=== RUN INPUTS (authoritative, from request.inputs) ===` — contains AVC/FSS/PSS, FR/NFR, goals, constraints.\n2) The section labeled exactly: `=== DEPENDENCIES (discovered artifacts) ===` — already-staged CAM artifacts and their facts.\n\n# Output CONTRACT (STRICT)\n- Output **exactly one** JSON object. **No text before or after** the JSON.\n- The JSON object MUST include:\n\t - `name`: \"Data Pipeline Architecture Guidance\"\n\t - `description`: one-line summary\n\t - `filename`: \"data-pipeline-architecture-guidance.md\"\n\t - `mime_type`: \"text/markdown\"\n\t - `tags`: array of sensible tags, e.g. [\"architecture\",\"guidance\",\"data-pipeline\"]\n\t - `content`: a **single string** that is a **valid GitHub-Flavored Markdown document** (GFM).\n- You MAY include additional metadata fields permitted by schema (e.g., `owner`, `version`, `dependencies_refs`, etc.), but **all prose MUST live inside `content`**.\n\n# Markdown FORMAT RULES (HARD)\n- Use proper Markdown headings only (`#`, `##`, `###` …). No ad-hoc banners or underlines.\n- Provide a title H1: `# Data Pipeline Architecture Guidance`\n- Immediately follow with a metadata table (Owner, Version, Date, Scope, Out of Scope).\n- Provide a **Table of Contents** with **anchor links** to sections (GFM link style).\n- **Every diagram MUST be fenced** as:\n\t ```mermaid\n\t <valid mermaid>\n\t ```\n\t **CRITICAL:** Do NOT include a blank ` ``` ` fence before or after the ` ```mermaid` block. Flowcharts MUST use `flowchart TD` or `graph TD` syntax (NOT `gantt`). Use standard, safe UTF-8 characters for prose (e.g., prefer `->` or `-->` over special arrow characters if encoding issues persist).\n- When referencing facts from artifacts, cite inline like: *(from cam.data.dataset_contract: transactions_curated)*.\n- If a fact is unknown from RUN INPUTS or DEPENDENCIES, either omit, or include it under **Assumptions**.\n\n# Document SECTIONS (REQUIRED)\n1. Executive Summary (context from AVC, recommended approach)\n2. Architecture Overview (align to patterns selected: batch/stream/lambda/event-driven; high-level flow; mermaid optional)\n3. Source & Sink Inventory (trace to Business Flows + Logical Data Model)\n4. Data Model Overview (key entities, PII notes, relationship summary — no schema dumps)\n5. Dataset Contracts (what consumers need, retention, classification; link names to contracts)\n6. Transformation Design (major transforms, DQ checks, idempotency & windowing as relevant)\n7. Jobs & Orchestration (batch/stream jobs, schedules/latency targets, dependencies/backfills/failure policy)\n8. Lineage (critical paths, auditability, compliance impact)\n9. Governance & Security (classification, access control, masking + rationale)\n10. SLAs & Observability (targets, monitors, alerting paths, SLO dashboards)\n11. Platform Topology & Tech Stack (rankings, rationale, environment strategy)\n12. Deployment Plan (rollout phases, backout/rollback, data migration/backfill)\n13. **ADRs** (3–6): Context → Decision → Consequences → Alternatives\n14. Risks & Mitigations, Assumptions, Open Questions\n15. Appendices (glossary, references to artifact IDs/kinds, example queries, runbooks)\n\n# Tone & Constraints\n- Directive, precise, implementation-oriented; no hand-waving.\n- Prefer concise, accurate prose; separate **Facts** vs **Assumptions**.\n- All statements MUST be grounded in RUN INPUTS and/or DEPENDENCIES; explicitly label assumptions.\n\n# Self-Validation CHECKLIST (perform before emitting JSON)\n- [ ] Output is a **single JSON object**.\n- [ ] JSON contains a **string** field `content`.\n- [ ] `content` starts with `# Data Pipeline Architecture Guidance`.\n- [ ] All diagrams (if any) are inside a **single** fenced block starting with ```mermaid and ending with ``` on their own lines (no triple-backticks alone).\n- [ ] No stray “mermaid” tokens outside fences.\n- [ ] Table of Contents contains anchor links that match headings.\n- [ ] Required sections 1–15 present.\n- [ ] File metadata fields set exactly as specified.\n\nNow produce the JSON.\n\n=== RUN INPUTS (authoritative, from request.inputs) ===\n{{RUN_INPUTS}}\n\n=== DEPENDENCIES (discovered artifacts) ===\n{{DEPENDENCIES}}',
+                    "system": 'You are to author a comprehensive **Architecture Guidance Document** for a *data engineering* pipeline as the lead architect instructing delivery teams.\n\n# Grounding sources (MUST cite both)\n1) The section labeled exactly: `=== RUN INPUTS (authoritative, from request.inputs) ===` — contains AVC/FSS/PSS, FR/NFR, goals, constraints.\n2) The section labeled exactly: `=== DEPENDENCIES (discovered artifacts) ===` — already-staged CAM artifacts and their facts.\n\n# Output CONTRACT (STRICT)\n- Output **exactly one** JSON object. **No text before or after** the JSON.\n- The JSON object MUST include:\n\t - `name`: "Data Pipeline Architecture Guidance"\n\t - `description`: one-line summary\n\t - `filename`: "data-pipeline-architecture-guidance.md"\n\t - `mime_type`: "text/markdown"\n\t - `tags`: array of sensible tags, e.g. ["architecture","guidance","data-pipeline"]\n\t - `content`: a **single string** that is a **valid GitHub-Flavored Markdown document** (GFM).\n- You MAY include additional metadata fields permitted by schema (e.g., `owner`, `version`, `dependencies_refs`, etc.), but **all prose MUST live inside `content`**.\n\n# Markdown FORMAT RULES (HARD)\n- Use proper Markdown headings only (`#`, `##`, `###` …). No ad-hoc banners or underlines.\n- Provide a title H1: `# Data Pipeline Architecture Guidance`\n- Immediately follow with a metadata table (Owner, Version, Date, Scope, Out of Scope).\n- Provide a **Table of Contents** with **anchor links** to sections (GFM link style).\n- **Every diagram MUST be fenced** as:\n\t ```mermaid\n\t <valid mermaid>\n\t ```\n\t **CRITICAL:** Do NOT include a blank ` ``` ` fence before or after the ` ```mermaid` block. Flowcharts MUST use `flowchart TD` or `graph TD` syntax (NOT `gantt`). Use standard, safe UTF-8 characters for prose (e.g., prefer `->` or `-->` over special arrow characters if encoding issues persist).\n- When referencing facts from artifacts, cite inline like: *(from cam.data.dataset_contract: transactions_curated)*.\n- If a fact is unknown from RUN INPUTS or DEPENDENCIES, either omit, or include it under **Assumptions**.\n\n# Document SECTIONS (REQUIRED)\n1. Executive Summary (context from AVC, recommended approach)\n2. Architecture Overview (align to patterns selected: batch/stream/lambda/event-driven; high-level flow; mermaid optional)\n3. Source & Sink Inventory (trace to Business Flows + Logical Data Model)\n4. Data Model Overview (key entities, PII notes, relationship summary — no schema dumps)\n5. Dataset Contracts (what consumers need, retention, classification; link names to contracts)\n6. Transformation Design (major transforms, DQ checks, idempotency & windowing as relevant)\n7. Jobs & Orchestration (batch/stream jobs, schedules/latency targets, dependencies/backfills/failure policy)\n8. Lineage (critical paths, auditability, compliance impact)\n9. Governance & Security (classification, access control, masking + rationale)\n10. SLAs & Observability (targets, monitors, alerting paths, SLO dashboards)\n11. Platform Topology & Tech Stack (rankings, rationale, environment strategy)\n12. Deployment Plan (rollout phases, backout/rollback, data migration/backfill)\n13. **ADRs** (3–6): Context → Decision → Consequences → Alternatives\n14. Risks & Mitigations, Assumptions, Open Questions\n15. Appendices (glossary, references to artifact IDs/kinds, example queries, runbooks)\n\n# Tone & Constraints\n- Directive, precise, implementation-oriented; no hand-waving.\n- Prefer concise, accurate prose; separate **Facts** vs **Assumptions**.\n- All statements MUST be grounded in RUN INPUTS and/or DEPENDENCIES; explicitly label assumptions.\n\n# Self-Validation CHECKLIST (perform before emitting JSON)\n- [ ] Output is a **single JSON object**.\n- [ ] JSON contains a **string** field `content`.\n- [ ] `content` starts with `# Data Pipeline Architecture Guidance`.\n- [ ] All diagrams (if any) are inside a **single** fenced block starting with ```mermaid and ending with ``` on their own lines (no triple-backticks alone).\n- [ ] No stray “mermaid” tokens outside fences.\n- [ ] Table of Contents contains anchor links that match headings.\n- [ ] Required sections 1–15 present.\n- [ ] File metadata fields set exactly as specified.\n\nNow produce the JSON.\n\n=== RUN INPUTS (authoritative, from request.inputs) ===\n{{RUN_INPUTS}}\n\n=== DEPENDENCIES (discovered artifacts) ===\n{{DEPENDENCIES}}',
                     "strict_json": True,
                 },
                 "depends_on": {
-                    "hard": [
-                        "cam.catalog.data_source_inventory",
+                    "hard": ["cam.inputs.raina", "cam.catalog.data_source_inventory",
                         "cam.flow.business_flow_catalog",
                         "cam.data.model_logical",
                         "cam.architecture.pipeline_patterns",
@@ -2634,8 +2530,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                         "cam.catalog.tech_stack_rankings",
                         "cam.data_product.catalog",
                         "cam.workflow.data_pipeline_architecture",
-                        "cam.deployment.pipeline_deployment_plan",
-                    ],
+                        "cam.deployment.pipeline_deployment_plan",],
                     "soft": [],
                 },
                 "identity": {"natural_key": ["filename", "revision"]},
@@ -2664,6 +2559,302 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     "allowed_formats": ["markdown", "asciidoc"],
                     "default_format": "markdown",
                     "max_length_chars": 50000,
+                    "allowed_locales": ["en-US"],
+                },
+            }
+        ],
+    },
+    {
+        "_id": "cam.inputs.raina",
+        "title": "Raina Input (AVC/FSS/PSS)",
+        "category": "inputs",
+        "aliases": ["cam.raina.input", "cam.discovery.raina"],
+        "status": "active",
+        "latest_schema_version": LATEST,
+        "schema_versions": [
+            {
+                "version": LATEST,
+                "json_schema": {
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "$id": "https://astra.example/schemas/raina-input.json",
+                    "title": "Raina Input",
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["inputs"],
+                    "properties": {
+                        "inputs": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["avc", "fss", "pss"],
+                            "properties": {
+                                "avc": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "required": [
+                                        "vision",
+                                        "problem_statements",
+                                        "goals",
+                                        "non_functionals",
+                                        "constraints",
+                                        "assumptions",
+                                        "context",
+                                        "success_criteria",
+                                    ],
+                                    "properties": {
+                                        "vision": {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                            "default": [],
+                                        },
+                                        "problem_statements": {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                            "default": [],
+                                        },
+                                        "goals": {
+                                            "type": "array",
+                                            "default": [],
+                                            "items": {
+                                                "type": "object",
+                                                "additionalProperties": False,
+                                                "required": ["id", "text"],
+                                                "properties": {
+                                                    "id": {
+                                                        "type": "string",
+                                                        "minLength": 1,
+                                                    },
+                                                    "text": {
+                                                        "type": "string",
+                                                        "minLength": 1,
+                                                    },
+                                                    "metric": {
+                                                        "type": ["string", "null"]
+                                                    },
+                                                },
+                                            },
+                                        },
+                                        "non_functionals": {
+                                            "type": "array",
+                                            "default": [],
+                                            "items": {
+                                                "type": "object",
+                                                "additionalProperties": False,
+                                                "required": ["type", "target"],
+                                                "properties": {
+                                                    "type": {
+                                                        "type": "string",
+                                                        "minLength": 1,
+                                                    },
+                                                    "target": {
+                                                        "type": "string",
+                                                        "minLength": 1,
+                                                    },
+                                                },
+                                            },
+                                        },
+                                        "constraints": {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                            "default": [],
+                                        },
+                                        "assumptions": {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                            "default": [],
+                                        },
+                                        "context": {
+                                            "type": "object",
+                                            "additionalProperties": False,
+                                            "required": ["domain", "actors"],
+                                            "properties": {
+                                                "domain": {"type": "string"},
+                                                "actors": {
+                                                    "type": "array",
+                                                    "items": {"type": "string"},
+                                                    "default": [],
+                                                },
+                                            },
+                                        },
+                                        "success_criteria": {
+                                            "type": "array",
+                                            "default": [],
+                                            "items": {
+                                                "type": "object",
+                                                "additionalProperties": False,
+                                                "required": ["kpi", "target"],
+                                                "properties": {
+                                                    "kpi": {
+                                                        "type": "string",
+                                                        "minLength": 1,
+                                                    },
+                                                    "target": {
+                                                        "type": "string",
+                                                        "minLength": 1,
+                                                    },
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                                "fss": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "required": ["stories"],
+                                    "properties": {
+                                        "stories": {
+                                            "type": "array",
+                                            "default": [],
+                                            "items": {
+                                                "type": "object",
+                                                "additionalProperties": False,
+                                                "required": ["key", "title"],
+                                                "properties": {
+                                                    "key": {
+                                                        "type": "string",
+                                                        "minLength": 1,
+                                                    },
+                                                    "title": {
+                                                        "type": "string",
+                                                        "minLength": 1,
+                                                    },
+                                                    "description": {
+                                                        "oneOf": [
+                                                            {"type": "string"},
+                                                            {
+                                                                "type": "array",
+                                                                "items": {
+                                                                    "type": "string"
+                                                                },
+                                                            },
+                                                            {"type": "null"},
+                                                        ]
+                                                    },
+                                                    "acceptance_criteria": {
+                                                        "type": "array",
+                                                        "items": {"type": "string"},
+                                                        "default": [],
+                                                    },
+                                                    "tags": {
+                                                        "type": "array",
+                                                        "items": {"type": "string"},
+                                                        "default": [],
+                                                    },
+                                                },
+                                            },
+                                        }
+                                    },
+                                },
+                                "pss": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "required": ["paradigm", "style", "tech_stack"],
+                                    "properties": {
+                                        "paradigm": {"type": "string", "minLength": 1},
+                                        "style": {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                            "default": [],
+                                        },
+                                        "tech_stack": {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                            "default": [],
+                                        },
+                                    },
+                                },
+                            },
+                        }
+                    },
+                },
+                "additional_props_policy": "forbid",
+                "prompt": {
+                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.Validate and store a Raina Input document (AVC/FSS/PSS). Emit JSON strictly conforming to the schema; do not add fields."),
+                    "strict_json": True,
+                },
+                "depends_on": {
+                    "hard": ["cam.inputs.raina"],
+                    "soft": [],
+                },
+                "identity": {
+                    # Adjust if you prefer a composite natural key.
+                    "natural_key": ["inputs.avc.context.domain"]
+                },
+                "examples": [
+                    {
+                        "inputs": {
+                            "avc": {
+                                "vision": [
+                                    "Modernize the COBOL-based retail equity post-trade system into a real-time, scalable pipeline..."
+                                ],
+                                "problem_statements": [
+                                    "The current mainframe application is a batch monolith..."
+                                ],
+                                "goals": [
+                                    {
+                                        "id": "G1",
+                                        "text": "Ingest and validate trade and quote streams...",
+                                        "metric": "validation throughput in trades per second",
+                                    }
+                                ],
+                                "non_functionals": [
+                                    {"type": "performance", "target": "p95<60s"}
+                                ],
+                                "constraints": [
+                                    "Must operate on multiple currencies (USD/EUR/GBP)"
+                                ],
+                                "assumptions": [
+                                    "Modern platform will have access to GPU resources..."
+                                ],
+                                "context": {
+                                    "domain": "Retail Equity Post-Trade",
+                                    "actors": ["Trader", "RiskAnalyst"],
+                                },
+                                "success_criteria": [
+                                    {
+                                        "kpi": "validation_latency",
+                                        "target": "< 1 second",
+                                    }
+                                ],
+                            },
+                            "fss": {
+                                "stories": [
+                                    {
+                                        "key": "EPT-101",
+                                        "title": "Ingest and validate trades",
+                                        "description": [
+                                            "As the system, I need to ingest raw trade events..."
+                                        ],
+                                        "acceptance_criteria": [
+                                            "Trades with invalid side values are marked invalid"
+                                        ],
+                                        "tags": [
+                                            "domain:trade",
+                                            "function:validation",
+                                            "actor:Trader",
+                                        ],
+                                    }
+                                ]
+                            },
+                            "pss": {
+                                "paradigm": "Data Engineering",
+                                "style": [
+                                    "Streaming Pipeline",
+                                    "Batch-able Steps for Back-Filling",
+                                ],
+                                "tech_stack": [
+                                    "Apache Kafka",
+                                    "Apache Flink",
+                                    "RAPIDS cuDF",
+                                ],
+                            },
+                        }
+                    }
+                ],
+                "diagram_recipes": [],
+                "narratives_spec": {
+                    "allowed_formats": ["markdown", "asciidoc"],
+                    "default_format": "markdown",
+                    "max_length_chars": 200000,
                     "allowed_locales": ["en-US"],
                 },
             }
