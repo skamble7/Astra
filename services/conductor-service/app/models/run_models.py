@@ -156,7 +156,7 @@ class StartRunRequest(BaseModel):
 
     inputs: Dict[str, Any] = Field(default_factory=dict)  # validated against pack_input.json_schema
 
-    # Friendly metadata
+    # Friendly metadata for run
     title: Optional[str] = Field(default=None, max_length=200)
     description: Optional[str] = Field(default=None, max_length=2000)
 
@@ -174,7 +174,7 @@ class RunSummary(BaseModel):
 
 class PlaybookRun(BaseModel):
     """
-    Single collection: playbook_runs (owned by conductor).
+    Single collection: pack_runs (owned by conductor).
     Baseline artifacts live in artifact-service; we store DELTA artifacts for promotion UX.
     """
     model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)

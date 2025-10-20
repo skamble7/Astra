@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional, Union, Annotated
 
-from pydantic import BaseModel, Field, AnyUrl
+from pydantic import BaseModel, Field, AnyUrl, model_validator
 
 
 # ─────────────────────────────────────────────────────────────
@@ -47,7 +47,7 @@ class HTTPTransport(BaseModel):
     verify_tls: bool = True
     retry: Optional[RetryPolicy] = None
     health_path: str = "/health"
-    sse_path: str = "/sse"
+    protocol_path: str = "/sse"  # protocol endpoint path (e.g., SSE stream or /mcp)
 
 
 class StdioTransport(BaseModel):
@@ -71,25 +71,80 @@ Transport = Annotated[Union[HTTPTransport, StdioTransport], Field(discriminator=
 
 class ExecutionOutputContract(BaseModel):
     """
-    Declares how an execution returns artifacts and any extra envelope fields.
-    - artifacts_property: name of the property that contains the array of artifacts
-    - kinds: list of cam.* kinds the artifacts may contain
-    - extra_schema: JSON Schema for non-artifact fields (e.g., job_id, next_cursor)
-    - allow_extra_output_fields: if False, response must match artifacts + extra_schema exactly
+    Declares how an execution returns results.
+
+    Discriminator:
+      - artifact_type: "cam" | "freeform"
+
+    When artifact_type = "cam":
+      - kinds: REQUIRED non-empty list of registered CAM kinds.
+      - result_schema: MUST be omitted (None).
+      - schema_guide: MAY be provided but is usually unnecessary.
+    
+    When artifact_type = "freeform":
+      - result_schema: REQUIRED JSON Schema describing the result shape.
+      - kinds: MUST be omitted or empty.
+      - schema_guide: Optional natural-language guidance to help LLMs produce the shape.
+
+    Common optional toggles (apply to both):
+      - stream: whether output is streamed.
+      - many: whether multiple items are produced (array semantics / item stream).
     """
-    artifacts_property: str = Field(default="artifacts", min_length=1)
-    kinds: List[str] = Field(default_factory=list)
+    artifact_type: Literal["cam", "freeform"] = Field(default="cam")
+    kinds: List[str] = Field(default_factory=list, description="CAM kinds when artifact_type='cam'.")
+    result_schema: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="JSON Schema for freeform outputs when artifact_type='freeform'."
+    )
+    schema_guide: Optional[str] = Field(
+        default=None,
+        description="Text guidance for constructing/validating freeform results; Markdown allowed."
+    )
     extra_schema: Optional[Dict[str, Any]] = None
-    allow_extra_output_fields: bool = True
+
+    @model_validator(mode="after")
+    def _validate_contract(self) -> "ExecutionOutputContract":
+        if self.artifact_type == "cam":
+            # kinds required, non-empty; result_schema should be None
+            if not self.kinds:
+                raise ValueError("ExecutionOutputContract: 'kinds' must be a non-empty list when artifact_type='cam'.")
+            if self.result_schema is not None:
+                raise ValueError("ExecutionOutputContract: 'result_schema' must be omitted/None when artifact_type='cam'.")
+        elif self.artifact_type == "freeform":
+            # result_schema required; kinds must be empty
+            if self.result_schema is None:
+                raise ValueError("ExecutionOutputContract: 'result_schema' is required when artifact_type='freeform'.")
+            if self.kinds:
+                raise ValueError("ExecutionOutputContract: 'kinds' must be empty/omitted when artifact_type='freeform'.")
+        return self
+
+
+class ExecutionInput(BaseModel):
+    """
+    Envelope for execution input specification.
+
+    - json_schema: JSON Schema describing the expected input object.
+    - schema_guide: Natural-language, field-by-field guidance that helps LLMs/UIs
+      construct a valid object (required/optional, allowed values, examples, rules).
+      Markdown is allowed.
+    """
+    json_schema: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="JSON Schema (Draft 2020-12 recommended) for execution input.",
+    )
+    schema_guide: Optional[str] = Field(
+        default=None,
+        description="Textual guide for each input field; accepts Markdown.",
+    )
 
 
 class ExecutionIO(BaseModel):
     """
     Execution-level I/O declaration:
-    - input_schema: JSON Schema describing the input parameters for this execution
-    - output_contract: how outputs are shaped and validated
+    - input_contract: Envelope containing input schema and human-readable guide
+    - output_contract: Declares how outputs are shaped (CAM vs freeform), with optional guide
     """
-    input_schema: Optional[Dict[str, Any]] = None
+    input_contract: Optional[ExecutionInput] = None
     output_contract: Optional[ExecutionOutputContract] = None
 
 
@@ -121,7 +176,7 @@ class McpExecution(BaseModel):
     connection: Optional[Dict[str, bool]] = Field(
         default_factory=lambda: {"singleton": True, "share_across_steps": True}
     )
-    # NEW: execution-level input/output contract
+    # Execution-level input/output contract (envelope with schema + guide)
     io: Optional[ExecutionIO] = None
 
 
@@ -131,9 +186,34 @@ class LlmParameters(BaseModel):
     max_tokens: Optional[int] = Field(default=None, ge=1)
 
 
+# NEW: Provider-agnostic LLM configuration with auth support (alias-based; no secrets stored here)
+class LlmConfig(BaseModel):
+    provider: Literal["openai", "azure_openai", "anthropic", "bedrock", "vertex", "ollama", "openrouter", "cohere", "generic_http"]
+    model: str
+    base_url: Optional[Union[AnyUrl, str]] = None                     # e.g., Azure endpoint, OpenRouter, self-hosted, Ollama
+    organization: Optional[str] = None                                # provider-specific (e.g., OpenAI org)
+    headers: Dict[str, str] = Field(default_factory=dict)             # non-secret static headers
+    query_params: Dict[str, str] = Field(default_factory=dict)        # non-secret static query params
+    timeout_sec: int = Field(default=60, ge=1)
+    retry: Optional[RetryPolicy] = None
+    parameters: Optional[LlmParameters] = None
+    auth: Optional[AuthAlias] = None                                   # <— API key / bearer / basic via alias
+
+    @model_validator(mode="after")
+    def _validate_auth(self) -> "LlmConfig":
+        if self.auth and self.auth.method != "none":
+            if self.auth.method == "bearer" and not self.auth.alias_token:
+                raise ValueError("LlmConfig.auth: 'alias_token' required for bearer auth.")
+            if self.auth.method == "basic" and (not self.auth.alias_user or not self.auth.alias_password):
+                raise ValueError("LlmConfig.auth: 'alias_user' and 'alias_password' required for basic auth.")
+            if self.auth.method == "api_key" and not self.auth.alias_key:
+                raise ValueError("LlmConfig.auth: 'alias_key' required for api_key auth.")
+        return self
+
+
 class LlmExecution(BaseModel):
     mode: Literal["llm"]
-    llm_config: Dict[str, Any]  # { provider, model, parameters?: LlmParameters, output_contracts?: [cam.*] }
+    llm_config: LlmConfig  # { provider, model, parameters?: LlmParameters, output_contracts?: [cam.*], auth?: AuthAlias (alias-based) }
     # Allow LLM executions to also declare structured I/O if desired
     io: Optional[ExecutionIO] = None
 

@@ -22,12 +22,12 @@ from app.models.run_models import (
 
 logger = logging.getLogger("app.db.runs")
 
-COLLECTION_NAME = "playbook_runs"
+COLLECTION_NAME = "pack_runs"
 
 
 class RunRepository:
     """
-    DAL for the 'playbook_runs' collection.
+    DAL for the 'pack_runs' collection.
     - One document per run (run-owned artifacts for DELTA, audit trail, step state).
     - Baseline artifacts are managed by artifact-service and not duplicated here.
     """
@@ -67,6 +67,46 @@ class RunRepository:
             .limit(limit)
         )
         return [PlaybookRun.model_validate(d) async for d in cursor]
+
+    async def list_runs(
+        self,
+        *,
+        workspace_id: Optional[UUID] = None,
+        status: Optional[str] = None,
+        pack_id: Optional[str] = None,
+        playbook_id: Optional[str] = None,
+        limit: int = 50,
+        skip: int = 0,
+    ) -> List[PlaybookRun]:
+        """
+        List runs with common filters. Sorted by created_at desc by default.
+        Mirrors Renova's learning-service list_runs.
+        """
+        query: Dict[str, Any] = {}
+        if workspace_id:
+            query["workspace_id"] = str(workspace_id)
+        if status:
+            # Accept either enum name/value or raw string already stored
+            try:
+                status_val = RunStatus(status).value  # e.g., "running"
+            except Exception:
+                status_val = status
+            query["status"] = status_val
+        if pack_id:
+            query["pack_id"] = pack_id
+        if playbook_id:
+            query["playbook_id"] = playbook_id
+
+        cursor = (
+            self._col.find(query)
+            .sort("created_at", DESCENDING)
+            .skip(max(skip, 0))
+            .limit(max(min(limit, 200), 1))
+        )
+        results: List[PlaybookRun] = []
+        async for doc in cursor:
+            results.append(PlaybookRun.model_validate(doc))
+        return results
 
     # ---------- lifecycle transitions ---------- #
 
@@ -161,6 +201,20 @@ class RunRepository:
             },
         )
 
+    async def step_skipped(self, run_id: UUID, step_id: str, *, reason: Optional[str] = None) -> None:
+        now = datetime.now(timezone.utc)
+        await self._col.update_one(
+            {"run_id": str(run_id), "steps.step_id": step_id},
+            {
+                "$set": {
+                    "steps.$.status": StepStatus.SKIPPED.value,
+                    "steps.$.completed_at": now,
+                    "steps.$.error": (reason[:2000] if reason else None),
+                    "updated_at": now,
+                }
+            },
+        )
+
     # ---------- audit trail ---------- #
 
     async def append_step_audit(self, run_id: UUID, audit: StepAudit) -> None:
@@ -228,6 +282,54 @@ class RunRepository:
             },
         )
 
+    # ---------- finalize (idempotent replace) ---------- #
+
+    async def finalize_run(
+        self,
+        run_id: UUID,
+        *,
+        run_artifacts: List[ArtifactEnvelope],
+        status: RunStatus,
+        diffs_by_kind: Optional[Dict[str, Any]] = None,
+        deltas: Optional[RunDeltas] = None,
+        run_summary_updates: Optional[Dict[str, Any]] = None,
+    ) -> Optional[PlaybookRun]:
+        """
+        Single atomic write to seal a run:
+        - Replace run_artifacts
+        - Set status
+        - Optionally set diffs/deltas
+        - Merge run_summary updates (replace semantics per provided keys)
+        Idempotent: re-running with same inputs leads to same stored arrays.
+        """
+        now = datetime.now(timezone.utc)
+
+        set_ops: Dict[str, Any] = {
+            "run_artifacts": [i.model_dump(mode="json") for i in run_artifacts],
+            "status": status.value,
+            "updated_at": now,
+        }
+        if diffs_by_kind is not None:
+            set_ops["diffs_by_kind"] = diffs_by_kind
+        if deltas is not None:
+            set_ops["deltas"] = deltas.model_dump(mode="json")
+
+        if run_summary_updates is not None:
+            # Ensure run_summary exists before updating dotted fields
+            await self._col.update_one(
+                {"run_id": str(run_id), "run_summary": None},
+                {"$set": {"run_summary": {}}},
+            )
+            for k, v in run_summary_updates.items():
+                set_ops[f"run_summary.{k}"] = v
+
+        doc = await self._col.find_one_and_update(
+            {"run_id": str(run_id)},
+            {"$set": set_ops},
+            return_document=ReturnDocument.AFTER,
+        )
+        return PlaybookRun.model_validate(doc) if doc else None
+
     # ---------- free-form notes/logs ---------- #
 
     async def append_log(self, run_id: UUID, message: str) -> None:
@@ -247,6 +349,12 @@ class RunRepository:
         completed_at: Optional[datetime] = None,
         duration_s: Optional[float] = None,
     ) -> None:
+        # Ensure run_summary is an object (not null) before setting dotted subfields
+        await self._col.update_one(
+            {"run_id": str(run_id), "run_summary": None},
+            {"$set": {"run_summary": {}}},
+        )
+
         set_ops: Dict[str, Any] = {"updated_at": datetime.now(timezone.utc)}
         if validations is not None:
             set_ops["run_summary.validations"] = validations

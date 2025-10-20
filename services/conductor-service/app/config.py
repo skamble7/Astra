@@ -43,5 +43,13 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=None, extra="ignore")
 
+    # Secret resolution
+    secret_backend: str = os.getenv("SECRET_BACKEND", "env")  # "env" | "vault" | "kms" | ...
+    secret_alias_prefix: str = os.getenv("SECRET_ALIAS_PREFIX", "ASTRA_SECRET_")
+
+    # Optional: future Vault/KMS configuration placeholders
+    vault_addr: str = os.getenv("VAULT_ADDR", "")
+    vault_token_env: str = os.getenv("VAULT_TOKEN_ENV", "VAULT_TOKEN")
+
 
 settings = Settings()

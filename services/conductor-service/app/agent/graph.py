@@ -1,101 +1,209 @@
 # services/conductor-service/app/agent/graph.py
 from __future__ import annotations
 
-import asyncio
-import logging
-from typing import Any, Dict
+import hashlib
+import json
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional, TypedDict
 
-from langgraph.graph import END, StateGraph
+from langgraph.graph import StateGraph
+from langgraph.graph.state import END
 
-from app.agent.nodes.ingest_request import ingest_request
-from app.agent.nodes.resolve_pack_and_validate_inputs import resolve_pack_and_validate_inputs
-from app.agent.nodes.prefetch_kinds_and_index import prefetch_kinds_and_index
-from app.agent.nodes.mark_run_started import mark_run_started
-from app.agent.nodes.execute_steps import execute_steps
-from app.agent.nodes.compute_diffs_vs_baseline import compute_diffs_vs_baseline
-from app.agent.nodes.persist_results import persist_results
-from app.agent.nodes.publish_summary import publish_summary
-from app.agent.nodes.mark_run_completed import mark_run_completed
-from app.agent.nodes.handle_error import handle_error
+from app.clients.artifact_service import ArtifactServiceClient
+from app.clients.capability_service import CapabilityServiceClient
+from app.db.run_repository import RunRepository
+from app.models.run_models import PlaybookRun
 
-logger = logging.getLogger("app.agent.graph")
+from app.agent.nodes.input_resolver import input_resolver_node
+from app.agent.nodes.capability_executor import capability_executor_node
+from app.agent.nodes.mcp_input_resolver import mcp_input_resolver_node
+from app.agent.nodes.mcp_execution import mcp_execution_node
+from app.agent.nodes.llm_execution import llm_execution_node
+from app.agent.nodes.persist_run import persist_run_node
+from app.agent.nodes.diagram_enrichment import diagram_enrichment_node  # NEW
 
-
-def _route(next_node: str):
-    def _fn(state: Dict[str, Any]) -> str:
-        return "handle_error" if state.get("error") else next_node
-    return _fn
-
-
-def build_graph() -> StateGraph:
-    g = StateGraph(dict)
-
-    # register nodes (init_mcp_clients removed)
-    g.add_node("ingest_request", ingest_request)
-    g.add_node("resolve_pack_and_validate_inputs", resolve_pack_and_validate_inputs)
-    g.add_node("prefetch_kinds_and_index", prefetch_kinds_and_index)
-    g.add_node("mark_run_started", mark_run_started)
-    g.add_node("execute_steps", execute_steps)
-    g.add_node("compute_diffs_vs_baseline", compute_diffs_vs_baseline)
-    g.add_node("persist_results", persist_results)
-    g.add_node("publish_summary", publish_summary)
-    g.add_node("mark_run_completed", mark_run_completed)
-    g.add_node("handle_error", handle_error)
-
-    # edges
-    g.add_conditional_edges("ingest_request", _route("resolve_pack_and_validate_inputs"),
-                            {"resolve_pack_and_validate_inputs": "resolve_pack_and_validate_inputs",
-                             "handle_error": "handle_error"})
-
-    g.add_conditional_edges("resolve_pack_and_validate_inputs", _route("prefetch_kinds_and_index"),
-                            {"prefetch_kinds_and_index": "prefetch_kinds_and_index",
-                             "handle_error": "handle_error"})
-
-    # directly to mark_run_started (no init_mcp_clients)
-    g.add_conditional_edges("prefetch_kinds_and_index", _route("mark_run_started"),
-                            {"mark_run_started": "mark_run_started",
-                             "handle_error": "handle_error"})
-
-    g.add_conditional_edges("mark_run_started", _route("execute_steps"),
-                            {"execute_steps": "execute_steps",
-                             "handle_error": "handle_error"})
-
-    g.add_conditional_edges("execute_steps", _route("compute_diffs_vs_baseline"),
-                            {"compute_diffs_vs_baseline": "compute_diffs_vs_baseline",
-                             "handle_error": "handle_error"})
-
-    g.add_conditional_edges("compute_diffs_vs_baseline", _route("persist_results"),
-                            {"persist_results": "persist_results",
-                             "handle_error": "handle_error"})
-
-    g.add_conditional_edges("persist_results", _route("publish_summary"),
-                            {"publish_summary": "publish_summary",
-                             "handle_error": "handle_error"})
-
-    g.add_conditional_edges("publish_summary", _route("mark_run_completed"),
-                            {"mark_run_completed": "mark_run_completed",
-                             "handle_error": "handle_error"})
-
-    g.add_edge("mark_run_completed", END)
-
-    g.set_entry_point("ingest_request")
-    return g
+from app.llm.factory import get_agent_llm
 
 
-_graph = build_graph().compile()
+class GraphState(TypedDict, total=False):
+    request: Dict[str, Any]
+    run: Dict[str, Any]
+    pack: Dict[str, Any]
+    artifact_kinds: Dict[str, Dict[str, Any]]
+    # NEW: keep agent-side capabilities available for enrichment
+    agent_capabilities: list[Dict[str, Any]]
+    agent_capabilities_map: Dict[str, Dict[str, Any]]
+
+    inputs_valid: bool
+    input_errors: list[str]
+    input_fingerprint: Optional[str]
+    step_idx: int
+    current_step_id: Optional[str]
+    phase: str  # "discover" | "enrich"
+    dispatch: Dict[str, Any]
+    logs: list[str]
+    validations: list[Dict[str, Any]]
+    started_at: str
+    completed_at: Optional[str]
+    staged_artifacts: list[Dict[str, Any]]
+    last_mcp_summary: Dict[str, Any]
+    last_mcp_error: Optional[str]
+    last_enrichment_summary: Dict[str, Any]
+    last_enrichment_error: Optional[str]
+    persist_summary: Dict[str, Any]
 
 
-async def run_agent(state: Dict[str, Any]) -> Dict[str, Any]:
-    async for _ in _graph.astream(state):
-        pass
-    return state
+def canonical_json(obj: Any) -> str:
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+def sha256_fingerprint(obj: Any) -> str:
+    return hashlib.sha256(canonical_json(obj).encode("utf-8")).hexdigest()
 
 
-def spawn_agent_task(initial_state: Dict[str, Any]) -> asyncio.Task:
-    return asyncio.create_task(
-        run_agent(initial_state),
-        name=f"run-agent-{initial_state.get('run', {}).get('run_id')}",
+@dataclass
+class ConductorGraph:
+    runs_repo: RunRepository
+    cap_client: CapabilityServiceClient
+    art_client: ArtifactServiceClient
+
+    def build(self):
+        graph = StateGraph(GraphState)
+
+        agent_llm = get_agent_llm()
+
+        graph.add_node(
+            "input_resolver",
+            input_resolver_node(
+                runs_repo=self.runs_repo,
+                cap_client=self.cap_client,
+                art_client=self.art_client,
+                sha256_fingerprint=sha256_fingerprint,
+            ),
+        )
+        graph.add_node(
+            "capability_executor",
+            capability_executor_node(
+                runs_repo=self.runs_repo,
+            ),
+        )
+
+        graph.add_node(
+            "mcp_input_resolver",
+            mcp_input_resolver_node(
+                runs_repo=self.runs_repo,
+                llm=agent_llm,
+            ),
+        )
+
+        graph.add_node(
+            "mcp_execution",
+            mcp_execution_node(
+                runs_repo=self.runs_repo,
+            ),
+        )
+        graph.add_node(
+            "llm_execution",
+            llm_execution_node(
+                runs_repo=self.runs_repo,
+            ),
+        )
+
+        # Enrichment now uses runs_repo (for audits)
+        graph.add_node(
+            "diagram_enrichment",
+            diagram_enrichment_node(
+                runs_repo=self.runs_repo,
+            ),
+        )
+
+        graph.add_node(
+            "persist_run",
+            persist_run_node(
+                runs_repo=self.runs_repo,
+                art_client=self.art_client,   # <<< NEW: required for baseline promotion
+            ),
+        )
+
+        # Edges
+        graph.set_entry_point("input_resolver")
+        graph.add_edge("input_resolver", "capability_executor")
+
+        def route_from_capability_executor(state: GraphState):
+            phase = state.get("phase") or "discover"
+            dispatch = state.get("dispatch") or {}
+            cap = dispatch.get("capability") or {}
+            step = dispatch.get("step") or None
+
+            if phase == "enrich" and state.get("current_step_id"):
+                return "diagram_enrichment"
+
+            if cap and step:
+                mode = (cap.get("execution") or {}).get("mode")
+                if mode == "mcp":
+                    return "mcp_input_resolver"
+                elif mode == "llm":
+                    return "llm_execution"
+                else:
+                    return "capability_executor"
+
+            return END
+
+        graph.add_conditional_edges("capability_executor", route_from_capability_executor)
+
+        graph.add_edge("mcp_input_resolver", "mcp_execution")
+        graph.add_edge("mcp_execution", "capability_executor")
+        graph.add_edge("llm_execution", "capability_executor")
+        graph.add_edge("diagram_enrichment", "capability_executor")
+
+        return graph.compile()
+
+
+async def run_input_bootstrap(
+    *,
+    runs_repo: RunRepository,
+    cap_client: CapabilityServiceClient,
+    art_client: ArtifactServiceClient,
+    start_request: Dict[str, Any],
+    run_doc: PlaybookRun,
+) -> Dict[str, Any]:
+    compiled = ConductorGraph(
+        runs_repo=runs_repo,
+        cap_client=cap_client,
+        art_client=art_client,
+    ).build()
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    initial_state: Dict[str, Any] = {
+        "request": start_request,
+        "run": run_doc.model_dump(mode="json"),
+        "artifact_kinds": {},
+        # NEW: seed agent capability slots so input_resolver can populate them
+        "agent_capabilities": [],
+        "agent_capabilities_map": {},
+        "inputs_valid": False,
+        "input_errors": [],
+        "input_fingerprint": None,
+        "step_idx": 0,
+        "current_step_id": None,
+        "phase": "discover",
+        "dispatch": {},
+        "logs": [],
+        "validations": [],
+        "started_at": now,
+        "completed_at": None,
+        "staged_artifacts": [],
+        "last_mcp_summary": {},
+        "last_mcp_error": None,
+        "last_enrichment_summary": {},
+        "last_enrichment_error": None,
+        "persist_summary": {},
+    }
+
+    # >>> CHANGE: raise recursion limit to handle long playbooks w/ enrichment passes
+    final_state: Dict[str, Any] = await compiled.ainvoke(
+        initial_state,
+        config={"recursion_limit": 256},
     )
-
-
-__all__ = ["spawn_agent_task", "run_agent"]
+    return final_state

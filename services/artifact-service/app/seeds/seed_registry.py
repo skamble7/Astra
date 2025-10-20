@@ -17,6 +17,7 @@ DEFAULT_NARRATIVES_SPEC: Dict[str, Any] = {
 
 # ─────────────────────────────────────────────────────────────
 # Canonical seed docs (with diagram_recipes + narratives_spec)
+# Loosened schemas across all kinds
 # ─────────────────────────────────────────────────────────────
 KIND_DOCS: List[Dict[str, Any]] = [
     {
@@ -30,17 +31,17 @@ KIND_DOCS: List[Dict[str, Any]] = [
             "version": LATEST,
             "json_schema": {
                 "type": "object",
-                "additionalProperties": False,
-                "required": ["repo", "commit", "branch", "paths_root"],
+                "additionalProperties": True,
+                "required": ["repo"],
                 "properties": {
-                    "repo": {"type": "string", "description": "Remote URL or origin name"},
-                    "commit": {"type": "string"},
-                    "branch": {"type": "string"},
-                    "paths_root": {"type": "string", "description": "Filesystem mount/volume path used by tools"},
-                    "tags": {"type": "array", "items": {"type": "string"}}
+                    "repo": {"type": ["string", "null"], "description": "Remote URL or origin name"},
+                    "commit": {"type": ["string", "null"]},
+                    "branch": {"type": ["string", "null"]},
+                    "paths_root": {"type": ["string", "null"], "description": "Filesystem mount/volume path used by tools"},
+                    "tags": {"type": ["array", "null"], "items": {"type": "string"}}
                 }
             },
-            "additional_props_policy": "forbid",
+            "additional_props_policy": "allow",
             "prompt": {
                 "system": "Validate and normalize a Git snapshot into strict JSON. Do not invent fields.",
                 "strict_json": True
@@ -83,33 +84,33 @@ KIND_DOCS: List[Dict[str, Any]] = [
             "version": LATEST,
             "json_schema": {
                 "type": "object",
-                "additionalProperties": False,
+                "additionalProperties": True,
                 "required": ["root", "files"],
                 "properties": {
-                    "root": {"type": "string"},
+                    "root": {"type": ["string", "null"]},
                     "files": {
-                        "type": "array",
+                        "type": ["array", "null"],
                         "items": {
                             "type": "object",
-                            "additionalProperties": False,
-                            "required": ["relpath", "size_bytes", "sha256", "kind"],
+                            "additionalProperties": True,
+                            "required": ["relpath"],
                             "properties": {
-                                "relpath": {"type": "string"},
-                                "size_bytes": {"type": "integer"},
-                                "sha256": {"type": "string"},
+                                "relpath": {"type": ["string", "null"]},
+                                "size_bytes": {"type": ["integer", "string", "null"]},
+                                "sha256": {"type": ["string", "null"]},
                                 "kind": {
-                                    "type": "string",
-                                    "enum": ["cobol", "copybook", "jcl", "ddl", "bms", "other"]
+                                    "type": ["string", "null"],
+                                    "enum": ["cobol", "copybook", "jcl", "ddl", "bms", "other", None]
                                 },
-                                "language_hint": {"type": "string"},
-                                "encoding": {"type": "string"},
-                                "program_id_guess": {"type": "string"}
+                                "language_hint": {"type": ["string", "null"]},
+                                "encoding": {"type": ["string", "null"]},
+                                "program_id_guess": {"type": ["string", "null"]}
                             }
                         }
                     }
                 }
             },
-            "additional_props_policy": "forbid",
+            "additional_props_policy": "allow",
             "prompt": {
                 "system": "Given a raw file walk, emit a strict typed inventory mapping each file to a kind used by downstream parsers. Do not include files outside the root.",
                 "strict_json": True
@@ -155,68 +156,68 @@ KIND_DOCS: List[Dict[str, Any]] = [
             "version": LATEST,
             "json_schema": {
                 "type": "object",
-                "additionalProperties": False,
-                "required": ["program_id", "source", "divisions", "paragraphs"],
+                "additionalProperties": True,
+                "required": ["program_id", "source"],
                 "properties": {
-                    "program_id": {"type": "string"},
+                    "program_id": {"type": ["string", "null"]},
                     "source": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "required": ["relpath", "sha256"],
-                        "properties": {"relpath": {"type": "string"}, "sha256": {"type": "string"}}
+                        "type": ["object", "null"],
+                        "additionalProperties": True,
+                        "properties": {
+                            "relpath": {"type": ["string", "null"]},
+                            "sha256": {"type": ["string", "null"]}
+                        }
                     },
                     "divisions": {
-                        "type": "object",
-                        "additionalProperties": False,
+                        "type": ["object", "null"],
+                        "additionalProperties": True,
                         "properties": {
-                            "identification": {"type": "object", "additionalProperties": True},
-                            "environment": {"type": "object", "additionalProperties": True},
-                            "data": {"type": "object", "additionalProperties": True},
-                            "procedure": {"type": "object", "additionalProperties": True}
+                            "identification": {"type": ["object", "null"], "additionalProperties": True},
+                            "environment": {"type": ["object", "null"], "additionalProperties": True},
+                            "data": {"type": ["object", "null"], "additionalProperties": True},
+                            "procedure": {"type": ["object", "null"], "additionalProperties": True}
                         }
                     },
                     "paragraphs": {
-                        "type": "array",
+                        "type": ["array", "null"],
                         "items": {
                             "type": "object",
-                            "additionalProperties": False,
+                            "additionalProperties": True,
                             "required": ["name"],
                             "properties": {
-                                "name": {"type": "string"},
-                                "performs": {"type": "array", "items": {"type": "string"}},
+                                "name": {"type": ["string", "null"]},
+                                "performs": {"type": ["array", "null"], "items": {"type": "string"}},
                                 "calls": {
-                                    "type": "array",
+                                    "type": ["array", "null"],
                                     "items": {
                                         "type": "object",
-                                        "additionalProperties": False,
-                                        "required": ["target"],
+                                        "additionalProperties": True,
                                         "properties": {
-                                            "target": {"type": "string", "description": "PROGRAM-ID if resolvable, else literal"},
-                                            "dynamic": {"type": "boolean", "default": False}
+                                            "target": {"type": ["string", "null"], "description": "PROGRAM-ID if resolvable, else literal"},
+                                            "dynamic": {"type": ["boolean", "string", "null"]}
                                         }
                                     }
                                 },
                                 "io_ops": {
-                                    "type": "array",
+                                    "type": ["array", "null"],
                                     "items": {
                                         "type": "object",
-                                        "additionalProperties": False,
-                                        "required": ["op", "dataset_ref"],
+                                        "additionalProperties": True,
                                         "properties": {
-                                            "op": {"type": "string", "enum": ["READ", "WRITE", "OPEN", "CLOSE", "REWRITE"]},
-                                            "dataset_ref": {"type": "string"},
-                                            "fields": {"type": "array", "items": {"type": "string"}}
+                                            "op": {"type": ["string", "null"]},
+                                            "dataset_ref": {"type": ["string", "null"]},
+                                            "fields": {"type": ["array", "null"], "items": {"type": "string"}}
                                         }
                                     }
                                 }
                             }
                         }
                     },
-                    "copybooks_used": {"type": "array", "items": {"type": "string"}},
-                    "notes": {"type": "array", "items": {"type": "string"}}
+                    "copybooks_used": {"type": ["array", "null"], "items": {"type": "string"}},
+                    "notes": {"type": ["array", "null"], "items": {"type": "string"}}
                 }
             },
-            "additional_props_policy": "forbid",
+            "additional_props_policy": "allow",
             "prompt": {
                 "system": "Normalize ProLeap/cb2xml output into this canonical shape. Preserve names; do not invent CALL targets.",
                 "strict_json": True
@@ -242,11 +243,11 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     "description": "High-level overview: program root, divisions, and paragraph nodes.",
                     "template": """mindmap
   root(({{ data.program_id }}))
-  {% if data.divisions.identification %}Identification{% endif %}
-  {% if data.divisions.environment %}Environment{% endif %}
-  {% if data.divisions.data %}Data{% endif %}
+  {% if data.divisions and data.divisions.identification %}Identification{% endif %}
+  {% if data.divisions and data.divisions.environment %}Environment{% endif %}
+  {% if data.divisions and data.divisions.data %}Data{% endif %}
   Procedure
-    {% for p in data.paragraphs %}{{ p.name }}
+    {% for p in (data.paragraphs or []) %}{{ p.name }}
     {% endfor %}
 classDef divisions fill:#eee,stroke:#999;"""
                 },
@@ -270,11 +271,11 @@ classDef divisions fill:#eee,stroke:#999;"""
                     "description": "Control flow between paragraphs via PERFORM edges.",
                     "template": """flowchart TD
   START([{{ data.program_id }} START])
-  {% for p in data.paragraphs %}
+  {% for p in (data.paragraphs or []) %}
   {{ p.name | replace("-", "_") }}([{{ p.name }}])
   {% endfor %}
-  {% if data.paragraphs|length > 0 %}START --> {{ data.paragraphs[0].name | replace("-", "_") }}{% endif %}
-  {% for p in data.paragraphs %}
+  {% if (data.paragraphs or [])|length > 0 %}START --> {{ data.paragraphs[0].name | replace("-", "_") }}{% endif %}
+  {% for p in (data.paragraphs or []) %}
     {% for t in (p.performs or []) %}
   {{ p.name | replace("-", "_") }} --> {{ t | replace("-", "_") }}
     {% endfor %}
@@ -295,34 +296,33 @@ classDef divisions fill:#eee,stroke:#999;"""
             "version": LATEST,
             "json_schema": {
                 "type": "object",
-                "additionalProperties": False,
+                "additionalProperties": True,
                 "required": ["name", "source", "items"],
                 "properties": {
-                    "name": {"type": "string"},
+                    "name": {"type": ["string", "null"]},
                     "source": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "required": ["relpath", "sha256"],
-                        "properties": {"relpath": {"type": "string"}, "sha256": {"type": "string"}}
+                        "type": ["object", "null"],
+                        "additionalProperties": True,
+                        "properties": {"relpath": {"type": ["string", "null"]}, "sha256": {"type": ["string", "null"]}}
                     },
                     "items": {
-                        "type": "array",
+                        "type": ["array", "null"],
                         "items": {
                             "type": "object",
-                            "additionalProperties": False,
-                            "required": ["level", "name", "picture"],
+                            "additionalProperties": True,
+                            "required": ["level", "name"],
                             "properties": {
-                                "level": {"type": "string"},
-                                "name": {"type": "string"},
-                                "picture": {"type": "string"},
-                                "occurs": {"type": "integer"},
-                                "children": {"type": "array", "items": {"$ref": "#"}}
+                                "level": {"type": ["string", "integer", "null"]},
+                                "name": {"type": ["string", "null"]},
+                                "picture": {"type": ["string", "null"], "default": ""},
+                                "occurs": {"type": ["integer", "string", "object", "null"]},
+                                "children": {"type": ["array", "null"], "items": {"$ref": "#"}}
                             }
                         }
                     }
                 }
             },
-            "additional_props_policy": "forbid",
+            "additional_props_policy": "allow",
             "prompt": {"system": "Normalize copybook AST into a strict tree. Do not lose levels or PIC clauses.", "strict_json": True},
             "depends_on": {"hard": ["cam.asset.source_index"]},
             "identity": {"natural_key": ["name"]},
@@ -341,7 +341,7 @@ classDef divisions fill:#eee,stroke:#999;"""
                     "description": "Hierarchy of fields by levels.",
                     "template": """mindmap
   root(({{ data.name }}))
-  {% for item in data.items %}
+  {% for item in (data.items or []) %}
   {{ item.level }} {{ item.name }}
     {% for c in (item.children or []) %}{{ c.level }} {{ c.name }}
     {% endfor %}
@@ -361,37 +361,36 @@ classDef divisions fill:#eee,stroke:#999;"""
             "version": LATEST,
             "json_schema": {
                 "type": "object",
-                "additionalProperties": False,
+                "additionalProperties": True,
                 "required": ["job_name", "source", "steps"],
                 "properties": {
-                    "job_name": {"type": "string"},
+                    "job_name": {"type": ["string", "null"]},
                     "source": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "required": ["relpath", "sha256"],
-                        "properties": {"relpath": {"type": "string"}, "sha256": {"type": "string"}}
+                        "type": ["object", "null"],
+                        "additionalProperties": True,
+                        "properties": {"relpath": {"type": ["string", "null"]}, "sha256": {"type": ["string", "null"]}}
                     },
                     "steps": {
-                        "type": "array",
+                        "type": ["array", "null"],
                         "items": {
                             "type": "object",
-                            "additionalProperties": False,
-                            "required": ["step_name", "seq", "program", "dds"],
+                            "additionalProperties": True,
+                            "required": ["step_name"],
                             "properties": {
-                                "step_name": {"type": "string"},
-                                "seq": {"type": "integer"},
-                                "program": {"type": "string"},
-                                "condition": {"type": "string"},
+                                "step_name": {"type": ["string", "null"]},
+                                "seq": {"type": ["integer", "string", "null"]},
+                                "program": {"type": ["string", "null"]},
+                                "condition": {"type": ["string", "null"]},
                                 "dds": {
-                                    "type": "array",
+                                    "type": ["array", "null"],
                                     "items": {
                                         "type": "object",
-                                        "additionalProperties": False,
-                                        "required": ["ddname", "direction"],
+                                        "additionalProperties": True,
+                                        "required": ["ddname"],
                                         "properties": {
-                                            "ddname": {"type": "string"},
-                                            "dataset": {"type": "string"},
-                                            "direction": {"type": "string", "enum": ["IN", "OUT", "INOUT"]}
+                                            "ddname": {"type": ["string", "null"]},
+                                            "dataset": {"type": ["string", "null"]},
+                                            "direction": {"type": ["string", "null"]}
                                         }
                                     }
                                 }
@@ -400,7 +399,7 @@ classDef divisions fill:#eee,stroke:#999;"""
                     }
                 }
             },
-            "additional_props_policy": "forbid",
+            "additional_props_policy": "allow",
             "prompt": {"system": "Parse JCL into an ordered list of steps with DD statements. Keep program names as written.", "strict_json": True},
             "depends_on": {"hard": ["cam.asset.source_index"]},
             "identity": {"natural_key": ["job_name"]},
@@ -424,12 +423,12 @@ classDef divisions fill:#eee,stroke:#999;"""
                     "description": "Simple TD flow through steps by seq, annotated with program names.",
                     "template": """flowchart TD
   START([{{ data.job_name }} START])
-  {% for s in data.steps|sort(attribute='seq') %}
+  {% for s in (data.steps or [])|sort(attribute='seq') %}
   {{ s.step_name }}([{{ s.step_name }}\\n{{ s.program }}])
   {% endfor %}
-  {% for s in data.steps|sort(attribute='seq') %}
+  {% for s in (data.steps or [])|sort(attribute='seq') %}
     {% set next = loop.index0 + 1 %}
-    {% if next < (data.steps|length) %}
+    {% if next < ((data.steps or [])|length) %}
   {{ data.steps[loop.index0].step_name }} --> {{ data.steps[next].step_name }}
     {% endif %}
   {% endfor %}
@@ -449,29 +448,29 @@ classDef divisions fill:#eee,stroke:#999;"""
             "version": LATEST,
             "json_schema": {
                 "type": "object",
-                "additionalProperties": False,
-                "required": ["job_name", "step_name", "seq", "program", "dds"],
+                "additionalProperties": True,
+                "required": ["job_name", "step_name"],
                 "properties": {
-                    "job_name": {"type": "string"},
-                    "step_name": {"type": "string"},
-                    "seq": {"type": "integer"},
-                    "program": {"type": "string"},
+                    "job_name": {"type": ["string", "null"]},
+                    "step_name": {"type": ["string", "null"]},
+                    "seq": {"type": ["integer", "string", "null"]},
+                    "program": {"type": ["string", "null"]},
                     "dds": {
-                        "type": "array",
+                        "type": ["array", "null"],
                         "items": {
                             "type": "object",
-                            "additionalProperties": False,
-                            "required": ["ddname", "direction"],
+                            "additionalProperties": True,
+                            "required": ["ddname"],
                             "properties": {
-                                "ddname": {"type": "string"},
-                                "dataset": {"type": "string"},
-                                "direction": {"type": "string", "enum": ["IN", "OUT", "INOUT"]}
+                                "ddname": {"type": ["string", "null"]},
+                                "dataset": {"type": ["string", "null"]},
+                                "direction": {"type": ["string", "null"]}
                             }
                         }
                     }
                 }
             },
-            "additional_props_policy": "forbid",
+            "additional_props_policy": "allow",
             "prompt": {"system": "Emit one strict record per JCL step to simplify graph indexing.", "strict_json": True},
             "depends_on": {"hard": ["cam.jcl.job"]},
             "identity": {"natural_key": ["job_name", "step_name"]},
@@ -491,7 +490,7 @@ classDef divisions fill:#eee,stroke:#999;"""
                     "description": "Visualize datasets in/out of a step.",
                     "template": """flowchart LR
   {{ data.step_name }}([{{ data.step_name }}\\n{{ data.program }}])
-  {% for d in data.dds %}
+  {% for d in (data.dds or []) %}
     {% if d.direction == "IN" or d.direction == "INOUT" %}
   {{ d.ddname | replace("-", "_") }}([{{ d.dataset or d.ddname }}]) --> {{ data.step_name }}
     {% endif %}
@@ -514,27 +513,27 @@ classDef divisions fill:#eee,stroke:#999;"""
             "version": LATEST,
             "json_schema": {
                 "type": "object",
-                "additionalProperties": False,
+                "additionalProperties": True,
                 "required": ["region", "transactions"],
                 "properties": {
-                    "region": {"type": "string"},
+                    "region": {"type": ["string", "null"]},
                     "transactions": {
-                        "type": "array",
+                        "type": ["array", "null"],
                         "items": {
                             "type": "object",
-                            "additionalProperties": False,
-                            "required": ["tranid", "program"],
+                            "additionalProperties": True,
+                            "required": ["tranid"],
                             "properties": {
-                                "tranid": {"type": "string"},
-                                "program": {"type": "string"},
-                                "mapset": {"type": "string"},
-                                "commarea": {"type": "string"}
+                                "tranid": {"type": ["string", "null"]},
+                                "program": {"type": ["string", "null"]},
+                                "mapset": {"type": ["string", "null"]},
+                                "commarea": {"type": ["string", "null"]}
                             }
                         }
                     }
                 }
             },
-            "additional_props_policy": "forbid",
+            "additional_props_policy": "allow",
             "prompt": {"system": "Normalize CICS catalogs into a simple transaction map.", "strict_json": True},
             "depends_on": {"soft": ["cam.asset.source_index"]},
             "identity": {"natural_key": ["region"]},
@@ -551,8 +550,8 @@ classDef divisions fill:#eee,stroke:#999;"""
                     "description": "Map tranid to program; optional mapset/commarea labels.",
                     "template": """flowchart LR
   subgraph {{ data.region }}
-  {% for t in data.transactions %}
-  {{ t.tranid }}([{{ t.tranid }}]) --> {{ t.program | replace("-", "_") }}([{{ t.program }}])
+  {% for t in (data.transactions or []) %}
+  {{ t.tranid }}([{{ t.tranid }}]) --> {{ (t.program or "UNKNOWN") | replace("-", "_") }}([{{ t.program or "UNKNOWN" }}])
   {% endfor %}
   end"""
                 }
@@ -570,27 +569,27 @@ classDef divisions fill:#eee,stroke:#999;"""
             "version": LATEST,
             "json_schema": {
                 "type": "object",
-                "additionalProperties": False,
-                "required": ["logical", "physical"],
+                "additionalProperties": True,
+                "required": [],
                 "properties": {
                     "logical": {
-                        "type": "array",
+                        "type": ["array", "null"],
                         "items": {
                             "type": "object",
-                            "additionalProperties": False,
-                            "required": ["name", "fields"],
+                            "additionalProperties": True,
+                            "required": ["name"],
                             "properties": {
-                                "name": {"type": "string"},
+                                "name": {"type": ["string", "null"]},
                                 "fields": {
-                                    "type": "array",
+                                    "type": ["array", "null"],
                                     "items": {
                                         "type": "object",
-                                        "additionalProperties": False,
-                                        "required": ["name", "type"],
+                                        "additionalProperties": True,
+                                        "required": ["name"],
                                         "properties": {
-                                            "name": {"type": "string"},
-                                            "type": {"type": "string"},
-                                            "source_refs": {"type": "array", "items": {"type": "string"}}
+                                            "name": {"type": ["string", "null"]},
+                                            "type": {"type": ["string", "null"]},
+                                            "source_refs": {"type": ["array", "null"], "items": {"type": "string"}}
                                         }
                                     }
                                 }
@@ -598,30 +597,33 @@ classDef divisions fill:#eee,stroke:#999;"""
                         }
                     },
                     "physical": {
-                        "type": "array",
+                        "type": ["array", "null"],
                         "items": {
                             "type": "object",
-                            "additionalProperties": False,
-                            "required": ["name", "type"],
+                            "additionalProperties": True,
+                            "required": ["name"],
                             "properties": {
-                                "name": {"type": "string"},
-                                "type": {"type": "string", "enum": ["DB2_TABLE", "VSAM", "SEQ", "FILE"]},
+                                "name": {"type": ["string", "null"]},
+                                "type": {"type": ["string", "null"]},
                                 "columns": {
-                                    "type": "array",
+                                    "type": ["array", "null"],
                                     "items": {
                                         "type": "object",
-                                        "additionalProperties": False,
-                                        "required": ["name", "pic_or_sqltype"],
-                                        "properties": {"name": {"type": "string"}, "pic_or_sqltype": {"type": "string"}}
+                                        "additionalProperties": True,
+                                        "required": ["name"],
+                                        "properties": {
+                                            "name": {"type": ["string", "null"]},
+                                            "pic_or_sqltype": {"type": ["string", "null"]}
+                                        }
                                     }
                                 },
-                                "source_refs": {"type": "array", "items": {"type": "string"}}
+                                "source_refs": {"type": ["array", "null"], "items": {"type": "string"}}
                             }
                         }
                     }
                 }
             },
-            "additional_props_policy": "forbid",
+            "additional_props_policy": "allow",
             "prompt": {
                 "system": "Map copybook fields and DB2/DDL into a normalized logical/physical model. Do not invent entities; aggregate identical record layouts.",
                 "strict_json": True,
@@ -650,9 +652,9 @@ classDef divisions fill:#eee,stroke:#999;"""
                     "language": "mermaid",
                     "description": "Render logical entities and fields as Mermaid ER.",
                     "template": """erDiagram
-  {% for e in data.logical %}
+  {% for e in (data.logical or []) %}
   {{ e.name }} {
-    {% for f in e.fields %}{{ f.type | replace(" ", "_") }} {{ f.name }}
+    {% for f in (e.fields or []) %}{{ (f.type or "TYPE") | replace(" ", "_") }} {{ f.name }}
     {% endfor %}
   }
   {% endfor %}"""
@@ -671,26 +673,26 @@ classDef divisions fill:#eee,stroke:#999;"""
             "version": LATEST,
             "json_schema": {
                 "type": "object",
-                "additionalProperties": False,
-                "required": ["terms"],
+                "additionalProperties": True,
+                "required": [],
                 "properties": {
                     "terms": {
-                        "type": "array",
+                        "type": ["array", "null"],
                         "items": {
                             "type": "object",
-                            "additionalProperties": False,
-                            "required": ["term", "definition"],
+                            "additionalProperties": True,
+                            "required": ["term"],
                             "properties": {
-                                "term": {"type": "string"},
-                                "definition": {"type": "string"},
-                                "aliases": {"type": "array", "items": {"type": "string"}},
-                                "source_refs": {"type": "array", "items": {"type": "string"}}
+                                "term": {"type": ["string", "null"]},
+                                "definition": {"type": ["string", "null"]},
+                                "aliases": {"type": ["array", "null"], "items": {"type": "string"}},
+                                "source_refs": {"type": ["array", "null"], "items": {"type": "string"}}
                             }
                         }
                     }
                 }
             },
-            "additional_props_policy": "forbid",
+            "additional_props_policy": "allow",
             "prompt": {
                 "system": "Extract a business-friendly data dictionary from copybook/table names with concise definitions. No prose outside JSON.",
                 "strict_json": True
@@ -709,7 +711,7 @@ classDef divisions fill:#eee,stroke:#999;"""
                     "description": "Terms with aliases as child leaves.",
                     "template": """mindmap
   root((Data Dictionary))
-  {% for t in data.terms %}
+  {% for t in (data.terms or []) %}
   {{ t.term }}
     {% for a in (t.aliases or []) %}{{ a }}
     {% endfor %}
@@ -729,26 +731,26 @@ classDef divisions fill:#eee,stroke:#999;"""
             "version": LATEST,
             "json_schema": {
                 "type": "object",
-                "additionalProperties": False,
-                "required": ["edges"],
+                "additionalProperties": True,
+                "required": [],
                 "properties": {
                     "edges": {
-                        "type": "array",
+                        "type": ["array", "null"],
                         "items": {
                             "type": "object",
-                            "additionalProperties": False,
-                            "required": ["from", "to", "op"],
+                            "additionalProperties": True,
+                            "required": ["from", "to"],
                             "properties": {
-                                "from": {"type": "string", "description": "qualified source e.g., PROGRAM.PARAGRAPH.FIELD or DATASET.FIELD"},
-                                "to": {"type": "string", "description": "qualified target"},
-                                "op": {"type": "string", "enum": ["READ", "WRITE", "TRANSFORM"]},
-                                "evidence": {"type": "array", "items": {"type": "string"}}
+                                "from": {"type": ["string", "null"], "description": "qualified source e.g., PROGRAM.PARAGRAPH.FIELD or DATASET.FIELD"},
+                                "to": {"type": ["string", "null"], "description": "qualified target"},
+                                "op": {"type": ["string", "null"]},
+                                "evidence": {"type": ["array", "null"], "items": {"type": "string"}}
                             }
                         }
                     }
                 }
             },
-            "additional_props_policy": "forbid",
+            "additional_props_policy": "allow",
             "prompt": {"system": "Emit lineage edges only where there is evidence (IO ops, assignments). Be conservative.", "strict_json": True},
             "depends_on": {"hard": ["cam.cobol.program", "cam.jcl.step"], "soft": ["cam.data.model"]},
             "identity": {"natural_key": ["from", "to", "op"]},
@@ -785,16 +787,16 @@ classDef divisions fill:#eee,stroke:#999;"""
             "version": LATEST,
             "json_schema": {
                 "type": "object",
-                "additionalProperties": False,
-                "required": ["programs", "jobs", "datasets", "transactions"],
+                "additionalProperties": True,
+                "required": [],
                 "properties": {
-                    "programs": {"type": "array", "items": {"type": "string"}},
-                    "jobs": {"type": "array", "items": {"type": "string"}},
-                    "datasets": {"type": "array", "items": {"type": "string"}},
-                    "transactions": {"type": "array", "items": {"type": "string"}}
+                    "programs": {"type": ["array", "null"], "items": {"type": "string"}},
+                    "jobs": {"type": ["array", "null"], "items": {"type": "string"}},
+                    "datasets": {"type": ["array", "null"], "items": {"type": "string"}},
+                    "transactions": {"type": ["array", "null"], "items": {"type": "string"}}
                 }
             },
-            "additional_props_policy": "forbid",
+            "additional_props_policy": "allow",
             "prompt": {"system": "Aggregate identifiers from upstream facts into a single inventory. Do not rename.", "strict_json": True},
             "depends_on": {"hard": ["cam.cobol.program", "cam.jcl.job"], "soft": ["cam.cics.transaction"]},
             "identity": {"natural_key": ["programs", "jobs", "datasets", "transactions"]},
@@ -814,16 +816,16 @@ classDef divisions fill:#eee,stroke:#999;"""
                     "template": """mindmap
   root((Inventory))
     Programs
-      {% for p in data.programs %}{{ p }}
+      {% for p in (data.programs or []) %}{{ p }}
       {% endfor %}
     Jobs
-      {% for j in data.jobs %}{{ j }}
+      {% for j in (data.jobs or []) %}{{ j }}
       {% endfor %}
     Datasets
-      {% for d in data.datasets %}{{ d }}
+      {% for d in (data.datasets or []) %}{{ d }}
       {% endfor %}
     Transactions
-      {% for t in data.transactions %}{{ t }}
+      {% for t in (data.transactions or []) %}{{ t }}
       {% endfor %}"""
                 }
             ],
@@ -840,48 +842,48 @@ classDef divisions fill:#eee,stroke:#999;"""
             "version": LATEST,
             "json_schema": {
                 "type": "object",
-                "additionalProperties": False,
-                "required": ["call_graph", "job_flow", "dataset_deps"],
+                "additionalProperties": True,
+                "required": [],
                 "properties": {
                     "call_graph": {
-                        "type": "array",
+                        "type": ["array", "null"],
                         "items": {
                             "type": "object",
-                            "additionalProperties": False,
+                            "additionalProperties": True,
                             "required": ["from", "to"],
-                            "properties": {"from": {"type": "string"}, "to": {"type": "string"}, "dynamic": {"type": "boolean"}}
+                            "properties": {"from": {"type": ["string", "null"]}, "to": {"type": ["string", "null"]}, "dynamic": {"type": ["boolean", "string", "null"]}}
                         }
                     },
                     "job_flow": {
-                        "type": "array",
+                        "type": ["array", "null"],
                         "items": {
                             "type": "object",
-                            "additionalProperties": False,
-                            "required": ["job", "step", "seq", "program"],
+                            "additionalProperties": True,
+                            "required": ["job", "step"],
                             "properties": {
-                                "job": {"type": "string"},
-                                "step": {"type": "string"},
-                                "seq": {"type": "integer"},
-                                "program": {"type": "string"}
+                                "job": {"type": ["string", "null"]},
+                                "step": {"type": ["string", "null"]},
+                                "seq": {"type": ["integer", "string", "null"]},
+                                "program": {"type": ["string", "null"]}
                             }
                         }
                     },
                     "dataset_deps": {
-                        "type": "array",
+                        "type": ["array", "null"],
                         "items": {
                             "type": "object",
-                            "additionalProperties": False,
+                            "additionalProperties": True,
                             "required": ["producer", "dataset", "consumer"],
                             "properties": {
-                                "producer": {"type": "string"},
-                                "dataset": {"type": "string"},
-                                "consumer": {"type": "string"}
+                                "producer": {"type": ["string", "null"]},
+                                "dataset": {"type": ["string", "null"]},
+                                "consumer": {"type": ["string", "null"]}
                             }
                         }
                     }
                 }
             },
-            "additional_props_policy": "forbid",
+            "additional_props_policy": "allow",
             "prompt": {"system": "Build deterministic edges from parsed facts. Do not infer missing endpoints.", "strict_json": True},
             "depends_on": {"hard": ["cam.cobol.program", "cam.jcl.step"]},
             "identity": {"natural_key": ["call_graph", "job_flow", "dataset_deps"]},
@@ -910,12 +912,12 @@ classDef divisions fill:#eee,stroke:#999;"""
                     "language": "mermaid",
                     "description": "Sequential flow of job steps.",
                     "template": """flowchart TD
-  {% for e in data.job_flow|sort(attribute='seq') %}
+  {% for e in (data.job_flow or [])|sort(attribute='seq') %}
   {{ e.step | replace("-", "_") }}([{{ e.job }}::{{ e.step }}\\n{{ e.program }}])
   {% endfor %}
-  {% for e in data.job_flow|sort(attribute='seq') %}
+  {% for e in (data.job_flow or [])|sort(attribute='seq') %}
     {% set next = loop.index0 + 1 %}
-    {% if next < (data.job_flow|length) %}
+    {% if next < ((data.job_flow or [])|length) %}
   {{ data.job_flow[loop.index0].step | replace("-", "_") }} --> {{ data.job_flow[next].step | replace("-", "_") }}
     {% endif %}
   {% endfor %}"""
@@ -927,7 +929,7 @@ classDef divisions fill:#eee,stroke:#999;"""
                     "language": "mermaid",
                     "description": "Edges from producers to consumers via dataset nodes.",
                     "template": """flowchart LR
-  {% for d in data.dataset_deps %}
+  {% for d in (data.dataset_deps or []) %}
   {{ d.producer | replace("-", "_") }} --> {{ d.dataset | replace(".", "_") }}([{{ d.dataset }}]) --> {{ d.consumer | replace("-", "_") }}
   {% endfor %}"""
                 }
@@ -945,51 +947,51 @@ classDef divisions fill:#eee,stroke:#999;"""
             "version": LATEST,
             "json_schema": {
                 "type": "object",
-                "additionalProperties": False,
-                "required": ["name", "type", "nodes", "edges"],
+                "additionalProperties": True,
+                "required": ["name", "type"],
                 "properties": {
-                    "name": {"type": "string"},
-                    "type": {"type": "string", "enum": ["batch", "entity"]},
+                    "name": {"type": ["string", "null"]},
+                    "type": {"type": ["string", "null"]},
                     "lanes": {
-                        "type": "array",
+                        "type": ["array", "null"],
                         "items": {
                             "type": "object",
-                            "additionalProperties": False,
-                            "required": ["id", "label"],
-                            "properties": {"id": {"type": "string"}, "label": {"type": "string"}}
+                            "additionalProperties": True,
+                            "required": ["id"],
+                            "properties": {"id": {"type": ["string", "null"]}, "label": {"type": ["string", "null"]}}
                         }
                     },
                     "nodes": {
-                        "type": "array",
+                        "type": ["array", "null"],
                         "items": {
                             "type": "object",
-                            "additionalProperties": False,
-                            "required": ["id", "kind", "label"],
+                            "additionalProperties": True,
+                            "required": ["id"],
                             "properties": {
-                                "id": {"type": "string"},
-                                "kind": {"type": "string", "enum": ["start", "end", "task", "gateway", "event"]},
-                                "label": {"type": "string"},
-                                "lane": {"type": "string"},
-                                "refs": {"type": "array", "items": {"type": "string"}}
+                                "id": {"type": ["string", "null"]},
+                                "kind": {"type": ["string", "null"]},
+                                "label": {"type": ["string", "null"]},
+                                "lane": {"type": ["string", "null"]},
+                                "refs": {"type": ["array", "null"], "items": {"type": "string"}}
                             }
                         }
                     },
                     "edges": {
-                        "type": "array",
+                        "type": ["array", "null"],
                         "items": {
                             "type": "object",
-                            "additionalProperties": False,
+                            "additionalProperties": True,
                             "required": ["from", "to"],
                             "properties": {
-                                "from": {"type": "string"},
-                                "to": {"type": "string"},
-                                "condition": {"type": "string"}
+                                "from": {"type": ["string", "null"]},
+                                "to": {"type": ["string", "null"]},
+                                "condition": {"type": ["string", "null"]}
                             }
                         }
                     }
                 }
             },
-            "additional_props_policy": "forbid",
+            "additional_props_policy": "allow",
             "prompt": {
                 "system": "Given inventories and dependency graphs, emit a minimal process graph. Prefer deterministic stitching for batch; use naming heuristics only for labels.",
                 "strict_json": True,
@@ -1022,10 +1024,10 @@ classDef divisions fill:#eee,stroke:#999;"""
   subgraph lane_{{ l.id }}[{{ l.label }}]
   end
   {% endfor %}
-  {% for n in data.nodes %}
+  {% for n in (data.nodes or []) %}
   {{ n.id }}([{{ n.label }}])
   {% endfor %}
-  {% for e in data.edges %}
+  {% for e in (data.edges or []) %}
   {{ e.from }} -->{% if e.condition %}|{{ e.condition }}|{% endif %} {{ e.to }}
   {% endfor %}"""
                 }
@@ -1043,11 +1045,11 @@ classDef divisions fill:#eee,stroke:#999;"""
             "version": LATEST,
             "json_schema": {
                 "type": "object",
-                "additionalProperties": False,
+                "additionalProperties": True,
                 "required": ["source_process", "diagram"],
                 "properties": {
-                    "source_process": {"type": "string"},
-                    "diagram": {"type": "object", "additionalProperties": True}
+                    "source_process": {"type": ["string", "null"]},
+                    "diagram": {"type": ["object", "null"], "additionalProperties": True}
                 }
             },
             "additional_props_policy": "allow",
@@ -1082,27 +1084,27 @@ classDef divisions fill:#eee,stroke:#999;"""
             "version": LATEST,
             "json_schema": {
                 "type": "object",
-                "additionalProperties": False,
-                "required": ["entries"],
+                "additionalProperties": True,
+                "required": [],
                 "properties": {
                     "entries": {
-                        "type": "array",
+                        "type": ["array", "null"],
                         "items": {
                             "type": "object",
-                            "additionalProperties": False,
-                            "required": ["term", "kind"],
+                            "additionalProperties": True,
+                            "required": ["term"],
                             "properties": {
-                                "term": {"type": "string"},
-                                "kind": {"type": "string", "enum": ["entity", "event", "metric", "policy", "other"]},
-                                "definition": {"type": "string"},
-                                "aliases": {"type": "array", "items": {"type": "string"}},
-                                "mappings": {"type": "array", "items": {"type": "string"}}
+                                "term": {"type": ["string", "null"]},
+                                "kind": {"type": ["string", "null"]},
+                                "definition": {"type": ["string", "null"]},
+                                "aliases": {"type": ["array", "null"], "items": {"type": "string"}},
+                                "mappings": {"type": ["array", "null"], "items": {"type": "string"}}
                             }
                         }
                     }
                 }
             },
-            "additional_props_policy": "forbid",
+            "additional_props_policy": "allow",
             "prompt": {"system": "Produce consistent, de-duplicated business terms grounded in upstream copybooks and data model. Keep definitions concise and non-ambiguous.", "strict_json": True},
             "depends_on": {"hard": ["cam.data.model", "cam.data.dictionary"]},
             "identity": {"natural_key": ["entries[*].term"]},
@@ -1125,7 +1127,7 @@ classDef divisions fill:#eee,stroke:#999;"""
                     "template": """mindmap
   root((Domain Dictionary))
   {% set kinds = {"entity":[], "event":[], "metric":[], "policy":[], "other":[]} %}
-  {% for e in data.entries %}{% do kinds[e.kind].append(e) %}{% endfor %}
+  {% for e in (data.entries or []) %}{% do kinds[e.kind or "other"].append(e) %}{% endfor %}
   {% for k, arr in kinds.items() %}
   {{ k | capitalize }}
     {% for e in arr %}{{ e.term }}

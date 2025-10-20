@@ -1,4 +1,4 @@
-#libs/astra_common/events.py
+# libs/astra_common/events.py
 from __future__ import annotations
 from enum import Enum
 
@@ -11,6 +11,7 @@ class Service(str, Enum):
     LEARNING = "learning"
     AUDIT = "audit"
     ERROR = "error"
+    CONDUCTOR = "conductor"  # NEW
 
 class Version(str, Enum):
     V1 = "v1"

@@ -59,12 +59,14 @@ async def seed_packs() -> None:
     publish_on_seed = os.getenv("PACK_SEED_PUBLISH", "1") in ("1", "true", "True")
     svc = PackService()
 
-    # This pack declares that it expects the Renova Git input contract.
+    # Pack input contracts
     renova_input_id = "input.renova.repo"
+    summary_input_id = "input.renova.workspace_summary"  # NEW
 
     pack_key = "cobol-mainframe"
     full_version = "v1.0.1"
     mini_version = "v1.0.2"
+    mini_v103 = "v1.0.3"  # minimal three-step pack
 
     # -------------------------------
     # Pack #1: Full-flow v1.0.1
@@ -75,97 +77,73 @@ async def seed_packs() -> None:
         id="pb.main",
         name="Main COBOL Learning Flow",
         description="Topologically ordered steps to parse, index, enrich, and render the enterprise flow.",
+        input_id=renova_input_id,   # must be in pack_input_ids
         steps=[
             PlaybookStep(
                 id="s1.clone",
                 name="Clone Repo",
                 capability_id="cap.repo.clone",
                 description="Clone source repository; records commit and paths_root.",
-                params={
-                    # Agents can bind these from the registered input:
-                    # inputs.repos[0].git_url → git.url
-                    # inputs.repos[0].branch  → git.branch
-                    "url": "${git.url}",
-                    "branch": "${git.branch:-main}",
-                    "depth": 0,
-                },
             ),
             PlaybookStep(
                 id="s2.cobol",
                 name="Parse COBOL",
                 capability_id="cap.cobol.parse",
                 description="ProLeap/cb2xml parse of programs and copybooks into normalized CAM kinds.",
-                # Include paging/budget args; executed by the MCP step
-                params={
-                    "root": "${repo.paths_root}",
-                    "paths": [],
-                    "dialect": "COBOL85",
-                    "file_limit": 24,
-                    "budget_seconds": 20,
-                },
             ),
             PlaybookStep(
                 id="s3.jcl",
                 name="Parse JCL",
                 capability_id="cap.jcl.parse",
                 description="Parse JCL jobs/steps and DDs.",
-                params={"root": "${repo.paths_root}", "paths": []},
             ),
             PlaybookStep(
                 id="s4.cics",
                 name="Discover CICS (optional)",
                 capability_id="cap.cics.catalog",
                 description="If configured, discover transaction→program mapping.",
-                params={"region": "${cics.region}", "filter": "${cics.filter:-*}"},
             ),
             PlaybookStep(
                 id="s5.db2",
                 name="Export DB2 Catalog (optional)",
                 capability_id="cap.db2.catalog",
                 description="Load DB2 schema via connection alias or DDL folder.",
-                params={"conn_alias": "${db2.conn_alias}", "schemas": ["${db2.schema:-*}"], "ddl_root": "${db2.ddl_root}"},
             ),
             PlaybookStep(
                 id="s6.graph",
                 name="Index Enterprise Graph",
                 capability_id="cap.graph.index",
                 description="Build service/dependency inventories from parsed facts.",
-                params={"resolve_dynamic_calls": False, "max_depth": 5},
             ),
             PlaybookStep(
                 id="s7.entities",
                 name="Detect Entities & Terms",
                 capability_id="cap.entity.detect",
                 description="Lift copybooks/physical into logical data model and domain dictionary.",
-                params={"naming_style": "title", "merge_similar_threshold": 0.85},
             ),
             PlaybookStep(
                 id="s8.lineage",
                 name="Derive Data Lineage",
                 capability_id="cap.lineage.derive",
                 description="Conservative field-level lineage from IO ops and steps.",
-                params={"include_transforms": True},
             ),
             PlaybookStep(
                 id="s9.batch",
                 name="Mine Batch Workflows",
                 capability_id="cap.workflow.mine_batch",
                 description="Deterministic stitching of job flows + call graph.",
-                params={"lane_by": "job"},
             ),
             PlaybookStep(
                 id="s10.entity",
                 name="Mine Entity Workflows",
                 capability_id="cap.workflow.mine_entity",
                 description="Entity-centric slicing and business-readable flows.",
-                params={"entity_names": ["Account", "Customer", "Transaction"], "max_hops": 5},
             ),
             PlaybookStep(
                 id="s11.diagrams",
                 name="Render Diagrams",
                 capability_id="cap.diagram.render",
                 description="Render activity/sequence/component/deployment/state diagrams.",
-                params={"targets": ["activity", "sequence", "component", "deployment", "state"]},
             ),
         ],
     )
@@ -175,7 +153,7 @@ async def seed_packs() -> None:
         version=full_version,
         title="COBOL Mainframe Modernization",
         description="Deterministic MCP parsing + LLM enrichment to discover inventories, data lineage, and workflows from COBOL/JCL estates.",
-        pack_input_id=renova_input_id,  # ← NEW: declares required input contract
+        pack_input_ids=[renova_input_id],
         capability_ids=[
             "cap.repo.clone",
             "cap.cobol.parse",
@@ -189,6 +167,7 @@ async def seed_packs() -> None:
             "cap.workflow.mine_entity",
             "cap.diagram.render",
         ],
+        agent_capability_ids=["cap.diagram.mermaid"],
         playbooks=[pb_main],
     )
 
@@ -199,35 +178,41 @@ async def seed_packs() -> None:
     # -------------------------------
     await _delete_pack_if_exists(svc, pack_key, mini_version)
 
+    # Existing core playbook (unchanged)
     pb_core = Playbook(
         id="pb.core",
         name="Core Clone + Parse",
         description="Minimal flow to clone a repo and parse COBOL sources.",
+        input_id=renova_input_id,
         steps=[
             PlaybookStep(
                 id="s1.clone",
                 name="Clone Repo",
                 capability_id="cap.repo.clone",
                 description="Clone source repository; records commit and paths_root.",
-                params={
-                    "url": "${git.url}",
-                    "branch": "${git.branch:-main}",
-                    "depth": 0,
-                },
             ),
             PlaybookStep(
                 id="s2.cobol",
                 name="Parse COBOL",
                 capability_id="cap.cobol.parse",
                 description="ProLeap/cb2xml parse of programs and copybooks into normalized CAM kinds.",
-                params={
-                    "root": "${repo.paths_root}",
-                    "paths": [],
-                    "dialect": "COBOL85",
-                    "file_limit": 24,
-                    "budget_seconds": 20,
-                },
             ),
+        ],
+    )
+
+    # NEW: single-step playbook for workspace summary doc
+    pb_summary = Playbook(
+        id="pb.summary",
+        name="Generate COBOL Workspace Summary",
+        description="Generate a Markdown document summarizing COBOL artifacts for the workspace.",
+        input_id=summary_input_id,  # must be present in pack_input_ids
+        steps=[
+            PlaybookStep(
+                id="s1.workspace_doc",
+                name="Workspace Summary Document",
+                capability_id="cap.cobol.workspace_doc",
+                description="Produce cam.asset.cobol_artifacts_summary for the workspace.",
+            )
         ],
     )
 
@@ -235,15 +220,74 @@ async def seed_packs() -> None:
         key=pack_key,
         version=mini_version,
         title="COBOL Mainframe Modernization (Core)",
-        description="Derived minimal pack with a two-step playbook: clone a repo then parse COBOL.",
-        pack_input_id=renova_input_id,  # ← NEW: declares required input contract
+        description="Derived minimal pack with a two-step playbook (clone + parse) and an optional workspace summary generator.",
+        # UPDATED: include both inputs (repo + workspace_summary)
+        pack_input_ids=[renova_input_id, summary_input_id],
         capability_ids=[
             "cap.repo.clone",
             "cap.cobol.parse",
+            # NEW: make the capability discoverable/resolvable for pb.summary
+            "cap.cobol.workspace_doc",
         ],
-        playbooks=[pb_core],
+        agent_capability_ids=["cap.diagram.mermaid"],
+        # UPDATED: include the new summary playbook
+        playbooks=[pb_core, pb_summary],
     )
 
     await _create_and_maybe_publish(svc, payload_mini, publish_on_seed)
 
-    log.info("[capability.seeds.packs] Done (seeded %s@%s and %s@%s)", pack_key, full_version, pack_key, mini_version)
+    # -------------------------------
+    # Pack #3: Minimal three-step v1.0.3
+    # -------------------------------
+    await _delete_pack_if_exists(svc, pack_key, mini_v103)
+
+    pb_core_v103 = Playbook(
+        id="pb.core",
+        name="Core Clone + Parse + Entities",
+        description="Clone a repository, parse COBOL sources, then lift entities and a domain dictionary.",
+        input_id=renova_input_id,
+        steps=[
+            PlaybookStep(
+                id="s1.clone",
+                name="Clone Repo",
+                capability_id="cap.repo.clone",
+                description="Clone source repository; records commit and paths_root.",
+            ),
+            PlaybookStep(
+                id="s2.cobol",
+                name="Parse COBOL",
+                capability_id="cap.cobol.parse",
+                description="ProLeap/cb2xml parse of programs and copybooks into normalized CAM kinds.",
+            ),
+            PlaybookStep(
+                id="s3.entities",
+                name="Detect Entities & Domain Terms",
+                capability_id="cap.entity.detect",
+                description="Derive a logical data model and a domain dictionary from parsed copybooks and DB2 schemas.",
+            ),
+        ],
+    )
+
+    payload_mini_v103 = CapabilityPackCreate(
+        key=pack_key,
+        version=mini_v103,
+        title="COBOL Mainframe Modernization (Core)",
+        description="Derived minimal pack with a three-step playbook: clone a repo, parse COBOL, then detect entities and domain terms.",
+        pack_input_ids=[renova_input_id],
+        capability_ids=[
+            "cap.repo.clone",
+            "cap.cobol.parse",
+            "cap.entity.detect",
+        ],
+        agent_capability_ids=["cap.diagram.mermaid"],
+        playbooks=[pb_core_v103],
+    )
+
+    await _create_and_maybe_publish(svc, payload_mini_v103, publish_on_seed)
+
+    log.info(
+        "[capability.seeds.packs] Done (seeded %s@%s, %s@%s, %s@%s)",
+        pack_key, full_version,
+        pack_key, mini_version,
+        pack_key, mini_v103,
+    )

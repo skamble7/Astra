@@ -15,12 +15,12 @@ from app.models import (
     ResolvedPlaybookStep,
     GlobalCapability,
 )
-from app.services.validation import ensure_pack_capabilities_exist
+from app.services.validation import ensure_pack_capabilities_exist, ensure_playbook_inputs_valid
 
-# NEW: resolve registered pack input definitions
+# resolve registered pack input definitions
 try:
-    from app.dal.pack_input_dal import PackInputDAL  # your CRUD for inputs
-except Exception:  # pragma: no cover - allow service import even if DAL not present in some contexts
+    from app.dal.pack_input_dal import PackInputDAL
+except Exception:  # pragma: no cover
     PackInputDAL = None  # type: ignore
 
 
@@ -69,13 +69,9 @@ class PackService:
         return ok
 
     # ─────────────────────────────────────────────────────────────
-    # Publish (snapshots removed in new design; publish remains status-only)
+    # Publish (status-only)
     # ─────────────────────────────────────────────────────────────
     async def publish(self, pack_id: str, *, actor: Optional[str] = None) -> Optional[CapabilityPack]:
-        """
-        In the new design, packs no longer embed capability snapshots.
-        Publishing simply updates status and published_at.
-        """
         published = await self.packs.publish(pack_id)
         if published:
             await get_bus().publish(
@@ -96,30 +92,39 @@ class PackService:
         return await self.packs.list_versions(key)
 
     # ─────────────────────────────────────────────────────────────
-    # Resolved view (fetch full GlobalCapability docs + optional PackInput definition)
+    # Resolved view: full capability docs for playbook + agent scopes
     # ─────────────────────────────────────────────────────────────
     async def resolved_view(self, pack_id: str) -> Optional[ResolvedPackView]:
         pack = await self.packs.get(pack_id)
         if not pack:
             return None
 
-        # Validate that referenced capabilities exist
+        # Validate referenced capabilities and playbook input membership
         all_ids = await self.caps.list_all_ids()
         ensure_pack_capabilities_exist(pack, all_ids)
+        ensure_playbook_inputs_valid(pack)
 
-        # Fetch full capability docs in the same order as capability_ids
+        # Step-bound capability docs (ordered)
         capability_ids: List[str] = pack.capability_ids or []
         capabilities: List[GlobalCapability] = await self.caps.get_many(capability_ids)
 
-        # Optionally resolve the registered pack input by id
-        pack_input_def = None
-        if getattr(pack, "pack_input_id", None) and self.inputs is not None:
-            try:
-                pack_input_def = await self.inputs.get(pack.pack_input_id)  # returns PackInput or None
-            except Exception:
-                pack_input_def = None
+        # Agent-scoped capability docs (ordered)
+        agent_capability_ids: List[str] = getattr(pack, "agent_capability_ids", None) or []
+        agent_capabilities: List[GlobalCapability] = await self.caps.get_many(agent_capability_ids) if agent_capability_ids else []
 
-        # Map for quick lookup while keeping playbook steps cheap to build
+        # Optional: resolve the registered pack input definitions (plural)
+        pack_inputs = []
+        if getattr(pack, "pack_input_ids", None) and self.inputs is not None:
+            for pid in pack.pack_input_ids:
+                try:
+                    pi = await self.inputs.get(pid)
+                    if pi:
+                        pack_inputs.append(pi)
+                except Exception:
+                    # ignore missing individual inputs to keep view resilient
+                    pass
+
+        # Fast lookup for step projection
         by_id: Dict[str, GlobalCapability] = {c.id: c for c in capabilities}
 
         resolved_playbooks: List[ResolvedPlaybook] = []
@@ -141,7 +146,6 @@ class PackService:
                         id=step.id,
                         name=step.name,
                         capability_id=step.capability_id,
-                        params=step.params or {},
                         execution_mode=mode,        # "mcp" | "llm"
                         produces_kinds=produces,
                         required_kinds=[],          # reserved for learning-service
@@ -154,6 +158,7 @@ class PackService:
                     id=pb.id,
                     name=pb.name,
                     description=pb.description,
+                    input_id=getattr(pb, "input_id", None),
                     steps=steps,
                 )
             )
@@ -164,9 +169,11 @@ class PackService:
             version=pack.version,
             title=pack.title,
             description=pack.description,
-            pack_input_id=getattr(pack, "pack_input_id", None),
-            pack_input=pack_input_def,
+            pack_input_ids=list(getattr(pack, "pack_input_ids", []) or []),
+            pack_inputs=pack_inputs,
             capability_ids=capability_ids,
+            agent_capability_ids=agent_capability_ids,
             capabilities=capabilities,
+            agent_capabilities=agent_capabilities,
             playbooks=resolved_playbooks,
         )

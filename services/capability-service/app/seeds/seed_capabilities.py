@@ -11,8 +11,9 @@ from app.models import (
     ToolCallSpec,
     StdioTransport,
     HTTPTransport,
+    ExecutionInput,
     ExecutionIO,
-    ExecutionOutputContract,
+    ExecutionOutputContract,  # uses artifact_type ("cam" | "freeform"), supports extra_schema
 )
 from app.services import CapabilityService
 
@@ -44,7 +45,7 @@ async def _try_wipe_all(svc: CapabilityService) -> bool:
 
 async def seed_capabilities() -> None:
     """
-    Seeds the capability set (mix of MCP over stdio and HTTP/SSE, plus LLM).
+    Seeds the capability set (mix of MCP over stdio and HTTP, plus LLM).
     """
     log.info("[capability.seeds] Begin")
 
@@ -166,8 +167,6 @@ async def seed_capabilities() -> None:
     targets: list[GlobalCapabilityCreate] = [
         # ---------------------------------------------------------------------
         # UPDATED: cap.repo.clone (HTTP MCP, polling)
-        #   Start tool -> returns { job_id, status }
-        #   Status tool -> returns { job_id, status, artifacts: [cam.asset.repo_snapshot] }
         # ---------------------------------------------------------------------
         GlobalCapabilityCreate(
             id="cap.repo.clone",
@@ -188,23 +187,45 @@ async def seed_capabilities() -> None:
                     verify_tls=False,
                     retry={"max_attempts": 2, "backoff_ms": 250, "jitter_ms": 50},
                     health_path="/health",
-                    sse_path="/sse",
+                    protocol_path="/mcp",
                 ),
                 io=ExecutionIO(
-                    input_schema={
-                        "type": "object",
-                        "additionalProperties": False,
-                        "required": ["repo_url", "volume_path"],
-                        "properties": {
-                            "repo_url": {"type": "string", "minLength": 1, "examples": ["https://github.com/skamble7/CardDemo_minimal"]},
-                            "volume_path": {"type": "string", "minLength": 1, "examples": ["/workspace"]},
-                            "branch": {"type": "string", "examples": ["master"]},
-                            "depth": {"type": "integer", "minimum": 0, "examples": [1]},
-                            "auth_mode": {"type": ["string", "null"], "enum": ["https", "ssh", None], "examples": [None]},
+                    input_contract=ExecutionInput(
+                        json_schema={
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["repo_url", "volume_path"],
+                            "properties": {
+                                "repo_url": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "examples": ["https://github.com/skamble7/CardDemo_minimal"],
+                                },
+                                "volume_path": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "examples": ["/workspace"],
+                                },
+                                "branch": {"type": "string", "examples": ["master"]},
+                                "depth": {"type": "integer", "minimum": 0, "examples": [1]},
+                                "auth_mode": {
+                                    "type": ["string", "null"],
+                                    "enum": ["https", "ssh", None],
+                                    "examples": [None],
+                                },
+                            },
                         },
-                    },
+                        schema_guide=(
+                            "Provide details for a git snapshot job, ideally to fetch this from the pack_input \n"
+                            "- **repo_url** (required): HTTPS or SSH URL to clone.\n"
+                            "- **volume_path** (required): Absolute path where the repo should be materialized (e.g., `/workspace`).\n"
+                            "- **branch** (optional): Branch name to checkout. Defaults to the default branch if omitted.\n"
+                            "- **depth** (optional): Integer ≥ 0 for shallow clone. `0` or omitted means full history.\n"
+                            "- **auth_mode** (optional): One of `https`, `ssh`, or `null` for unauthenticated public clones."
+                        ),
+                    ),
                     output_contract=ExecutionOutputContract(
-                        artifacts_property="artifacts",
+                        artifact_type="cam",
                         kinds=["cam.asset.repo_snapshot"],
                         extra_schema={
                             "type": "object",
@@ -212,12 +233,16 @@ async def seed_capabilities() -> None:
                             "properties": {
                                 "job_id": {"type": "string"},
                                 "status": {"type": "string", "enum": ["queued", "running", "done", "error"]},
-                                # Optional progress/warnings if your server wants to send them
                                 "progress": {"type": "number", "minimum": 0, "maximum": 100},
                                 "message": {"type": "string"},
                             },
                         },
-                        allow_extra_output_fields=False,
+                        schema_guide=(
+                            "The response contains **artifacts** (an array of CAM objects under `artifacts`) and an envelope.\n"
+                            "- When the job is still running, expect `{ job_id, status }` with **no artifacts**.\n"
+                            "- When complete, expect `{ job_id, status: \"done\", artifacts: [cam.asset.repo_snapshot, ...] }`.\n"
+                            "- `progress` (0–100) and `message` are optional hints during execution."
+                        ),
                     ),
                 ),
                 tool_calls=[
@@ -235,9 +260,7 @@ async def seed_capabilities() -> None:
                                 "auth_mode": {"type": ["string", "null"], "enum": ["https", "ssh", None]},
                             },
                         },
-                        # Start call does not emit artifacts
                         output_kinds=[],
-                        # result_schema only for non-artifact fields from this specific call
                         result_schema={
                             "type": "object",
                             "additionalProperties": False,
@@ -260,9 +283,6 @@ async def seed_capabilities() -> None:
                             "required": ["job_id"],
                             "properties": {"job_id": {"type": "string"}},
                         },
-                        # When status == 'done', the server must return artifacts:
-                        #   { artifacts: [ { kind: "cam.asset.repo_snapshot", data: { repo, commit, branch, paths_root, tags } } ],
-                        #     job_id, status }
                         output_kinds=["cam.asset.repo_snapshot"],
                         result_schema={
                             "type": "object",
@@ -271,7 +291,6 @@ async def seed_capabilities() -> None:
                             "properties": {
                                 "job_id": {"type": "string"},
                                 "status": {"type": "string", "enum": ["queued", "running", "done", "error"]},
-                                # No 'result' object anymore; the repo snapshot goes into artifacts[0].data
                             },
                         },
                         timeout_sec=15,  # per poll
@@ -328,38 +347,53 @@ async def seed_capabilities() -> None:
                 mode="mcp",
                 transport=HTTPTransport(
                     kind="http",
-                    base_url="http://host.docker.internal:8000",
+                    base_url="http://host.docker.internal:8765",
                     headers={},
                     auth={"method": "none"},
                     timeout_sec=90,
                     verify_tls=False,
                     retry={"max_attempts": 2, "backoff_ms": 250, "jitter_ms": 50},
                     health_path="/health",
-                    sse_path="/sse",
+                    protocol_path="/mcp",
                 ),
                 io=ExecutionIO(
-                    input_schema={
-                        "type": "object",
-                        "additionalProperties": False,
-                        "required": ["paths_root"],
-                        "properties": {
-                            "paths_root": {"type": "string", "minLength": 1, "examples": ["/workspace"]},
-                            "page_size": {"type": "integer", "minimum": 1, "examples": [60]},
-                            "cursor": {"type": ["string", "null"], "examples": ["<opaque-cursor>"]},
-                            "kinds": {
-                                "type": "array",
-                                "items": {
+                    input_contract=ExecutionInput(
+                        json_schema={
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["paths_root"],
+                            "properties": {
+                                "paths_root": {
                                     "type": "string",
-                                    "enum": ["source_index", "copybook", "program"],
+                                    "minLength": 1,
+                                    "examples": ["/workspace"],
                                 },
-                                "examples": [["source_index", "copybook", "program"]],
+                                "page_size": {"type": "integer", "minimum": 1, "examples": [60]},
+                                "cursor": {"type": ["string", "null"], "examples": ["<opaque-cursor>"]},
+                                "kinds": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string",
+                                        "enum": ["source_index", "copybook", "program"],
+                                    },
+                                    "examples": [["source_index", "copybook", "program"]],
+                                },
+                                "force_reparse": {"type": "boolean"},
+                                "run_id": {"type": "string"},
                             },
-                            "force_reparse": {"type": "boolean"},
-                            "run_id": {"type": "string"},
                         },
-                    },
+                        schema_guide=(
+                            "Request a COBOL parse page:\n"
+                            "- **paths_root** (required): Root directory containing the checked-out repo (e.g., `/workspace`).\n"
+                            "- **page_size** (optional): Number of artifacts per page (integer ≥ 1). Defaults to 3.\n"
+                            "- **cursor** (optional): Opaque pagination token from a prior response; use `null` for the first page.\n"
+                            "- **kinds** (optional): list of artifact kinds that the MCP server should emit this page; derive from capability `produces_kinds`.\n"
+                            "- **force_reparse** (optional): Boolean to force a clean reparse ignoring caches.\n"
+                            "- **run_id** (optional): Correlation id to be echoed back in responses."
+                        ),
+                    ),
                     output_contract=ExecutionOutputContract(
-                        artifacts_property="artifacts",
+                        artifact_type="cam",
                         kinds=[
                             "cam.asset.source_index",
                             "cam.cobol.copybook",
@@ -396,7 +430,13 @@ async def seed_capabilities() -> None:
                                 "next_cursor": {"type": ["string", "null"]},
                             },
                         },
-                        allow_extra_output_fields=False,
+                        schema_guide=(
+                            "Each page responds with an envelope and (optionally) **artifacts**:\n"
+                            "- `run`: echoes identifiers like `run_id` and `paths_root`.\n"
+                            "- `meta.counts`: per-kind artifact counts in this page; `meta.page_size` is the requested size.\n"
+                            "- `next_cursor`: supply this on the next call to continue paging; `null` means last page.\n"
+                            "- `artifacts`: array of CAM objects (`cam.asset.source_index`, `cam.cobol.copybook`, `cam.cobol.program`). The artifacts.data property contains the actual data as per the json_schema property of an artifact kind."
+                        ),
                     ),
                 ),
                 tool_calls=[
@@ -423,7 +463,6 @@ async def seed_capabilities() -> None:
                             "cam.cobol.copybook",
                             "cam.cobol.program",
                         ],
-                        # result_schema for non-artifact fields (optional here since covered by execution.io.extra_schema)
                         timeout_sec=LONG_TIMEOUT,
                         retries=1,
                         expects_stream=False,
@@ -432,6 +471,475 @@ async def seed_capabilities() -> None:
                 ],
                 discovery={"validate_tools": True, "validate_resources": False, "validate_prompts": False, "fail_fast": True},
                 connection={"singleton": True, "share_across_steps": True},
+            ),
+        ),
+
+        # ---------------------------------------------------------------------
+        # NEW: cap.cobol.workspace_doc (HTTP MCP, blocking tool)
+        # ---------------------------------------------------------------------
+        GlobalCapabilityCreate(
+            id="cap.cobol.workspace_doc",
+            name="Generate COBOL Workspace Document",
+            description="Generates a Markdown document summarizing COBOL artifacts in a workspace and emits cam.asset.cobol_artifacts_summary with storage and (optionally pre-signed) download info.",
+            tags=["cobol", "docs", "summary", "mcp"],
+            parameters_schema=None,
+            produces_kinds=["cam.asset.cobol_artifacts_summary"],
+            agent=None,
+            execution=McpExecution(
+                mode="mcp",
+                transport=HTTPTransport(
+                    kind="http",
+                    base_url="http://host.docker.internal:8002",
+                    headers={},
+                    auth={"method": "none"},
+                    timeout_sec=180,
+                    verify_tls=False,
+                    retry={"max_attempts": 2, "backoff_ms": 250, "jitter_ms": 50},
+                    health_path="/health",
+                    protocol_path="/mcp",
+                ),
+                tool_calls=[
+                    ToolCallSpec(
+                        tool="generate.workspace.document",
+                        args_schema={
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["workspace_id"],
+                            "properties": {
+                                "workspace_id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "description": "Workspace identifier whose artifacts should be summarized.",
+                                },
+                                "kind_id": {
+                                    "type": "string",
+                                    "const": "cam.asset.cobol_artifacts_summary",
+                                    "description": "Driver kind for the document generation.",
+                                },
+                            },
+                        },
+                        output_kinds=["cam.asset.cobol_artifacts_summary"],
+                        result_schema=None,
+                        timeout_sec=LONG_TIMEOUT,
+                        retries=1,
+                        expects_stream=False,
+                        cancellable=True,
+                    )
+                ],
+                discovery={"validate_tools": True, "validate_resources": False, "validate_prompts": False, "fail_fast": True},
+                connection={"singleton": True, "share_across_steps": True},
+                io=ExecutionIO(
+                    input_contract=ExecutionInput(
+                        json_schema={
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["workspace_id"],
+                            "properties": {
+                                "workspace_id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "description": "Workspace identifier to summarize.",
+                                    "examples": ["0084b4c5-b11b-44d3-8ec3-d616dfa3e873"],
+                                },
+                                "kind_id": {
+                                    "type": "string",
+                                    "const": "cam.asset.cobol_artifacts_summary",
+                                    "description": "Fixed to the COBOL workspace document kind.",
+                                },
+                            },
+                        },
+                        schema_guide=(
+                            "Call the MCP server to generate a single Markdown document summarizing COBOL artifacts for the given workspace.\n"
+                            "- **workspace_id** (required): The workspace whose artifacts will be summarized.\n"
+                            "- **kind_id** (fixed): `cam.asset.cobol_artifacts_summary`."
+                        ),
+                    ),
+                    output_contract=ExecutionOutputContract(
+                        artifact_type="cam",
+                        kinds=["cam.asset.cobol_artifacts_summary"],
+                        result_schema=None,
+                        extra_schema={
+                            "type": "object",
+                            "additionalProperties": True,
+                            "properties": {
+                                "name": {"type": ["string", "null"]},
+                                "description": {"type": ["string", "null"]},
+                                "filename": {"type": ["string", "null"]},
+                                "path": {"type": ["string", "null"]},
+                                "storage_uri": {"type": ["string", "null"]},
+                                "download_url": {"type": ["string", "null"], "format": "uri"},
+                                "download_expires_at": {"type": ["string", "null"], "format": "date-time"},
+                                "size_bytes": {"type": ["integer", "string", "null"]},
+                                "mime_type": {"type": ["string", "null"]},
+                                "encoding": {"type": ["string", "null"]},
+                                "checksum": {
+                                    "type": ["object", "null"],
+                                    "additionalProperties": True,
+                                    "properties": {
+                                        "md5": {"type": ["string", "null"]},
+                                        "sha1": {"type": ["string", "null"]},
+                                        "sha256": {"type": ["string", "null"]},
+                                    },
+                                },
+                                "source_system": {"type": ["string", "null"]},
+                                "tags": {"type": ["array", "null"], "items": {"type": "string"}},
+                                "created_at": {"type": ["string", "null"], "format": "date-time"},
+                                "updated_at": {"type": ["string", "null"], "format": "date-time"},
+                                "preview": {
+                                    "type": ["object", "null"],
+                                    "additionalProperties": True,
+                                    "properties": {
+                                        "thumbnail_url": {"type": ["string", "null"], "format": "uri"},
+                                        "text_excerpt": {"type": ["string", "null"]},
+                                        "page_count": {"type": ["integer", "string", "null"]},
+                                    },
+                                },
+                                "metadata": {"type": ["object", "null"], "additionalProperties": True},
+                            },
+                        },
+                        schema_guide=(
+                            "The MCP server returns one artifact of kind `cam.asset.cobol_artifacts_summary` with file metadata and links:\n"
+                            "- `storage_uri` (e.g., `s3://astra-docs/<key>`) and `download_url` (may be pre-signed).\n"
+                            "- If pre-signed, `download_expires_at` may be present; consumers should respect it.\n"
+                            "- Other fields include `filename`, `path`, `size_bytes`, `mime_type`, `encoding`, and checksums."
+                        ),
+                    ),
+                ),
+            ),
+        ),
+
+        # ---------------------------------------------------------------------
+        # NEW: cap.data-eng.generate-arch-diagram (HTTP MCP, blocking tool)
+        # ---------------------------------------------------------------------
+        GlobalCapabilityCreate(
+            id="cap.data-eng.generate-arch-diagram",
+            name="Generate Data Pipeline Architecture Guidance Document",
+            description="Calls the MCP server to produce a Markdown architecture guidance document grounded on discovered data-engineering artifacts and RUN INPUTS; emits cam.documents.data-pipeline-arch-guidance with standard file metadata (and optional pre-signed download info).",
+            tags=["data-eng", "docs", "guidance", "mcp"],
+            parameters_schema=None,
+            produces_kinds=["cam.documents.data-pipeline-arch-guidance"],
+            agent=None,
+            execution=McpExecution(
+                mode="mcp",
+                transport=HTTPTransport(
+                    kind="http",
+                    base_url="http://host.docker.internal:8002",
+                    headers={},
+                    auth={"method": "none"},
+                    timeout_sec=180,
+                    verify_tls=False,
+                    retry={"max_attempts": 2, "backoff_ms": 250, "jitter_ms": 50},
+                    health_path="/health",
+                    protocol_path="/mcp",
+                ),
+                tool_calls=[
+                    ToolCallSpec(
+                        tool="generate.workspace.document",
+                        args_schema={
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["workspace_id"],
+                            "properties": {
+                                "workspace_id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "description": "Workspace identifier whose discovered artifacts ground the guidance document.",
+                                },
+                                "kind_id": {
+                                    "type": "string",
+                                    "const": "cam.documents.data-pipeline-arch-guidance",
+                                    "description": "Driver kind for the document generation.",
+                                },
+                            },
+                        },
+                        output_kinds=["cam.documents.data-pipeline-arch-guidance"],
+                        result_schema=None,
+                        timeout_sec=LONG_TIMEOUT,
+                        retries=1,
+                        expects_stream=False,
+                        cancellable=True,
+                    )
+                ],
+                discovery={"validate_tools": True, "validate_resources": False, "validate_prompts": False, "fail_fast": True},
+                connection={"singleton": True, "share_across_steps": True},
+                io=ExecutionIO(
+                    input_contract=ExecutionInput(
+                        json_schema={
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["workspace_id"],
+                            "properties": {
+                                "workspace_id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "description": "Workspace identifier whose artifacts will be used to ground the architecture guidance document.",
+                                    "examples": ["0084b4c5-b11b-44d3-8ec3-d616dfa3e873"],
+                                },
+                                "kind_id": {
+                                    "type": "string",
+                                    "const": "cam.documents.data-pipeline-arch-guidance",
+                                    "description": "Fixed to the architecture guidance document kind.",
+                                },
+                            },
+                        },
+                        schema_guide=(
+                            "Call the MCP server to generate a single Markdown architecture guidance document grounded on the workspace's discovered artifacts and RUN INPUTS.\n"
+                            "- **workspace_id** (required): The workspace to analyze.\n"
+                            "- **kind_id** (fixed): `cam.documents.data-pipeline-arch-guidance`."
+                        ),
+                    ),
+                    output_contract=ExecutionOutputContract(
+                        artifact_type="cam",
+                        kinds=["cam.documents.data-pipeline-arch-guidance"],
+                        result_schema=None,
+                        extra_schema={
+                            "type": "object",
+                            "additionalProperties": True,
+                            "properties": {
+                                "name": {"type": ["string", "null"]},
+                                "description": {"type": ["string", "null"]},
+                                "filename": {"type": ["string", "null"]},
+                                "path": {"type": ["string", "null"]},
+                                "storage_uri": {"type": ["string", "null"]},
+                                "download_url": {"type": ["string", "null"], "format": "uri"},
+                                "download_expires_at": {"type": ["string", "null"], "format": "date-time"},
+                                "size_bytes": {"type": ["integer", "string", "null"]},
+                                "mime_type": {"type": ["string", "null"]},
+                                "encoding": {"type": ["string", "null"]},
+                                "checksum": {
+                                    "type": ["object", "null"],
+                                    "additionalProperties": True,
+                                    "properties": {
+                                        "md5": {"type": ["string", "null"]},
+                                        "sha1": {"type": ["string", "null"]},
+                                        "sha256": {"type": ["string", "null"]},
+                                    },
+                                },
+                                "source_system": {"type": ["string", "null"]},
+                                "tags": {"type": ["array", "null"], "items": {"type": "string"}},
+                                "created_at": {"type": ["string", "null"], "format": "date-time"},
+                                "updated_at": {"type": ["string", "null"], "format": "date-time"},
+                                "preview": {
+                                    "type": ["object", "null"],
+                                    "additionalProperties": True,
+                                    "properties": {
+                                        "thumbnail_url": {"type": ["string", "null"], "format": "uri"},
+                                        "text_excerpt": {"type": ["string", "null"]},
+                                        "page_count": {"type": ["integer", "string", "null"]},
+                                    },
+                                },
+                                "metadata": {"type": ["object", "null"], "additionalProperties": True},
+                            },
+                        },
+                        schema_guide=(
+                            "The MCP server returns one artifact of kind `cam.documents.data-pipeline-arch-guidance` with file metadata and links:\n"
+                            "- `storage_uri` (e.g., `s3://astra-docs/<key>`) and `download_url` (may be pre-signed).\n"
+                            "- If pre-signed, `download_expires_at` may be present; consumers should respect it.\n"
+                            "- Other fields include `filename`, `path`, `size_bytes`, `mime_type`, `encoding`, and checksums."
+                        ),
+                    ),
+                ),
+            ),
+        ),
+
+        # ---------------------------------------------------------------------
+        # NEW: cap.mermaid.generate (HTTP MCP, freeform output contract)
+        # ---------------------------------------------------------------------
+        GlobalCapabilityCreate(
+            id="cap.diagram.mermaid",
+            name="Generate Mermaid Diagrams from Artifact JSON",
+            description="Given an artifact JSON payload and requested diagram views, returns validated Mermaid instructions (LLM-only).",
+            tags=[],
+            parameters_schema=None,
+            produces_kinds=[],
+            agent=None,
+            execution=McpExecution(
+                mode="mcp",
+                transport=HTTPTransport(
+                    kind="http",
+                    base_url="http://host.docker.internal:8001",
+                    headers={},
+                    auth={"method": "none"},
+                    timeout_sec=120,
+                    verify_tls=False,
+                    retry={"max_attempts": 2, "backoff_ms": 250, "jitter_ms": 50},
+                    # health_path kept default ("/health") since model doesn't accept None
+                    protocol_path="/mcp",
+                ),
+                tool_calls=[
+                    ToolCallSpec(
+                        tool="diagram.mermaid.generate",
+                        args_schema={
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["artifact"],
+                            "properties": {
+                                "artifact": {
+                                    "type": "object",
+                                    "description": "The JSON payload to visualize (any shape).",
+                                },
+                                "views": {
+                                    "type": "array",
+                                    "description": 'Diagram views to generate (defaults to ["flowchart"]).',
+                                    "items": {
+                                        "type": "string",
+                                        "enum": [
+                                            "sequence",
+                                            "flowchart",
+                                            "class",
+                                            "component",
+                                            "deployment",
+                                            "state",
+                                            "activity",
+                                            "mindmap",
+                                            "er",
+                                            "gantt",
+                                            "timeline",
+                                            "journey",
+                                        ],
+                                    },
+                                },
+                                "prompt": {
+                                    "type": "string",
+                                    "description": "Optional extra guidance for the LLM (appended to the first user prompt).",
+                                },
+                            },
+                        },
+                        output_kinds=[],
+                        result_schema=None,
+                        timeout_sec=600,
+                        retries=1,
+                        expects_stream=False,
+                        cancellable=True,
+                    )
+                ],
+                discovery={
+                    "validate_tools": True,
+                    "validate_resources": False,
+                    "validate_prompts": False,
+                    "fail_fast": True,
+                },
+                connection={"singleton": True, "share_across_steps": True},
+                io=ExecutionIO(
+                    input_contract=ExecutionInput(
+                        json_schema={
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["artifact"],
+                            "properties": {
+                                "artifact": {
+                                    "type": "object",
+                                    "description": "The JSON payload to visualize (e.g., a parsed program structure).",
+                                    "examples": [
+                                        {
+                                            "program_id": "USRLST01",
+                                            "paragraphs": [
+                                                {
+                                                    "name": "MAIN-PARA",
+                                                    "performs": [
+                                                        "SEND-USRLST-SCREEN",
+                                                        "PROCESS-ENTER-KEY",
+                                                    ],
+                                                }
+                                            ],
+                                        }
+                                    ],
+                                },
+                                "views": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string",
+                                        "enum": [
+                                            "sequence",
+                                            "flowchart",
+                                            "class",
+                                            "component",
+                                            "deployment",
+                                            "state",
+                                            "activity",
+                                            "mindmap",
+                                            "er",
+                                            "gantt",
+                                            "timeline",
+                                            "journey",
+                                        ],
+                                    },
+                                    "description": "Which diagrams to produce.",
+                                    "examples": [["flowchart", "sequence", "mindmap"]],
+                                },
+                                "prompt": {
+                                    "type": "string",
+                                    "description": "Optional extra guidance for the LLM.",
+                                    "examples": ["Use concise node labels and avoid empty nodes."],
+                                },
+                            },
+                        },
+                        schema_guide=(
+                            'Request Mermaid diagrams from an artifact JSON.\n'
+                            '- **artifact** (required): Your JSON payload to visualize (any shape).\n'
+                            '- **views** (optional): List of diagram views to generate. Defaults to ["flowchart"]. '
+                            "Allowed: sequence, flowchart, class, component, deployment, state, activity, mindmap, er, gantt, timeline, journey.\n"
+                            "- **prompt** (optional): Extra guidance appended to the first LLM user prompt."
+                        ),
+                    ),
+                    output_contract=ExecutionOutputContract(
+                        artifact_type="freeform",
+                        kinds=[],  # must be empty for freeform
+                        result_schema={
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["diagrams"],
+                            "properties": {
+                                "diagrams": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "additionalProperties": False,
+                                        "required": ["view", "language", "instructions"],
+                                        "properties": {
+                                            "view": {
+                                                "type": "string",
+                                                "enum": [
+                                                    "sequence",
+                                                    "flowchart",
+                                                    "class",
+                                                    "component",
+                                                    "deployment",
+                                                    "state",
+                                                    "activity",
+                                                    "mindmap",
+                                                    "er",
+                                                    "gantt",
+                                                    "timeline",
+                                                    "journey",
+                                                ],
+                                            },
+                                            "language": {"type": "string", "const": "mermaid"},
+                                            "instructions": {"type": "string", "minLength": 1},
+                                            "renderer_hints": {
+                                                "type": "object",
+                                                "description": 'Optional rendering hints (e.g., {"wrap": true}).',
+                                                "additionalProperties": True,
+                                            },
+                                        },
+                                    },
+                                },
+                                "error": {
+                                    "type": ["string", "null"],
+                                    "description": "Present when the server could not generate diagrams.",
+                                },
+                            },
+                        },
+                        schema_guide=(
+                            'Response contains an array of diagrams. Each diagram includes:\n'
+                            '- **view**: One of the requested views.\n'
+                            '- **language**: Always "mermaid".\n'
+                            '- **instructions**: The Mermaid source starting with the correct directive '
+                            '(e.g., `flowchart TD`, `sequenceDiagram`, `mindmap`). The server normalizes and validates output '
+                            "before returning.\nIf generation fails, **error** is populated and **diagrams** may be empty."
+                        ),
+                    ),
+                ),
             ),
         ),
 
@@ -518,6 +1026,10 @@ async def seed_capabilities() -> None:
                 connection={"singleton": True, "share_across_steps": True},
             ),
         ),
+
+        # ---------------------------------------------------------------------
+        # UPDATED (LLM): cap.entity.detect — OpenAI with api_key auth alias
+        # ---------------------------------------------------------------------
         GlobalCapabilityCreate(
             id="cap.entity.detect",
             name="Detect Entities and Business Terms",
@@ -527,12 +1039,15 @@ async def seed_capabilities() -> None:
                 mode="llm",
                 llm_config={
                     "provider": "openai",
-                    "model": "gpt-4.1",
+                    "model": "gpt-4o-mini",
                     "parameters": {"temperature": 0, "max_tokens": 2000},
-                    "output_contracts": ["cam.data.model", "cam.domain.dictionary"],
+                    # IMPORTANT: Using api_key (not bearer) per instruction.
+                    "auth": {"method": "api_key", "alias_key": "OPENAI_API_KEY"},
                 },
+                # (Optional) If you later want strict I/O, add io=ExecutionIO(...).
             ),
         ),
+
         GlobalCapabilityCreate(
             id="cap.lineage.derive",
             name="Derive Data Lineage",
@@ -553,26 +1068,10 @@ async def seed_capabilities() -> None:
                 connection={"singleton": True, "share_across_steps": True},
             ),
         ),
-        GlobalCapabilityCreate(
-            id="cap.workflow.mine_batch",
-            name="Mine Batch Workflows",
-            description="Mines batch workflows from JCL job flows and COBOL call graphs.",
-            produces_kinds=["cam.workflow.process"],
-            execution=McpExecution(
-                mode="mcp",
-                transport=workflow_miner_stdio,
-                tool_calls=[
-                    ToolCallSpec(
-                        tool="mine_batch",
-                        output_kinds=["cam.workflow.process"],
-                        timeout_sec=LONG_TIMEOUT,
-                        retries=1,
-                    )
-                ],
-                discovery={"validate_tools": True, "fail_fast": True},
-                connection={"singleton": True, "share_across_steps": True},
-            ),
-        ),
+
+        # ---------------------------------------------------------------------
+        # UPDATED (LLM): cap.workflow.mine_entity — OpenAI with api_key auth alias
+        # ---------------------------------------------------------------------
         GlobalCapabilityCreate(
             id="cap.workflow.mine_entity",
             name="Mine Entity Workflows",
@@ -582,12 +1081,14 @@ async def seed_capabilities() -> None:
                 mode="llm",
                 llm_config={
                     "provider": "openai",
-                    "model": "gpt-4.1",
+                    "model": "gpt-4o-mini",
                     "parameters": {"temperature": 0, "max_tokens": 2000},
-                    "output_contracts": ["cam.workflow.process"],
+                    # IMPORTANT: Using api_key (not bearer) per instruction.
+                    "auth": {"method": "api_key", "alias_key": "OPENAI_API_KEY"},
                 },
             ),
         ),
+
         GlobalCapabilityCreate(
             id="cap.diagram.render",
             name="Render Diagrams",
