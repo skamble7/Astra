@@ -91,3 +91,25 @@ services:
       - "9023:9023"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  astraui-resolver-service:
+      build:
+        context: ..
+        dockerfile: services/astraui-resolver-service/Dockerfile
+      container_name: astraui-resolver-service
+      restart: unless-stopped
+      env_file:
+        - ../services/astraui-resolver-service/.env.example
+      environment:
+        SERVICE_NAME: astraui-resolver-service
+        APP_PORT: ${ASTRAUI_RESOLVER_PORT:-9024}
+        LOG_LEVEL: ${LOG_LEVEL:-INFO}
+        # Share the same Mongo defaults as other services
+        MONGO_URI: ${MONGO_URI:-mongodb+srv://sandeepk:sandeep@cluster0.tnbpi.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0}
+        MONGO_DB: ${MONGO_DB:-astra}
+        # Optional CORS
+        CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-*}
+      ports:
+        - "9024:9024"
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
