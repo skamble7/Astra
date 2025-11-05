@@ -66,7 +66,7 @@ async def seed_packs() -> None:
     pack_key = "cobol-mainframe"
     full_version = "v1.0.1"
     mini_version = "v1.0.2"
-    mini_v103 = "v1.0.3"  # minimal three-step pack
+    mini_v103 = "v1.0.3"  # minimal pack
 
     # -------------------------------
     # Pack #1: Full-flow v1.0.1
@@ -178,7 +178,6 @@ async def seed_packs() -> None:
     # -------------------------------
     await _delete_pack_if_exists(svc, pack_key, mini_version)
 
-    # Existing core playbook (unchanged)
     pb_core = Playbook(
         id="pb.core",
         name="Core Clone + Parse",
@@ -221,30 +220,27 @@ async def seed_packs() -> None:
         version=mini_version,
         title="COBOL Mainframe Modernization (Core)",
         description="Derived minimal pack with a two-step playbook (clone + parse) and an optional workspace summary generator.",
-        # UPDATED: include both inputs (repo + workspace_summary)
         pack_input_ids=[renova_input_id, summary_input_id],
         capability_ids=[
             "cap.repo.clone",
             "cap.cobol.parse",
-            # NEW: make the capability discoverable/resolvable for pb.summary
             "cap.cobol.workspace_doc",
         ],
         agent_capability_ids=["cap.diagram.mermaid"],
-        # UPDATED: include the new summary playbook
         playbooks=[pb_core, pb_summary],
     )
 
     await _create_and_maybe_publish(svc, payload_mini, publish_on_seed)
 
     # -------------------------------
-    # Pack #3: Minimal three-step v1.0.3
+    # Pack #3: Minimal v1.0.3 (COBOL second, JCL third)
     # -------------------------------
     await _delete_pack_if_exists(svc, pack_key, mini_v103)
 
     pb_core_v103 = Playbook(
         id="pb.core",
-        name="Core Clone + Parse + Entities",
-        description="Clone a repository, parse COBOL sources, then lift entities and a domain dictionary.",
+        name="Core Clone + COBOL + JCL + Entities",
+        description="Clone a repository, parse COBOL then JCL sources, then lift entities and a domain dictionary.",
         input_id=renova_input_id,
         steps=[
             PlaybookStep(
@@ -260,7 +256,13 @@ async def seed_packs() -> None:
                 description="ProLeap/cb2xml parse of programs and copybooks into normalized CAM kinds.",
             ),
             PlaybookStep(
-                id="s3.entities",
+                id="s3.jcl",
+                name="Parse JCL",
+                capability_id="cap.jcl.parse",
+                description="Parse JCL jobs/steps and DDs.",
+            ),
+            PlaybookStep(
+                id="s4.entities",
                 name="Detect Entities & Domain Terms",
                 capability_id="cap.entity.detect",
                 description="Derive a logical data model and a domain dictionary from parsed copybooks and DB2 schemas.",
@@ -272,11 +274,12 @@ async def seed_packs() -> None:
         key=pack_key,
         version=mini_v103,
         title="COBOL Mainframe Modernization (Core)",
-        description="Derived minimal pack with a three-step playbook: clone a repo, parse COBOL, then detect entities and domain terms.",
+        description="Minimal pack that clones, parses COBOL then JCL, then detects entities and domain terms.",
         pack_input_ids=[renova_input_id],
         capability_ids=[
             "cap.repo.clone",
-            "cap.cobol.parse",
+            "cap.cobol.parse",  # second step
+            "cap.jcl.parse",    # third step
             "cap.entity.detect",
         ],
         agent_capability_ids=["cap.diagram.mermaid"],

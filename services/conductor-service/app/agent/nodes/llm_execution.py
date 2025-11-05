@@ -371,7 +371,7 @@ def llm_execution_node(*, runs_repo: RunRepository):
                         kind_id,
                         len(system_prompt or ""),
                         len(user_prompt or ""),
-                        len(dep_payload.keys()),
+                        len(dep_payload.keys()),    
                     )
                     logger.debug("[llm] system(kind=%s) %s", kind_id, _json_preview(system_prompt))
                     logger.debug("[llm] user(kind=%s) %s", kind_id, _json_preview(user_prompt, 1800))
