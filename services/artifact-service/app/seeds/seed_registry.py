@@ -303,34 +303,52 @@ classDef divisions fill:#eee,stroke:#999;"""
                     "source": {
                         "type": ["object", "null"],
                         "additionalProperties": True,
-                        "properties": {"relpath": {"type": ["string", "null"]}, "sha256": {"type": ["string", "null"]}}
+                        "properties": {
+                            "relpath": {"type": ["string", "null"]},
+                            "sha256": {"type": ["string", "null"]}
+                        }
                     },
                     "items": {
                         "type": ["array", "null"],
-                        "items": {
-                            "type": "object",
-                            "additionalProperties": True,
-                            "required": ["level", "name"],
-                            "properties": {
-                                "level": {"type": ["string", "integer", "null"]},
-                                "name": {"type": ["string", "null"]},
-                                "picture": {"type": ["string", "null"], "default": ""},
-                                "occurs": {"type": ["integer", "string", "object", "null"]},
-                                "children": {"type": ["array", "null"], "items": {"$ref": "#"}}
+                        "items": { "$ref": "#/$defs/CopyItem" }
+                    }
+                },
+                "$defs": {
+                    "CopyItem": {
+                        "type": "object",
+                        "additionalProperties": True,
+                        "required": ["level", "name"],
+                        "properties": {
+                            "level": {"type": ["string", "integer", "null"]},
+                            "name": {"type": ["string", "null"]},
+                            "picture": {"type": ["string", "null"], "default": ""},
+                            "occurs": {"type": ["integer", "string", "object", "null"]},
+                            "children": {
+                                "type": ["array", "null"],
+                                "items": { "$ref": "#/$defs/CopyItem" }
                             }
                         }
                     }
                 }
             },
             "additional_props_policy": "allow",
-            "prompt": {"system": "Normalize copybook AST into a strict tree. Do not lose levels or PIC clauses.", "strict_json": True},
+            "prompt": {
+                "system": "Normalize copybook AST into a strict tree. Do not lose levels or PIC clauses.",
+                "strict_json": True
+            },
             "depends_on": {"hard": ["cam.asset.source_index"]},
             "identity": {"natural_key": ["name"]},
             "examples": [{
                 "name": "CUSTREC",
                 "source": {"relpath": "copy/CUSTREC.cpy", "sha256": "..."},
-                "items": [{"level": "01", "name": "CUST-REC", "picture": "", "children": [
-                    {"level": "05", "name": "CUST-ID", "picture": "X(10)"}]}]
+                "items": [{
+                    "level": "01",
+                    "name": "CUST-REC",
+                    "picture": "",
+                    "children": [
+                        {"level": "05", "name": "CUST-ID", "picture": "X(10)"}
+                    ]
+                }]
             }],
             "diagram_recipes": [
                 {

@@ -20,6 +20,9 @@ from app.models.run_models import (
 from app.clients.artifact_service import ArtifactServiceClient
 from app.events.rabbit import get_bus, EventPublisher  # NEW
 
+# NEW: dynamic adapter (no hardcoded kind logic)
+from app.agent.artifacts.adapter import KindSchemaRegistry, ArtifactAdapter
+
 logger = logging.getLogger("app.agent.nodes.persist_run")
 
 
@@ -98,7 +101,7 @@ def _choose_schema_version(kind_id: str, kind_specs: Dict[str, Any], raw: Dict[s
 
 
 # ─────────────────────────────────────────────────────────────
-# Name derivation (mirrors learning-service semantics)
+# Name derivation (generalized; no hardcoded per-kind rules)
 # ─────────────────────────────────────────────────────────────
 def _stable_hash(payload: Any, n: int = 10) -> str:
     try:
@@ -111,33 +114,26 @@ def _stable_hash(payload: Any, n: int = 10) -> str:
 
 
 def _derive_name(kind: str, data: Dict[str, Any]) -> str:
-    kind = kind or ""
-    data = data or {}
-
-    if kind == "cam.asset.repo_snapshot":
-        repo = (data.get("repo") or "").rstrip("/")
-        base = os.path.basename(repo) or repo or "repo"
-        commit = (data.get("commit") or "")[:12]
-        return f"{base}@{commit}" if commit else base
-
-    if kind == "cam.asset.source_index":
-        root = (data.get("root") or "").rstrip("/")
-        base = os.path.basename(root) or root or "source"
-        return f"source-index:{base}"
-
-    if kind == "cam.cobol.program":
-        pid = data.get("program_id")
-        if pid:
-            return pid
-        rel = (data.get("source") or {}).get("relpath")
-        if rel:
-            return os.path.splitext(os.path.basename(rel))[0] or rel
-        return f"program:{_stable_hash(data)}"
-
-    if kind == "cam.cobol.copybook":
-        return data.get("name") or (data.get("source") or {}).get("relpath") or "copybook"
-
-    return data.get("name") or (data.get("source") or {}).get("relpath") or kind or "artifact"
+    """
+    Generalized rules (no kind-specific branches):
+    1) data.name
+    2) data.source.relpath
+    3) kind + short hash
+    """
+    if not isinstance(data, dict):
+        return kind or "artifact"
+    name = data.get("name")
+    if isinstance(name, str) and name.strip():
+        return name.strip()
+    src_rel = None
+    src = data.get("source")
+    if isinstance(src, dict):
+        sr = src.get("relpath")
+        if isinstance(sr, str) and sr.strip():
+            src_rel = sr.strip()
+    if src_rel:
+        return src_rel
+    return f"{(kind or 'artifact')}:{_stable_hash(data)}"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -192,7 +188,9 @@ def _normalize_to_envelope(
             narratives=narratives_san,
             provenance=provenance,
         )
-        setattr(env, "_derived_name", _derive_name(kind_id, data_san))
+        # Option B: avoid typing.cast; guard dict shape safely
+        data_san_dict = data_san if isinstance(data_san, dict) else {}
+        setattr(env, "_derived_name", _derive_name(kind_id, data_san_dict))
         return env
     except Exception as e:
         logger.warning("[persist_run] Could not normalize artifact (kind=%s): %s", kind_id, str(e))
@@ -260,87 +258,25 @@ def _filter_narratives(narrs: List[Dict[str, Any]]) -> Optional[List[Dict[str, A
     return out or None
 
 
-# ─────────────────────────────────────────────────────────────
-# Registry adaptation layer (strict to schema)
-# ─────────────────────────────────────────────────────────────
-def _adapt_for_registry(kind: str, data: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Coerce/strip fields to satisfy registry schema.
-
-    - cam.asset.source_index:
-        • drop nullable string fields (language_hint, encoding, program_id_guess) when None
-    - cam.cobol.copybook:
-        • rename `children` → `items` recursively
-        • drop `occurs` if not a valid integer (coerce digit-strings)
-        • drop `picture` when empty/whitespace
-    """
-    if not isinstance(data, dict):
-        return data
-
-    if kind == "cam.asset.source_index":
-        files = data.get("files")
-        if isinstance(files, list):
-            cleaned: List[Dict[str, Any]] = []
-            for f in files:
-                if not isinstance(f, dict):
-                    cleaned.append(f)
-                    continue
-                g = dict(f)
-                for k in ("language_hint", "encoding", "program_id_guess"):
-                    if k in g and g[k] is None:
-                        del g[k]
-                cleaned.append(g)
-            return {**data, "files": cleaned}
-        return data
-
-    if kind == "cam.cobol.copybook":
-        def fix_item(it: Any) -> Any:
-            if not isinstance(it, dict):
-                return it
-            j = dict(it)
-
-            # occurs: keep int; coerce digit-strings; else drop
-            if "occurs" in j:
-                val = j.get("occurs")
-                if isinstance(val, int):
-                    pass
-                elif isinstance(val, str) and val.isdigit():
-                    j["occurs"] = int(val)
-                else:
-                    j.pop("occurs", None)
-
-            # picture: drop empty strings or whitespace
-            if "picture" in j and isinstance(j["picture"], str) and not j["picture"].strip():
-                j.pop("picture", None)
-
-            # children -> items (recursive)
-            if "children" in j:
-                ch = j.get("children")
-                if isinstance(ch, list):
-                    j["items"] = [fix_item(c) for c in ch if isinstance(c, dict)]
-                j.pop("children", None)
-
-            # recurse into existing items
-            if isinstance(j.get("items"), list):
-                j["items"] = [fix_item(c) for c in j["items"]]
-
-            return j
-
-        items = data.get("items")
-        if isinstance(items, list):
-            return {**data, "items": [fix_item(i) for i in items]}
-        return data
-
-    return data
-
-
-def _to_artifact_service_item(env: ArtifactEnvelope, *, pack_id: str, playbook_id: str) -> Dict[str, Any]:
+async def _to_artifact_service_item(
+    env: ArtifactEnvelope,
+    *,
+    pack_id: str,
+    playbook_id: str,
+    adapter: ArtifactAdapter,
+    correlation_id: Optional[str],
+) -> Dict[str, Any]:
     # Prefer derived semantic name (avoids NK collisions when registry has no identity rule)
     name = getattr(env, "_derived_name", None) or _derive_name(env.kind_id, env.data)
 
-    # Sanitize and then adapt to registry schema
+    # Sanitize and then adapt to registry schema via dynamic adapter (no hardcoding)
     sanitized_data = _json_sanitize(env.data)
-    adapted_data = _adapt_for_registry(env.kind_id, sanitized_data if isinstance(sanitized_data, dict) else sanitized_data)
+    adapted_data = await adapter.adapt_only(
+        kind=env.kind_id,
+        data=sanitized_data if isinstance(sanitized_data, dict) else {},
+        schema_version=env.schema_version,
+        correlation_id=correlation_id,
+    )
 
     item: Dict[str, Any] = {
         "kind": env.kind_id,
@@ -372,13 +308,9 @@ def _dup_name_diagnostics(items: List[Dict[str, Any]]) -> Tuple[int, int, List[T
 
 
 # ─────────────────────────────────────────────────────────────
-# Node
+# Registry existence filter
 # ─────────────────────────────────────────────────────────────
 async def _filter_known_kinds(client: ArtifactServiceClient, kinds: List[str], correlation_id: Optional[str]) -> set[str]:
-    """
-    Keep only kinds that exist in the registry. This mirrors learning-service's
-    validate-before-persist behavior and prevents mass failures in upsert-batch.
-    """
     known: set[str] = set()
     for k in sorted(set([x for x in kinds if x])):
         try:
@@ -389,6 +321,9 @@ async def _filter_known_kinds(client: ArtifactServiceClient, kinds: List[str], c
     return known
 
 
+# ─────────────────────────────────────────────────────────────
+# Node
+# ─────────────────────────────────────────────────────────────
 def persist_run_node(*, runs_repo: RunRepository, art_client: ArtifactServiceClient):
     async def _node(state: Dict[str, Any]) -> Dict[str, Any]:
         run_doc: Dict[str, Any] = state["run"]
@@ -409,6 +344,18 @@ def persist_run_node(*, runs_repo: RunRepository, art_client: ArtifactServiceCli
         correlation_id: Optional[str] = state.get("correlation_id")
 
         publisher = EventPublisher(bus=get_bus())
+
+        # Set up dynamic schema/adapter using the SAME artifact client
+        def _client_getter():
+            class _Ctx:
+                async def __aenter__(self_inner):
+                    return art_client
+                async def __aexit__(self_inner, exc_type, exc, tb):
+                    return False
+            return _Ctx()
+
+        schema_registry = KindSchemaRegistry(_client_getter)
+        adapter = ArtifactAdapter(schema_registry)
 
         # Normalize
         envelopes: List[ArtifactEnvelope] = []
@@ -483,10 +430,19 @@ def persist_run_node(*, runs_repo: RunRepository, art_client: ArtifactServiceCli
             except Exception:
                 logger.exception("[persist_run] secondary finalize_run attempt also failed")
 
-        # Promote baseline → artifact-service
+        # Promote baseline → artifact-service (adaptation via dynamic adapter)
         baseline_promoted = {"attempted": 0, "insert": 0, "update": 0, "noop": 0, "failed": 0, "chunks": 0, "errors": []}
         if strategy == RunStrategy.BASELINE.value and envelopes:
-            items = [_to_artifact_service_item(e, pack_id=pack_id, playbook_id=playbook_id) for e in envelopes]
+            items = [
+                await _to_artifact_service_item(
+                    e,
+                    pack_id=pack_id,
+                    playbook_id=playbook_id,
+                    adapter=adapter,
+                    correlation_id=correlation_id,
+                )
+                for e in envelopes
+            ]
             baseline_promoted["attempted"] = len(items)
 
             try:
@@ -598,7 +554,6 @@ def persist_run_node(*, runs_repo: RunRepository, art_client: ArtifactServiceCli
             try:
                 duration_s = None
                 try:
-                    # if API wrapper later fills duration, we may not have it here
                     t0 = state.get("started_at")
                     t1 = completed_at_iso
                     if t0 and t1:
