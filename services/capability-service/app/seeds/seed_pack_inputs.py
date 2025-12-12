@@ -69,20 +69,20 @@ async def seed_pack_inputs() -> None:
                             "type": "string",
                             "title": "Git URL",
                             "format": "uri",
-                            "default": "https://github.com/aws-samples/aws-mainframe-modernization-carddemo",
+                            "default": "https://github.com/skamble7/CardDemo_minimal",
                             "description": "HTTPS/SSH URL to the repository to clone."
                         },
                         "branch": {
                             "type": "string",
                             "title": "Branch",
-                            "default": "main",
+                            "default": "master",
                             "minLength": 1,
                             "description": "Branch or ref to checkout."
                         },
                         "destination": {
                             "type": "string",
                             "title": "Local destination (folder)",
-                            "default": "/mnt/src",
+                            "default": "/workspace",
                             "minLength": 1,
                             "description": "Filesystem path where the repo will be cloned."
                         }
@@ -472,16 +472,16 @@ async def seed_pack_inputs() -> None:
                     "minLength": 1,
                     "title": "User Stories URL",
                     "description": "HTTP endpoint exposing user stories consumed by the Raina package.",
-                    "default": "http://127.0.0.1:9023/raina-input/data-pipeline-arch%40v1.0",
+                    "default": "http://host.docker.internal:9023/raina-input/data-pipeline-arch%40v1.0",
                     "examples": [
-                        "http://127.0.0.1:9023/raina-input/data-pipeline-arch%40v1.0"
+                        "http://host.docker.internal:9023/raina-input/data-pipeline-arch%40v1.0"
                     ]
                 }
             }
         },
         examples=[
             {
-                "stories_url": "http://127.0.0.1:9023/raina-input/data-pipeline-arch%40v1.0"
+                "stories_url": "http://host.docker.internal:9023/raina-input/data-pipeline-arch%40v1.0"
             }
         ],
         schema_guide=(

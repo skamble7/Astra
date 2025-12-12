@@ -6,7 +6,7 @@ from enum import Enum
 from typing import Any, Dict, List, Literal, Optional
 from uuid import UUID, uuid4
 
-from pydantic import BaseModel, Field, UUID4, ConfigDict
+from pydantic import BaseModel, Field, UUID4, ConfigDict, model_validator
 
 
 # ─────────────────────────────────────────────────────────────
@@ -56,7 +56,45 @@ class ToolCallAudit(BaseModel):
     raw_output_sample: Optional[str] = Field(default=None, description="Trimmed sample for troubleshooting")
     validation_errors: List[str] = Field(default_factory=list)
     duration_ms: Optional[int] = None
+
+    # Keep the canonical vocabulary; normalize inputs like "error" → "failed"
     status: Literal["ok", "retried", "failed"] = "ok"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_status(cls, values: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Normalize various incoming status strings to our canonical set.
+        Examples: "error" -> "failed", "success" -> "ok", "retry" -> "retried".
+        """
+        raw = (values or {}).get("status")
+        if raw is None:
+            return values
+
+        s = str(raw).strip().lower()
+        if not s:
+            values["status"] = "failed"
+            return values
+
+        mapping = {
+            "ok": "ok",
+            "success": "ok",
+            "succeeded": "ok",
+            "completed": "ok",
+
+            "retried": "retried",
+            "retry": "retried",
+            "retriable": "retried",
+
+            "failed": "failed",
+            "fail": "failed",
+            "failure": "failed",
+            "error": "failed",
+            "exception": "failed",
+        }
+
+        values["status"] = mapping.get(s, "failed")
+        return values
 
 
 class StepAudit(BaseModel):

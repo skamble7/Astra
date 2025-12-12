@@ -101,6 +101,52 @@ def _json_sample(val: Any, limit: int = 1000) -> str:
     return s[:limit] + ("…" if len(s) > limit else "")
 
 
+def _unwrap_fastmcp_result(raw_result: Any) -> Any:
+    """
+    Handle FastMCP / streamable-http style responses, e.g.:
+
+      [
+        { "type": "text", "text": "{ \"diagrams\": [ ... ] }" }
+      ]
+
+    If it looks like that, join all 'text' chunks and parse as JSON.
+    Otherwise, return raw_result unchanged.
+    """
+    try:
+        if isinstance(raw_result, list) and raw_result and all(
+            isinstance(x, dict) and "type" in x for x in raw_result
+        ):
+            text_chunks: List[str] = [
+                x.get("text") for x in raw_result
+                if isinstance(x.get("text"), str)
+            ]
+            joined = "\n".join(text_chunks).strip()
+            if joined:
+                try:
+                    inner = json.loads(joined)
+                    logger.info(
+                        "[enrich] fastmcp_unwrapped items=%d text_len=%d",
+                        len(raw_result),
+                        len(joined),
+                    )
+                    logger.debug(
+                        "[enrich] fastmcp_inner_sample %s",
+                        _json_sample(inner, 400),
+                    )
+                    return inner
+                except Exception as e:
+                    logger.warning(
+                        "[enrich] fastmcp_parse_failed err=%s text_sample=%s",
+                        e,
+                        joined[:200].replace("\n", " "),
+                    )
+    except Exception:
+        # Never let unwrapping kill enrichment
+        logger.exception("[enrich] fastmcp_unwrap_exception")
+
+    return raw_result
+
+
 def diagram_enrichment_node(*, runs_repo: RunRepository):
     async def _node(state: Dict[str, Any]) -> Command[Literal["capability_executor"]] | Dict[str, Any]:
         run = state["run"]
@@ -233,9 +279,21 @@ def diagram_enrichment_node(*, runs_repo: RunRepository):
 
                 try:
                     raw_result = await conn.invoke_tool(tool_name, args)
-                    # Output snapshot (trimmed)
+                    logger.debug(
+                        "[enrich] raw_result idx=%d type=%s sample=%s",
+                        idx,
+                        type(raw_result).__name__,
+                        _json_sample(raw_result, 400),
+                    )
+                    # unwrap FastMCP-style content, if present
+                    raw_result = _unwrap_fastmcp_result(raw_result)
                     logger.info("[enrich] result tool=%s idx=%d (sample)", tool_name, idx)
-                    logger.debug("[enrich] result_sample idx=%d %s", idx, _json_sample(raw_result, 800))
+                    logger.debug(
+                        "[enrich] unwrapped_result idx=%d type=%s sample=%s",
+                        idx,
+                        type(raw_result).__name__,
+                        _json_sample(raw_result, 400),
+                    )
                 except Exception as tool_err:
                     call_status = "failed"
                     msg = f"{type(tool_err).__name__}: {tool_err}"
@@ -259,13 +317,24 @@ def diagram_enrichment_node(*, runs_repo: RunRepository):
                     failed += len(views)
                     continue
 
+                # Normalize result into a dict, expecting {"diagrams": [ ... ]}
+                payload: Dict[str, Any]
                 try:
-                    payload = raw_result if isinstance(raw_result, dict) else json.loads(str(raw_result))
+                    if isinstance(raw_result, dict):
+                        payload = raw_result
+                    else:
+                        payload = json.loads(str(raw_result))
                 except Exception:
                     payload = {}
 
                 diagrams = payload.get("diagrams") if isinstance(payload, dict) else None
                 if not isinstance(diagrams, list):
+                    logger.info(
+                        "[enrich] no_diagrams idx=%d kind=%s payload_keys=%s",
+                        idx,
+                        kind_id,
+                        list(payload.keys()) if isinstance(payload, dict) else None,
+                    )
                     failed += len(views)
                     continue
 
@@ -306,6 +375,13 @@ def diagram_enrichment_node(*, runs_repo: RunRepository):
                         na = dict(art)
                         na["diagrams"] = attach_list
                         updated_staged.append(na)
+                    logger.info(
+                        "[enrich] diagrams_attached idx=%d kind=%s attached=%d total_for_artifact=%d",
+                        idx,
+                        kind_id,
+                        attached,
+                        len(attach_list),
+                    )
                 else:
                     failed += len(views)
 

@@ -100,7 +100,9 @@ def _mcp_cap_raina_fetch_input() -> GlobalCapabilityCreate:
             transport={
                 "kind": "http",
                 "base_url": "http://host.docker.internal:8003",  # matches compose (RAINA_INPUT_PORT=8003)
-                "headers": {},
+                "headers": {
+                    "host":"localhost:8003"
+                },
                 "auth": {
                     "method": "none",
                     "alias_token": None,
@@ -191,6 +193,7 @@ def _mcp_cap_raina_fetch_input() -> GlobalCapabilityCreate:
                 "output_contract": {
                     "artifact_type": "cam",
                     "kinds": ["cam.inputs.raina"],
+                    "artifacts_property":"result.artifacts",
                     "result_schema": None,
                     "schema_guide": (
                         "Emits a single artifact of kind `cam.inputs.raina` with `data.inputs = { avc, fss, pss }` "

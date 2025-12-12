@@ -51,7 +51,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 "repo": "https://git.example.com/legacy/cards.git",
                 "commit": "8f2c1b...",
                 "branch": "main",
-                "paths_root": "/mnt/src/cards"
+                "paths_root": "/workspace"
             }],
             "diagram_recipes": [
                 {
@@ -121,7 +121,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
             },
             "identity": {"natural_key": ["root"]},
             "examples": [{
-                "root": "/mnt/src/cards",
+                "root": "/workspace",
                 "files": [
                     {"relpath": "batch/POSTTRAN.cbl", "size_bytes": 12453, "sha256": "...", "kind": "cobol"},
                     {"relpath": "batch/POSTTRAN.jcl", "size_bytes": 213, "sha256": "...", "kind": "jcl"},
@@ -303,34 +303,52 @@ classDef divisions fill:#eee,stroke:#999;"""
                     "source": {
                         "type": ["object", "null"],
                         "additionalProperties": True,
-                        "properties": {"relpath": {"type": ["string", "null"]}, "sha256": {"type": ["string", "null"]}}
+                        "properties": {
+                            "relpath": {"type": ["string", "null"]},
+                            "sha256": {"type": ["string", "null"]}
+                        }
                     },
                     "items": {
                         "type": ["array", "null"],
-                        "items": {
-                            "type": "object",
-                            "additionalProperties": True,
-                            "required": ["level", "name"],
-                            "properties": {
-                                "level": {"type": ["string", "integer", "null"]},
-                                "name": {"type": ["string", "null"]},
-                                "picture": {"type": ["string", "null"], "default": ""},
-                                "occurs": {"type": ["integer", "string", "object", "null"]},
-                                "children": {"type": ["array", "null"], "items": {"$ref": "#"}}
+                        "items": { "$ref": "#/$defs/CopyItem" }
+                    }
+                },
+                "$defs": {
+                    "CopyItem": {
+                        "type": "object",
+                        "additionalProperties": True,
+                        "required": ["level", "name"],
+                        "properties": {
+                            "level": {"type": ["string", "integer", "null"]},
+                            "name": {"type": ["string", "null"]},
+                            "picture": {"type": ["string", "null"], "default": ""},
+                            "occurs": {"type": ["integer", "string", "object", "null"]},
+                            "children": {
+                                "type": ["array", "null"],
+                                "items": { "$ref": "#/$defs/CopyItem" }
                             }
                         }
                     }
                 }
             },
             "additional_props_policy": "allow",
-            "prompt": {"system": "Normalize copybook AST into a strict tree. Do not lose levels or PIC clauses.", "strict_json": True},
+            "prompt": {
+                "system": "Normalize copybook AST into a strict tree. Do not lose levels or PIC clauses.",
+                "strict_json": True
+            },
             "depends_on": {"hard": ["cam.asset.source_index"]},
             "identity": {"natural_key": ["name"]},
             "examples": [{
                 "name": "CUSTREC",
                 "source": {"relpath": "copy/CUSTREC.cpy", "sha256": "..."},
-                "items": [{"level": "01", "name": "CUST-REC", "picture": "", "children": [
-                    {"level": "05", "name": "CUST-ID", "picture": "X(10)"}]}]
+                "items": [{
+                    "level": "01",
+                    "name": "CUST-REC",
+                    "picture": "",
+                    "children": [
+                        {"level": "05", "name": "CUST-ID", "picture": "X(10)"}
+                    ]
+                }]
             }],
             "diagram_recipes": [
                 {

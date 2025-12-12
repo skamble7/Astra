@@ -59,7 +59,7 @@ async def seed_capabilities() -> None:
     LONG_TIMEOUT = 3600  # seconds
 
     # ─────────────────────────────────────────────────────────────
-    # Existing stdio MCP servers
+    # Existing stdio MCP servers (leave only those actually used)
     # ─────────────────────────────────────────────────────────────
     source_indexer_stdio = StdioTransport(
         kind="stdio",
@@ -73,17 +73,7 @@ async def seed_capabilities() -> None:
         kill_timeout_sec=10,
     )
 
-    jcl_parser_stdio = StdioTransport(
-        kind="stdio",
-        command="jcl-parser-mcp",
-        args=["--stdio"],
-        cwd="/opt/astra/tools/jcl-parser",
-        env={"LOG_LEVEL": "info"},
-        env_aliases={},
-        restart_on_exit=True,
-        readiness_regex="server started",
-        kill_timeout_sec=10,
-    )
+    # NOTE: jcl_parser_stdio removed; cap.jcl.parse now uses HTTP MCP.
 
     cics_catalog_stdio = StdioTransport(
         kind="stdio",
@@ -181,7 +171,9 @@ async def seed_capabilities() -> None:
                 transport=HTTPTransport(
                     kind="http",
                     base_url="http://host.docker.internal:8000",
-                    headers={},
+                    headers={
+                        "host":"localhost:8000"
+                    },
                     auth={"method": "none"},
                     timeout_sec=30,
                     verify_tls=False,
@@ -348,7 +340,9 @@ async def seed_capabilities() -> None:
                 transport=HTTPTransport(
                     kind="http",
                     base_url="http://host.docker.internal:8765",
-                    headers={},
+                    headers={
+                        "host":"localhost:8765"
+                    },
                     auth={"method": "none"},
                     timeout_sec=90,
                     verify_tls=False,
@@ -758,12 +752,14 @@ async def seed_capabilities() -> None:
                 transport=HTTPTransport(
                     kind="http",
                     base_url="http://host.docker.internal:8001",
-                    headers={},
+                    headers={
+                        "host":"localhost:8001"
+                    },
                     auth={"method": "none"},
                     timeout_sec=120,
                     verify_tls=False,
                     retry={"max_attempts": 2, "backoff_ms": 250, "jitter_ms": 50},
-                    # health_path kept default ("/health") since model doesn't accept None
+                    # health_path kept default ("/health")
                     protocol_path="/mcp",
                 ),
                 tool_calls=[
@@ -944,28 +940,138 @@ async def seed_capabilities() -> None:
         ),
 
         # ---------------------------------------------------------------------
-        # UNCHANGED: remaining deterministic MCP + LLM capabilities
+        # UPDATED (DETERMINISTIC MCP over HTTP): cap.jcl.parse
         # ---------------------------------------------------------------------
         GlobalCapabilityCreate(
             id="cap.jcl.parse",
             name="Parse JCL Jobs and Steps",
-            description="Parses JCL jobs and steps including datasets and program calls.",
+            description="Parses JCL repositories and emits normalized job and step artifacts with DD datasets and derived directions.",
             produces_kinds=["cam.jcl.job", "cam.jcl.step"],
             execution=McpExecution(
                 mode="mcp",
-                transport=jcl_parser_stdio,
+                transport=HTTPTransport(
+                    kind="http",
+                    base_url="http://host.docker.internal:8876",
+                    headers={},
+                    auth={"method": "none"},
+                    timeout_sec=90,
+                    verify_tls=False,
+                    retry={"max_attempts": 2, "backoff_ms": 250, "jitter_ms": 50},
+                    health_path="/health",
+                    protocol_path="/mcp",
+                ),
                 tool_calls=[
                     ToolCallSpec(
                         tool="parse_jcl",
+                        args_schema={
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["paths_root"],
+                            "properties": {
+                                "paths_root": {"type": "string", "minLength": 1},
+                                "page_size": {"type": "integer", "minimum": 1},
+                                "cursor": {"type": ["string", "null"]},
+                                "kinds": {
+                                    "type": "array",
+                                    "items": {"type": "string", "enum": ["job", "step"]},
+                                },
+                                "force_reparse": {"type": "boolean"},
+                                "run_id": {"type": "string"},
+                            },
+                        },
                         output_kinds=["cam.jcl.job", "cam.jcl.step"],
+                        result_schema=None,
                         timeout_sec=LONG_TIMEOUT,
                         retries=1,
+                        expects_stream=False,
+                        cancellable=True,
                     )
                 ],
-                discovery={"validate_tools": True, "fail_fast": True},
+                discovery={"validate_tools": True, "validate_resources": False, "validate_prompts": False, "fail_fast": True},
                 connection={"singleton": True, "share_across_steps": True},
+                io=ExecutionIO(
+                    input_contract=ExecutionInput(
+                        json_schema={
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["paths_root"],
+                            "properties": {
+                                "paths_root": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "examples": ["/workspace"],
+                                },
+                                "page_size": {"type": "integer", "minimum": 1, "examples": [60]},
+                                "cursor": {"type": ["string", "null"], "examples": ["<opaque-cursor>"]},
+                                "kinds": {
+                                    "type": "array",
+                                    "items": {"type": "string", "enum": ["job", "step"]},
+                                    "examples": [["job", "step"]],
+                                },
+                                "force_reparse": {"type": "boolean"},
+                                "run_id": {"type": "string"},
+                            },
+                        },
+                        schema_guide=(
+                            "Request a JCL parse page:\n"
+                            "- **paths_root** (required): Root directory containing the checked-out repo (e.g., `/workspace`).\n"
+                            "- **page_size** (optional): Artifacts per page (integer ≥ 1). Defaults to server setting.\n"
+                            "- **cursor** (optional): Opaque pagination token from a prior response; use `null` for the first page.\n"
+                            "- **kinds** (optional): Which artifact types to emit this page: `job`, `step`.\n"
+                            "- **force_reparse** (optional): Force a clean parse ignoring caches.\n"
+                            "- **run_id** (optional): Correlation id to be echoed back in responses."
+                        ),
+                    ),
+                    output_contract=ExecutionOutputContract(
+                        artifact_type="cam",
+                        kinds=["cam.jcl.job", "cam.jcl.step"],
+                        result_schema=None,
+                        extra_schema={
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "run": {
+                                    "type": "object",
+                                    "additionalProperties": False,
+                                    "properties": {
+                                        "run_id": {"type": "string"},
+                                        "paths_root": {"type": "string"},
+                                    },
+                                },
+                                "meta": {
+                                    "type": "object",
+                                    "additionalProperties": True,
+                                    "properties": {
+                                        "counts": {
+                                            "type": "object",
+                                            "additionalProperties": True,
+                                            "properties": {
+                                                "job": {"type": "integer"},
+                                                "step": {"type": "integer"},
+                                            },
+                                        },
+                                        "page_size": {"type": "integer", "minimum": 1},
+                                    },
+                                },
+                                "next_cursor": {"type": ["string", "null"]},
+                            },
+                        },
+                        schema_guide=(
+                            "Each page responds with an envelope and (optionally) **artifacts**:\n"
+                            "- `run`: echoes identifiers like `run_id` and `paths_root`.\n"
+                            "- `meta.counts`: per-kind artifact counts for this page; `meta.page_size` is the requested size.\n"
+                            "- `next_cursor`: supply this on the next call to continue paging; `null` means last page.\n"
+                            "- `artifacts`: array of CAM objects (`cam.jcl.job` or `cam.jcl.step`). Each artifact's `data` "
+                            "conforms to its artifact kind's `json_schema`."
+                        ),
+                    ),
+                ),
             ),
         ),
+
+        # ---------------------------------------------------------------------
+        # UNCHANGED deterministic MCP + LLM capabilities
+        # ---------------------------------------------------------------------
         GlobalCapabilityCreate(
             id="cap.cics.catalog",
             name="Discover CICS Transactions",
