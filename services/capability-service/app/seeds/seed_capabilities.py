@@ -171,7 +171,9 @@ async def seed_capabilities() -> None:
                 transport=HTTPTransport(
                     kind="http",
                     base_url="http://host.docker.internal:8000",
-                    headers={},
+                    headers={
+                        "host":"localhost:8000"
+                    },
                     auth={"method": "none"},
                     timeout_sec=30,
                     verify_tls=False,
@@ -338,7 +340,9 @@ async def seed_capabilities() -> None:
                 transport=HTTPTransport(
                     kind="http",
                     base_url="http://host.docker.internal:8765",
-                    headers={},
+                    headers={
+                        "host":"localhost:8765"
+                    },
                     auth={"method": "none"},
                     timeout_sec=90,
                     verify_tls=False,
@@ -748,7 +752,9 @@ async def seed_capabilities() -> None:
                 transport=HTTPTransport(
                     kind="http",
                     base_url="http://host.docker.internal:8001",
-                    headers={},
+                    headers={
+                        "host":"localhost:8001"
+                    },
                     auth={"method": "none"},
                     timeout_sec=120,
                     verify_tls=False,

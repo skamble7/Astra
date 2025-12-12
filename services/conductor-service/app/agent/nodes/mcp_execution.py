@@ -29,18 +29,84 @@ _ERROR_STATES = {"error", "failed", "failure"}
 
 _MAX_PAGES = 1000
 
-# -------- helpers --------
-def _extract_artifacts_from_output(output: Any, artifacts_path: str) -> List[Dict[str, Any]]:
-    parsed = try_parse_json(output)
+
+# -----------------------------
+# Canonical payload unwrapping
+# -----------------------------
+def _unwrap_payload(raw: Any) -> Any:
+    """
+    Standardize MCP tool results into a JSON-like Python object.
+
+    Supports FastMCP / streamable-http style:
+      raw_result == [ { "type": "text", "text": "{...json...}" }, ... ]
+    In that case, we join all text chunks and parse as JSON.
+
+    If parsing fails, returns try_parse_json(raw) as-is.
+    """
+    parsed = try_parse_json(raw)
+
+    # FastMCP content list: [{type, text, ...}, ...]
+    if isinstance(parsed, list) and parsed and all(isinstance(x, dict) and "type" in x for x in parsed):
+        text_chunks: List[str] = [
+            x.get("text") for x in parsed
+            if isinstance(x.get("text"), str)
+        ]
+        joined = "\n".join(text_chunks).strip()
+        if joined:
+            inner = try_parse_json(joined)
+            if inner is not None:
+                logger.info(
+                    "[mcp] fastmcp_content_unwrapped items=%d text_len=%d",
+                    len(parsed),
+                    len(joined),
+                )
+                return inner
+            logger.warning(
+                "[mcp] fastmcp_content_parse_failed text_sample=%s",
+                joined[:250].replace("\n", " "),
+            )
+        return parsed
+
+    return parsed
+
+
+# -----------------------------
+# Artifact extraction
+# -----------------------------
+def _extract_artifacts(payload: Any, artifacts_path: str) -> List[Dict[str, Any]]:
+    """
+    Contract: payload (dict) should contain an 'artifacts' collection/array (or artifacts_path).
+    We still keep some tolerant fallbacks for safety.
+    """
+    # If a list of artifact dicts is returned directly, accept it.
+    if isinstance(payload, list):
+        if all(isinstance(x, dict) for x in payload) and payload:
+            if all(any(k in x for k in ("kind_id", "kind", "_kind", "artifact_kind")) for x in payload):
+                return payload
+        return []
+
+    if not isinstance(payload, dict):
+        return []
+
     candidates: List[Any] = []
     if artifacts_path:
-        candidates.append(get_by_dotted_path(parsed, artifacts_path))
-    for key in ("artifacts", "data.artifacts", "result.artifacts", "items"):
-        candidates.append(get_by_dotted_path(parsed, key))
+        candidates.append(get_by_dotted_path(payload, artifacts_path))
+
+    # Contract primary
+    candidates.append(payload.get("artifacts"))
+
+    # Some tolerant fallbacks (keep, but contract says artifacts exists)
+    for key in ("data.artifacts", "result.artifacts", "items"):
+        candidates.append(get_by_dotted_path(payload, key))
+
     first_present = next((c for c in candidates if c is not None), [])
     items = coerce_list(first_present)
     return [x for x in items if isinstance(x, dict)]
 
+
+# -----------------------------
+# Capability helpers
+# -----------------------------
 def _transport_from_capability(cap: Dict[str, Any]) -> MCPTransportConfig:
     exec_block = (cap.get("execution") or {})
     t = (exec_block.get("transport") or {})
@@ -52,7 +118,6 @@ def _transport_from_capability(cap: Dict[str, Any]) -> MCPTransportConfig:
         verify_tls=t.get("verify_tls"),
         timeout_sec=t.get("timeout_sec") or 30,
     )
-    # concise transport summary (no secrets)
     logger.info(
         "[mcp] transport cap_id=%s kind=%s base=%s path=%s timeout_s=%s tls=%s",
         cap.get("id") or cap.get("name") or "<unknown-cap>",
@@ -64,27 +129,39 @@ def _transport_from_capability(cap: Dict[str, Any]) -> MCPTransportConfig:
     )
     return cfg
 
+
 def _exec_block(cap: Dict[str, Any]) -> Dict[str, Any]:
     return (cap.get("execution") or {})
+
 
 def _io_block(cap: Dict[str, Any]) -> Dict[str, Any]:
     return _exec_block(cap).get("io", {}) or {}
 
+
 def _output_contract(cap: Dict[str, Any]) -> Dict[str, Any]:
     return _io_block(cap).get("output_contract", {}) or {}
 
+
 def _artifacts_property(cap: Dict[str, Any]) -> str:
+    # You can set this to "artifacts" everywhere and simplify later.
     return _output_contract(cap).get("artifacts_property", "artifacts")
+
 
 def _tool_calls(cap: Dict[str, Any]) -> List[Dict[str, Any]]:
     return (_exec_block(cap).get("tool_calls") or [])
 
+
 def _find_status_tool(cap: Dict[str, Any]) -> Optional[Tuple[str, Dict[str, Any]]]:
+    """
+    Finds a status/poll tool for async jobs.
+    Prefers tools that look like "*.status|check|poll|progress" AND require a job id.
+    """
     def _requires_id(tc: Dict[str, Any]) -> bool:
         args_schema = tc.get("args_schema") or {}
         props = (args_schema.get("properties") or {})
         required = set(args_schema.get("required") or [])
         return any(k in props and k in required for k in _JOB_ID_KEYS)
+
     for tc in _tool_calls(cap):
         name = (tc.get("tool") or "").lower()
         if name.endswith(_ASYNC_STATUS_SUFFIXES) and _requires_id(tc):
@@ -94,56 +171,86 @@ def _find_status_tool(cap: Dict[str, Any]) -> Optional[Tuple[str, Dict[str, Any]
             return tc.get("tool"), tc
     return None
 
-def _detect_async_job(initial_result: Any) -> Tuple[Optional[str], Optional[str]]:
-    payload = try_parse_json(initial_result)
+
+# -----------------------------
+# Contract metadata extraction
+# -----------------------------
+def _detect_async_job(payload: Any) -> Tuple[Optional[str], Optional[str]]:
+    """
+    Contract: async tools return { job_id, status, ... } (outside artifacts).
+    """
+    if not isinstance(payload, dict):
+        return None, None
+
     job_id = None
     for k in _JOB_ID_KEYS:
-        v = get_by_dotted_path(payload, k)
+        v = payload.get(k)
         if isinstance(v, str) and v:
             job_id = v
             break
-    status = get_by_dotted_path(payload, "status")
-    if isinstance(job_id, str) and isinstance(status, str):
+
+    status = payload.get("status")
+    if isinstance(job_id, str) and isinstance(status, str) and status:
         return job_id, status.lower()
+
     return None, None
+
+
+def _extract_next_cursor(payload: Any) -> Optional[str]:
+    """
+    Contract: pagination returns next_cursor (outside artifacts).
+    """
+    if not isinstance(payload, dict):
+        return None
+
+    nxt = payload.get("next_cursor")
+    if isinstance(nxt, str) and nxt.strip():
+        return nxt.strip()
+
+    # tolerant fallbacks (optional)
+    for key in ("cursor.next", "nextPageToken", "page.next"):
+        v = get_by_dotted_path(payload, key)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+
+    return None
+
+
+def _extract_progress(payload: Any) -> Optional[float]:
+    """
+    Contract: async tools may return progress (outside artifacts).
+    """
+    if not isinstance(payload, dict):
+        return None
+
+    prog = payload.get("progress")
+    if prog is not None:
+        try:
+            return float(prog)
+        except Exception:
+            return None
+
+    # tolerant fallbacks (optional)
+    for key in ("data.progress", "result.progress", "meta.progress_percent"):
+        v = get_by_dotted_path(payload, key)
+        if v is not None:
+            try:
+                return float(v)
+            except Exception:
+                pass
+    return None
+
 
 def _polling_settings(cap: Dict[str, Any]) -> Tuple[int, int, int]:
     ex = _exec_block(cap)
     p = (ex.get("polling") or {})
     return int(p.get("max_attempts", 120)), int(p.get("interval_ms", 1000)), int(p.get("jitter_ms", 250))
 
+
 def _cap_timeout(cap: Dict[str, Any]) -> int:
     ts = _exec_block(cap).get("transport", {}).get("timeout_sec")
     return int(ts or 120)
 
-def _supports_pagination(cap: Dict[str, Any]) -> bool:
-    io = _io_block(cap)
-    in_schema = (io.get("input_contract") or {}).get("json_schema") or {}
-    in_props = (in_schema.get("properties") or {})
-    if not any(k in in_props for k in ("cursor", "page_size")):
-        return False
-    extra = _output_contract(cap).get("extra_schema") or {}
-    extra_props = (extra.get("properties") or {})
-    return "next_cursor" in extra_props
-
-def _extract_next_cursor(result: Any) -> Optional[str]:
-    payload = try_parse_json(result)
-    for key in ("next_cursor", "cursor.next", "nextPageToken", "page.next"):
-        nxt = get_by_dotted_path(payload, key)
-        if isinstance(nxt, str) and nxt.strip():
-            return nxt.strip()
-    return None
-
-def _extract_progress(result: Any) -> Optional[float]:
-    payload = try_parse_json(result)
-    for key in ("progress", "data.progress", "result.progress", "meta.progress_percent"):
-        prog = get_by_dotted_path(payload, key)
-        try:
-            if prog is not None:
-                return float(prog)
-        except Exception:
-            pass
-    return None
 
 def _json_sample(val: Any, limit: int = 800) -> str:
     try:
@@ -151,6 +258,7 @@ def _json_sample(val: Any, limit: int = 800) -> str:
     except Exception:
         s = "<unserializable>"
     return s[:limit] + ("…" if len(s) > limit else "")
+
 
 def _pick_id_arg_key_for_status_tool(status_tool_spec: Dict[str, Any]) -> Optional[str]:
     args_schema = status_tool_spec.get("args_schema") or {}
@@ -164,11 +272,23 @@ def _pick_id_arg_key_for_status_tool(status_tool_spec: Dict[str, Any]) -> Option
             return k
     return None
 
+
 def _looks_like_missing_paths_root_error(t: str) -> bool:
     t = (t or "").lower()
     return "paths_root not found" in t or "no such file or directory" in t
 
-# -------- node --------
+
+def _supports_pagination_by_contract(payload: Any) -> bool:
+    """
+    Contract-driven pagination:
+      if payload contains next_cursor at any point, we paginate.
+    """
+    return _extract_next_cursor(payload) is not None
+
+
+# -----------------------------
+# Node
+# -----------------------------
 def mcp_execution_node(*, runs_repo: RunRepository):
     async def _node(state: Dict[str, Any]) -> Command[Literal["capability_executor"]] | Dict[str, Any]:
         run = state["run"]
@@ -188,7 +308,6 @@ def mcp_execution_node(*, runs_repo: RunRepository):
         started = datetime.now(timezone.utc)
         artifacts_property = _artifacts_property(capability)
 
-        # concise input snapshot
         logger.info(
             "[mcp] start step_id=%s cap_id=%s tool=%s args_keys=%d artifacts_prop=%s",
             step_id,
@@ -235,7 +354,10 @@ def mcp_execution_node(*, runs_repo: RunRepository):
         try:
             conn = await MCPConnection.connect(transport_cfg)
 
-            # initial call
+            soft_deadline = started + timedelta(seconds=_cap_timeout(capability))
+            max_attempts, interval_ms, jitter_ms = _polling_settings(capability)
+
+            # 1) Initial call
             call_started = datetime.now(timezone.utc)
             raw_result: Any = None
             call_status: Literal["ok", "failed"] = "ok"
@@ -243,6 +365,10 @@ def mcp_execution_node(*, runs_repo: RunRepository):
 
             try:
                 raw_result = await conn.invoke_tool(tool_name, tool_args)
+                logger.info(
+                    "[mcp] raw_result step_id=%s cap_id=%s tool=%s type=%s sample=%s",
+                    step_id, cap_id, tool_name, type(raw_result).__name__, _json_sample(raw_result),
+                )
             except Exception as tool_err:
                 call_status = "failed"
                 msg = f"{type(tool_err).__name__}: {tool_err}"
@@ -283,16 +409,20 @@ def mcp_execution_node(*, runs_repo: RunRepository):
                 await runs_repo.step_failed(run_uuid, step_id, error="MCP tool error")
                 return Command(goto="capability_executor", update={"dispatch": {}, "last_mcp_error": "MCP tool error"})
 
-            # first artifacts
-            extracted = _extract_artifacts_from_output(raw_result, artifacts_property)
+            # Canonical payload
+            payload = _unwrap_payload(raw_result)
+
+            # Extract artifacts from payload
+            extracted = _extract_artifacts(payload, artifacts_property)
+            logger.info(
+                "[mcp] extracted_initial step_id=%s cap_id=%s tool=%s count=%d",
+                step_id, cap_id, tool_name, len(extracted)
+            )
             if extracted:
                 all_artifacts.extend(extracted)
 
-            soft_deadline = started + timedelta(seconds=_cap_timeout(capability))
-            max_attempts, interval_ms, jitter_ms = _polling_settings(capability)
-
-            # async polling (lean logs)
-            job_id, status = _detect_async_job(raw_result)
+            # 2) Async polling (contract-based)
+            job_id, status = _detect_async_job(payload)
             status_tool = _find_status_tool(capability)
             attempts = 0
 
@@ -325,70 +455,90 @@ def mcp_execution_node(*, runs_repo: RunRepository):
                     )
                     await runs_repo.append_tool_call_audit(run_uuid, step_id, call_audits[-1])
 
-                    prog = _extract_progress(poll_raw)
+                    poll_payload = _unwrap_payload(poll_raw)
+
+                    prog = _extract_progress(poll_payload)
                     if prog is not None and attempts % 5 == 0:
-                        # throttle progress logs
                         logger.info("[mcp] progress job_id=%s attempts=%d progress=%.1f%%", job_id, attempts, prog)
 
-                    _, status2 = _detect_async_job(poll_raw)
+                    _, status2 = _detect_async_job(poll_payload)
                     if status2:
                         status = status2
 
-                    extracted = _extract_artifacts_from_output(poll_raw, artifacts_property)
-                    if extracted:
-                        all_artifacts.extend(extracted)
+                    extracted_poll = _extract_artifacts(poll_payload, artifacts_property)
+                    if extracted_poll:
+                        logger.info(
+                            "[mcp] extracted_poll step_id=%s cap_id=%s tool=%s count=%d",
+                            step_id, cap_id, status_tool_name, len(extracted_poll)
+                        )
+                        all_artifacts.extend(extracted_poll)
+
+                    # Important: keep latest payload for pagination after async completes
+                    payload = poll_payload
 
                 if status in _ERROR_STATES:
                     raise RuntimeError(f"MCP job failed (id={job_id}, status={status})")
-                logger.info("[mcp] async_complete job_id=%s status=%s attempts=%d artifacts_total=%d", job_id, status, attempts, len(all_artifacts))
 
-            # pagination (lean logs)
+                logger.info(
+                    "[mcp] async_complete job_id=%s status=%s attempts=%d artifacts_total=%d",
+                    job_id, status, attempts, len(all_artifacts)
+                )
+
+            # 3) Pagination (contract-based: next_cursor outside artifacts)
             pages_fetched = 0
-            if _supports_pagination(capability):
-                next_cursor = _extract_next_cursor(raw_result)
-                page_tool = status_tool[0] if job_id and status_tool else tool_name
-                seen_cursors = set()
-                while next_cursor:
-                    if datetime.now(timezone.utc) >= soft_deadline:
-                        raise TimeoutError(f"Pagination timeout; last cursor={next_cursor}")
-                    if next_cursor in seen_cursors:
-                        logger.warning("[mcp] pagination_duplicate_cursor cursor=%s", next_cursor)
-                        break
-                    if pages_fetched >= _MAX_PAGES:
-                        logger.warning("[mcp] pagination_cap_reached max_pages=%d", _MAX_PAGES)
-                        break
-                    seen_cursors.add(next_cursor)
+            next_cursor = _extract_next_cursor(payload)
 
-                    page_args = dict(tool_args)
-                    page_args["cursor"] = next_cursor
-                    pg_started = datetime.now(timezone.utc)
-                    pg_raw = await conn.invoke_tool(page_tool, page_args)
-                    pg_dur_ms = int((datetime.now(timezone.utc) - pg_started).total_seconds() * 1000)
+            if next_cursor:
+                logger.info("[mcp] pagination_start first_cursor=%s", next_cursor)
 
-                    call_audits.append(
-                        ToolCallAudit(
-                            tool_name=page_tool,
-                            tool_args_preview=page_args,
-                            raw_output_sample=_json_sample(pg_raw),
-                            validation_errors=[],
-                            duration_ms=pg_dur_ms,
-                            status="ok",
-                        )
+            seen_cursors = set()
+            while next_cursor:
+                if datetime.now(timezone.utc) >= soft_deadline:
+                    raise TimeoutError(f"Pagination timeout; last cursor={next_cursor}")
+                if next_cursor in seen_cursors:
+                    logger.warning("[mcp] pagination_duplicate_cursor cursor=%s", next_cursor)
+                    break
+                if pages_fetched >= _MAX_PAGES:
+                    logger.warning("[mcp] pagination_cap_reached max_pages=%d", _MAX_PAGES)
+                    break
+
+                seen_cursors.add(next_cursor)
+
+                page_args = dict(tool_args)
+                page_args["cursor"] = next_cursor
+
+                pg_started = datetime.now(timezone.utc)
+                pg_raw = await conn.invoke_tool(tool_name, page_args)
+                pg_dur_ms = int((datetime.now(timezone.utc) - pg_started).total_seconds() * 1000)
+
+                call_audits.append(
+                    ToolCallAudit(
+                        tool_name=tool_name,
+                        tool_args_preview=page_args,
+                        raw_output_sample=_json_sample(pg_raw),
+                        validation_errors=[],
+                        duration_ms=pg_dur_ms,
+                        status="ok",
                     )
-                    await runs_repo.append_tool_call_audit(run_uuid, step_id, call_audits[-1])
+                )
+                await runs_repo.append_tool_call_audit(run_uuid, step_id, call_audits[-1])
 
-                    extracted = _extract_artifacts_from_output(pg_raw, artifacts_property)
-                    if extracted:
-                        all_artifacts.extend(extracted)
+                pg_payload = _unwrap_payload(pg_raw)
+                extracted_page = _extract_artifacts(pg_payload, artifacts_property)
 
-                    next_cursor = _extract_next_cursor(pg_raw)
-                    pages_fetched += 1
+                if extracted_page:
+                    logger.info(
+                        "[mcp] extracted_page step_id=%s cap_id=%s tool=%s page=%d count=%d",
+                        step_id, cap_id, tool_name, pages_fetched + 1, len(extracted_page)
+                    )
+                    all_artifacts.extend(extracted_page)
 
-                logger.info("[mcp] pagination_done pages=%d artifacts_total=%d", pages_fetched, len(all_artifacts))
-            else:
-                pages_fetched = 0
+                next_cursor = _extract_next_cursor(pg_payload)
+                pages_fetched += 1
 
-            # finalize + DB audits
+            logger.info("[mcp] pagination_done pages=%d artifacts_total=%d", pages_fetched, len(all_artifacts))
+
+            # 4) Finalize + DB audits
             await runs_repo.append_step_audit(
                 run_uuid,
                 StepAudit(
@@ -399,6 +549,7 @@ def mcp_execution_node(*, runs_repo: RunRepository):
                     calls=call_audits,
                 ),
             )
+
             duration_ms_total = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
             await runs_repo.step_completed(
                 run_uuid,
@@ -406,12 +557,11 @@ def mcp_execution_node(*, runs_repo: RunRepository):
                 metrics={"mode": "mcp", "duration_ms": duration_ms_total, "artifact_count": len(all_artifacts)},
             )
 
-            # ---- annotate artifacts with step_id (and normalize kind_id) before staging
+            # Annotate artifacts with step_id + normalize kind_id
             annotated: List[Dict[str, Any]] = []
             for a in all_artifacts:
                 na = dict(a)
                 na.setdefault("produced_in_step_id", step_id)
-                # normalize kind id for downstream consumers
                 if "kind_id" not in na:
                     if isinstance(na.get("kind"), str):
                         na["kind_id"] = na["kind"]
@@ -421,7 +571,9 @@ def mcp_execution_node(*, runs_repo: RunRepository):
                         na["kind_id"] = na["artifact_kind"]
                 annotated.append(na)
 
-            # concise handoff summary
+            prev_staged = state.get("staged_artifacts") or []
+            new_staged = prev_staged + annotated
+
             logger.info(
                 "[mcp] handoff step_id=%s cap_id=%s tool=%s calls=%d artifacts=%d pages=%d duration_ms=%d",
                 step_id, cap_id, tool_name, len(call_audits), len(annotated), pages_fetched, duration_ms_total
@@ -431,7 +583,7 @@ def mcp_execution_node(*, runs_repo: RunRepository):
                 goto="capability_executor",
                 update={
                     "dispatch": {},
-                    "staged_artifacts": (state.get("staged_artifacts") or []) + annotated,
+                    "staged_artifacts": new_staged,
                     "last_mcp_summary": {
                         "tool_calls": [
                             {"name": c.tool_name, "status": c.status, "duration_ms": c.duration_ms}
@@ -440,6 +592,7 @@ def mcp_execution_node(*, runs_repo: RunRepository):
                         "artifact_count": len(annotated),
                         "completed_step_id": step_id,
                         "pages_fetched": pages_fetched,
+                        "async_job_id": job_id,
                     },
                     "last_mcp_error": None,
                 },

@@ -51,7 +51,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 "repo": "https://git.example.com/legacy/cards.git",
                 "commit": "8f2c1b...",
                 "branch": "main",
-                "paths_root": "/mnt/src/cards"
+                "paths_root": "/workspace"
             }],
             "diagram_recipes": [
                 {
@@ -121,7 +121,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
             },
             "identity": {"natural_key": ["root"]},
             "examples": [{
-                "root": "/mnt/src/cards",
+                "root": "/workspace",
                 "files": [
                     {"relpath": "batch/POSTTRAN.cbl", "size_bytes": 12453, "sha256": "...", "kind": "cobol"},
                     {"relpath": "batch/POSTTRAN.jcl", "size_bytes": 213, "sha256": "...", "kind": "jcl"},
