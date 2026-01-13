@@ -20,7 +20,7 @@ DEFAULT_NARRATIVES_SPEC: Dict[str, Any] = {
 # Loosened schemas across all kinds
 # ─────────────────────────────────────────────────────────────
 KIND_DOCS: List[Dict[str, Any]] = [
-    {
+{
         "_id": "cam.asset.repo_snapshot",
         "title": "Repository Snapshot",
         "category": "generic",
@@ -51,7 +51,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 "repo": "https://git.example.com/legacy/cards.git",
                 "commit": "8f2c1b...",
                 "branch": "main",
-                "paths_root": "/workspace"
+                "paths_root": "/mnt/src/cards"
             }],
             "diagram_recipes": [
                 {
@@ -73,7 +73,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
             "narratives_spec": DEFAULT_NARRATIVES_SPEC
         }]
     },
-    {
+{
         "_id": "cam.asset.source_index",
         "title": "Source Index",
         "category": "generic",
@@ -121,7 +121,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
             },
             "identity": {"natural_key": ["root"]},
             "examples": [{
-                "root": "/workspace",
+                "root": "/mnt/src/cards",
                 "files": [
                     {"relpath": "batch/POSTTRAN.cbl", "size_bytes": 12453, "sha256": "...", "kind": "cobol"},
                     {"relpath": "batch/POSTTRAN.jcl", "size_bytes": 213, "sha256": "...", "kind": "jcl"},
@@ -145,439 +145,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
             "narratives_spec": DEFAULT_NARRATIVES_SPEC
         }]
     },
-    {
-        "_id": "cam.cobol.program",
-        "title": "COBOL Program",
-        "category": "cobol",
-        "aliases": [],
-        "status": "active",
-        "latest_schema_version": LATEST,
-        "schema_versions": [{
-            "version": LATEST,
-            "json_schema": {
-                "type": "object",
-                "additionalProperties": True,
-                "required": ["program_id", "source"],
-                "properties": {
-                    "program_id": {"type": ["string", "null"]},
-                    "source": {
-                        "type": ["object", "null"],
-                        "additionalProperties": True,
-                        "properties": {
-                            "relpath": {"type": ["string", "null"]},
-                            "sha256": {"type": ["string", "null"]}
-                        }
-                    },
-                    "divisions": {
-                        "type": ["object", "null"],
-                        "additionalProperties": True,
-                        "properties": {
-                            "identification": {"type": ["object", "null"], "additionalProperties": True},
-                            "environment": {"type": ["object", "null"], "additionalProperties": True},
-                            "data": {"type": ["object", "null"], "additionalProperties": True},
-                            "procedure": {"type": ["object", "null"], "additionalProperties": True}
-                        }
-                    },
-                    "paragraphs": {
-                        "type": ["array", "null"],
-                        "items": {
-                            "type": "object",
-                            "additionalProperties": True,
-                            "required": ["name"],
-                            "properties": {
-                                "name": {"type": ["string", "null"]},
-                                "performs": {"type": ["array", "null"], "items": {"type": "string"}},
-                                "calls": {
-                                    "type": ["array", "null"],
-                                    "items": {
-                                        "type": "object",
-                                        "additionalProperties": True,
-                                        "properties": {
-                                            "target": {"type": ["string", "null"], "description": "PROGRAM-ID if resolvable, else literal"},
-                                            "dynamic": {"type": ["boolean", "string", "null"]}
-                                        }
-                                    }
-                                },
-                                "io_ops": {
-                                    "type": ["array", "null"],
-                                    "items": {
-                                        "type": "object",
-                                        "additionalProperties": True,
-                                        "properties": {
-                                            "op": {"type": ["string", "null"]},
-                                            "dataset_ref": {"type": ["string", "null"]},
-                                            "fields": {"type": ["array", "null"], "items": {"type": "string"}}
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "copybooks_used": {"type": ["array", "null"], "items": {"type": "string"}},
-                    "notes": {"type": ["array", "null"], "items": {"type": "string"}}
-                }
-            },
-            "additional_props_policy": "allow",
-            "prompt": {
-                "system": "Normalize ProLeap/cb2xml output into this canonical shape. Preserve names; do not invent CALL targets.",
-                "strict_json": True
-            },
-            "depends_on": {
-                "hard": ["cam.asset.source_index"],
-                "soft": ["cam.cobol.copybook"],
-                "context_hint": "Map `source.relpath` to a file in Source Index. Collect copybook names used."
-            },
-            "identity": {"natural_key": ["program_id"]},
-            "examples": [{
-                "program_id": "POSTTRAN",
-                "source": {"relpath": "batch/POSTTRAN.cbl", "sha256": "..."},
-                "divisions": {"identification": {}, "environment": {}, "data": {}, "procedure": {}},
-                "paragraphs": [{"name": "MAIN", "performs": ["VALIDATE-INPUT"], "calls": [], "io_ops": []}]
-            }],
-            "diagram_recipes": [
-                {
-                    "id": "program.mindmap",
-                    "title": "Program → Divisions → Paragraphs (Mindmap)",
-                    "view": "mindmap",
-                    "language": "mermaid",
-                    "description": "High-level overview: program root, divisions, and paragraph nodes.",
-                    "template": """mindmap
-  root(({{ data.program_id }}))
-  {% if data.divisions and data.divisions.identification %}Identification{% endif %}
-  {% if data.divisions and data.divisions.environment %}Environment{% endif %}
-  {% if data.divisions and data.divisions.data %}Data{% endif %}
-  Procedure
-    {% for p in (data.paragraphs or []) %}{{ p.name }}
-    {% endfor %}
-classDef divisions fill:#eee,stroke:#999;"""
-                },
-                {
-                    "id": "program.sequence",
-                    "title": "Paragraph CALL / PERFORM Sequence",
-                    "view": "sequence",
-                    "language": "mermaid",
-                    "description": "Dynamic interaction across paragraphs and called programs.",
-                    "prompt": {
-                        "system": "Given the canonical cam.cobol.program JSON, emit Mermaid sequence diagram instructions describing PERFORM and CALL interactions. Use paragraph names and PROGRAM-ID targets. Do not fabricate nodes.",
-                        "strict_text": True
-                    },
-                    "renderer_hints": {"wrap": True}
-                },
-                {
-                    "id": "program.flowchart",
-                    "title": "Paragraph PERFORM Flow",
-                    "view": "flowchart",
-                    "language": "mermaid",
-                    "description": "Control flow between paragraphs via PERFORM edges.",
-                    "template": """flowchart TD
-  START([{{ data.program_id }} START])
-  {% for p in (data.paragraphs or []) %}
-  {{ p.name | replace("-", "_") }}([{{ p.name }}])
-  {% endfor %}
-  {% if (data.paragraphs or [])|length > 0 %}START --> {{ data.paragraphs[0].name | replace("-", "_") }}{% endif %}
-  {% for p in (data.paragraphs or []) %}
-    {% for t in (p.performs or []) %}
-  {{ p.name | replace("-", "_") }} --> {{ t | replace("-", "_") }}
-    {% endfor %}
-  {% endfor %}
-  END([END])"""
-                }
-            ],
-            "narratives_spec": DEFAULT_NARRATIVES_SPEC
-        }]
-    },
-    {
-        "_id": "cam.cobol.copybook",
-        "title": "COBOL Copybook",
-        "category": "cobol",
-        "status": "active",
-        "latest_schema_version": LATEST,
-        "schema_versions": [{
-            "version": LATEST,
-            "json_schema": {
-                "type": "object",
-                "additionalProperties": True,
-                "required": ["name", "source", "items"],
-                "properties": {
-                    "name": {"type": ["string", "null"]},
-                    "source": {
-                        "type": ["object", "null"],
-                        "additionalProperties": True,
-                        "properties": {
-                            "relpath": {"type": ["string", "null"]},
-                            "sha256": {"type": ["string", "null"]}
-                        }
-                    },
-                    "items": {
-                        "type": ["array", "null"],
-                        "items": { "$ref": "#/$defs/CopyItem" }
-                    }
-                },
-                "$defs": {
-                    "CopyItem": {
-                        "type": "object",
-                        "additionalProperties": True,
-                        "required": ["level", "name"],
-                        "properties": {
-                            "level": {"type": ["string", "integer", "null"]},
-                            "name": {"type": ["string", "null"]},
-                            "picture": {"type": ["string", "null"], "default": ""},
-                            "occurs": {"type": ["integer", "string", "object", "null"]},
-                            "children": {
-                                "type": ["array", "null"],
-                                "items": { "$ref": "#/$defs/CopyItem" }
-                            }
-                        }
-                    }
-                }
-            },
-            "additional_props_policy": "allow",
-            "prompt": {
-                "system": "Normalize copybook AST into a strict tree. Do not lose levels or PIC clauses.",
-                "strict_json": True
-            },
-            "depends_on": {"hard": ["cam.asset.source_index"]},
-            "identity": {"natural_key": ["name"]},
-            "examples": [{
-                "name": "CUSTREC",
-                "source": {"relpath": "copy/CUSTREC.cpy", "sha256": "..."},
-                "items": [{
-                    "level": "01",
-                    "name": "CUST-REC",
-                    "picture": "",
-                    "children": [
-                        {"level": "05", "name": "CUST-ID", "picture": "X(10)"}
-                    ]
-                }]
-            }],
-            "diagram_recipes": [
-                {
-                    "id": "copybook.mindmap",
-                    "title": "Copybook Fields Mindmap",
-                    "view": "mindmap",
-                    "language": "mermaid",
-                    "description": "Hierarchy of fields by levels.",
-                    "template": """mindmap
-  root(({{ data.name }}))
-  {% for item in (data.items or []) %}
-  {{ item.level }} {{ item.name }}
-    {% for c in (item.children or []) %}{{ c.level }} {{ c.name }}
-    {% endfor %}
-  {% endfor %}"""
-                }
-            ],
-            "narratives_spec": DEFAULT_NARRATIVES_SPEC
-        }]
-    },
-    {
-        "_id": "cam.jcl.job",
-        "title": "JCL Job",
-        "category": "cobol",
-        "status": "active",
-        "latest_schema_version": LATEST,
-        "schema_versions": [{
-            "version": LATEST,
-            "json_schema": {
-                "type": "object",
-                "additionalProperties": True,
-                "required": ["job_name", "source", "steps"],
-                "properties": {
-                    "job_name": {"type": ["string", "null"]},
-                    "source": {
-                        "type": ["object", "null"],
-                        "additionalProperties": True,
-                        "properties": {"relpath": {"type": ["string", "null"]}, "sha256": {"type": ["string", "null"]}}
-                    },
-                    "steps": {
-                        "type": ["array", "null"],
-                        "items": {
-                            "type": "object",
-                            "additionalProperties": True,
-                            "required": ["step_name"],
-                            "properties": {
-                                "step_name": {"type": ["string", "null"]},
-                                "seq": {"type": ["integer", "string", "null"]},
-                                "program": {"type": ["string", "null"]},
-                                "condition": {"type": ["string", "null"]},
-                                "dds": {
-                                    "type": ["array", "null"],
-                                    "items": {
-                                        "type": "object",
-                                        "additionalProperties": True,
-                                        "required": ["ddname"],
-                                        "properties": {
-                                            "ddname": {"type": ["string", "null"]},
-                                            "dataset": {"type": ["string", "null"]},
-                                            "direction": {"type": ["string", "null"]}
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            "additional_props_policy": "allow",
-            "prompt": {"system": "Parse JCL into an ordered list of steps with DD statements. Keep program names as written.", "strict_json": True},
-            "depends_on": {"hard": ["cam.asset.source_index"]},
-            "identity": {"natural_key": ["job_name"]},
-            "examples": [{
-                "job_name": "POSTTRAN",
-                "source": {"relpath": "batch/POSTTRAN.jcl", "sha256": "..."},
-                "steps": [{
-                    "step_name": "STEP1", "seq": 1, "program": "POSTTRAN",
-                    "dds": [
-                        {"ddname": "INFILE", "dataset": "TRAN.IN", "direction": "IN"},
-                        {"ddname": "OUTFILE", "dataset": "LEDGER.OUT", "direction": "OUT"}
-                    ]
-                }]
-            }],
-            "diagram_recipes": [
-                {
-                    "id": "jcl.flow",
-                    "title": "JCL Job Flow (Steps)",
-                    "view": "flowchart",
-                    "language": "mermaid",
-                    "description": "Simple TD flow through steps by seq, annotated with program names.",
-                    "template": """flowchart TD
-  START([{{ data.job_name }} START])
-  {% for s in (data.steps or [])|sort(attribute='seq') %}
-  {{ s.step_name }}([{{ s.step_name }}\\n{{ s.program }}])
-  {% endfor %}
-  {% for s in (data.steps or [])|sort(attribute='seq') %}
-    {% set next = loop.index0 + 1 %}
-    {% if next < ((data.steps or [])|length) %}
-  {{ data.steps[loop.index0].step_name }} --> {{ data.steps[next].step_name }}
-    {% endif %}
-  {% endfor %}
-  END([END])"""
-                }
-            ],
-            "narratives_spec": DEFAULT_NARRATIVES_SPEC
-        }]
-    },
-    {
-        "_id": "cam.jcl.step",
-        "title": "JCL Step",
-        "category": "cobol",
-        "status": "active",
-        "latest_schema_version": LATEST,
-        "schema_versions": [{
-            "version": LATEST,
-            "json_schema": {
-                "type": "object",
-                "additionalProperties": True,
-                "required": ["job_name", "step_name"],
-                "properties": {
-                    "job_name": {"type": ["string", "null"]},
-                    "step_name": {"type": ["string", "null"]},
-                    "seq": {"type": ["integer", "string", "null"]},
-                    "program": {"type": ["string", "null"]},
-                    "dds": {
-                        "type": ["array", "null"],
-                        "items": {
-                            "type": "object",
-                            "additionalProperties": True,
-                            "required": ["ddname"],
-                            "properties": {
-                                "ddname": {"type": ["string", "null"]},
-                                "dataset": {"type": ["string", "null"]},
-                                "direction": {"type": ["string", "null"]}
-                            }
-                        }
-                    }
-                }
-            },
-            "additional_props_policy": "allow",
-            "prompt": {"system": "Emit one strict record per JCL step to simplify graph indexing.", "strict_json": True},
-            "depends_on": {"hard": ["cam.jcl.job"]},
-            "identity": {"natural_key": ["job_name", "step_name"]},
-            "examples": [{
-                "job_name": "POSTTRAN",
-                "step_name": "STEP1",
-                "seq": 1,
-                "program": "POSTTRAN",
-                "dds": [{"ddname": "INFILE", "dataset": "TRAN.IN", "direction": "IN"}]
-            }],
-            "diagram_recipes": [
-                {
-                    "id": "jcl.step.io",
-                    "title": "JCL Step IO",
-                    "view": "flowchart",
-                    "language": "mermaid",
-                    "description": "Visualize datasets in/out of a step.",
-                    "template": """flowchart LR
-  {{ data.step_name }}([{{ data.step_name }}\\n{{ data.program }}])
-  {% for d in (data.dds or []) %}
-    {% if d.direction == "IN" or d.direction == "INOUT" %}
-  {{ d.ddname | replace("-", "_") }}([{{ d.dataset or d.ddname }}]) --> {{ data.step_name }}
-    {% endif %}
-    {% if d.direction == "OUT" or d.direction == "INOUT" %}
-  {{ data.step_name }} --> {{ d.ddname | replace("-", "_") }}([{{ d.dataset or d.ddname }}])
-    {% endif %}
-  {% endfor %}"""
-                }
-            ],
-            "narratives_spec": DEFAULT_NARRATIVES_SPEC
-        }]
-    },
-    {
-        "_id": "cam.cics.transaction",
-        "title": "CICS Transaction Map",
-        "category": "cobol",
-        "status": "active",
-        "latest_schema_version": LATEST,
-        "schema_versions": [{
-            "version": LATEST,
-            "json_schema": {
-                "type": "object",
-                "additionalProperties": True,
-                "required": ["region", "transactions"],
-                "properties": {
-                    "region": {"type": ["string", "null"]},
-                    "transactions": {
-                        "type": ["array", "null"],
-                        "items": {
-                            "type": "object",
-                            "additionalProperties": True,
-                            "required": ["tranid"],
-                            "properties": {
-                                "tranid": {"type": ["string", "null"]},
-                                "program": {"type": ["string", "null"]},
-                                "mapset": {"type": ["string", "null"]},
-                                "commarea": {"type": ["string", "null"]}
-                            }
-                        }
-                    }
-                }
-            },
-            "additional_props_policy": "allow",
-            "prompt": {"system": "Normalize CICS catalogs into a simple transaction map.", "strict_json": True},
-            "depends_on": {"soft": ["cam.asset.source_index"]},
-            "identity": {"natural_key": ["region"]},
-            "examples": [{
-                "region": "CICSPROD",
-                "transactions": [{"tranid": "PAY1", "program": "PAYMENT"}, {"tranid": "BAL1", "program": "BALENQ"}]
-            }],
-            "diagram_recipes": [
-                {
-                    "id": "cics.map",
-                    "title": "CICS Transaction → Program",
-                    "view": "flowchart",
-                    "language": "mermaid",
-                    "description": "Map tranid to program; optional mapset/commarea labels.",
-                    "template": """flowchart LR
-  subgraph {{ data.region }}
-  {% for t in (data.transactions or []) %}
-  {{ t.tranid }}([{{ t.tranid }}]) --> {{ (t.program or "UNKNOWN") | replace("-", "_") }}([{{ t.program or "UNKNOWN" }}])
-  {% endfor %}
-  end"""
-                }
-            ],
-            "narratives_spec": DEFAULT_NARRATIVES_SPEC
-        }]
-    },
-    {
+{
         "_id": "cam.data.model",
         "title": "Data Model",
         "category": "data",
@@ -681,7 +249,7 @@ classDef divisions fill:#eee,stroke:#999;"""
             "narratives_spec": DEFAULT_NARRATIVES_SPEC
         }]
     },
-    {
+{
         "_id": "cam.data.dictionary",
         "title": "Domain Data Dictionary",
         "category": "domain",
@@ -739,7 +307,7 @@ classDef divisions fill:#eee,stroke:#999;"""
             "narratives_spec": DEFAULT_NARRATIVES_SPEC
         }]
     },
-    {
+{
         "_id": "cam.data.lineage",
         "title": "Data Lineage",
         "category": "data",
@@ -795,7 +363,7 @@ classDef divisions fill:#eee,stroke:#999;"""
             "narratives_spec": DEFAULT_NARRATIVES_SPEC
         }]
     },
-    {
+{
         "_id": "cam.asset.service_inventory",
         "title": "Service/Asset Inventory",
         "category": "generic",
@@ -850,7 +418,7 @@ classDef divisions fill:#eee,stroke:#999;"""
             "narratives_spec": DEFAULT_NARRATIVES_SPEC
         }]
     },
-    {
+{
         "_id": "cam.asset.dependency_inventory",
         "title": "Dependency Inventory",
         "category": "generic",
@@ -955,7 +523,7 @@ classDef divisions fill:#eee,stroke:#999;"""
             "narratives_spec": DEFAULT_NARRATIVES_SPEC
         }]
     },
-    {
+{
         "_id": "cam.workflow.process",
         "title": "Workflow Process",
         "category": "workflow",
@@ -1053,7 +621,7 @@ classDef divisions fill:#eee,stroke:#999;"""
             "narratives_spec": DEFAULT_NARRATIVES_SPEC
         }]
     },
-    {
+{
         "_id": "cam.diagram.activity",
         "title": "Activity Diagram",
         "category": "diagram",
@@ -1092,7 +660,7 @@ classDef divisions fill:#eee,stroke:#999;"""
             "narratives_spec": DEFAULT_NARRATIVES_SPEC
         }]
     },
-    {
+{
         "_id": "cam.domain.dictionary",
         "title": "Domain Dictionary",
         "category": "domain",
@@ -1157,7 +725,7 @@ classDef divisions fill:#eee,stroke:#999;"""
             ],
             "narratives_spec": DEFAULT_NARRATIVES_SPEC
         }]
-    },
+    }
 ]
 
 # ─────────────────────────────────────────────────────────────

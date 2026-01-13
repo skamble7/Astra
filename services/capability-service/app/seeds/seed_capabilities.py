@@ -172,7 +172,7 @@ async def seed_capabilities() -> None:
                     kind="http",
                     base_url="http://host.docker.internal:8000",
                     headers={
-                        "host":"localhost:8000"
+                        "host": "localhost:8000"
                     },
                     auth={"method": "none"},
                     timeout_sec=30,
@@ -321,18 +321,21 @@ async def seed_capabilities() -> None:
         ),
 
         # ---------------------------------------------------------------------
-        # UPDATED: cap.cobol.parse (HTTP MCP, pagination)
+        # UPDATED: cap.cobol.parse (HTTP MCP, pagination)  ✅ REVISED
         # ---------------------------------------------------------------------
         GlobalCapabilityCreate(
             id="cap.cobol.parse",
             name="Parse COBOL Programs and Copybooks",
-            description="Parses COBOL repos and emits source index, normalized programs, and copybooks.",
+            description="Parses COBOL repos and emits source index, normalized programs, copybooks, and ProLeap-specific AST/ASG snapshots plus parse telemetry.",
             tags=[],
             parameters_schema=None,
             produces_kinds=[
                 "cam.asset.source_index",
                 "cam.cobol.copybook",
                 "cam.cobol.program",
+                "cam.cobol.ast_proleap",
+                "cam.cobol.asg_proleap",
+                "cam.cobol.parse_report",
             ],
             agent=None,
             execution=McpExecution(
@@ -341,7 +344,7 @@ async def seed_capabilities() -> None:
                     kind="http",
                     base_url="http://host.docker.internal:8765",
                     headers={
-                        "host":"localhost:8765"
+                        "host": "localhost:8765"
                     },
                     auth={"method": "none"},
                     timeout_sec=90,
@@ -368,9 +371,23 @@ async def seed_capabilities() -> None:
                                     "type": "array",
                                     "items": {
                                         "type": "string",
-                                        "enum": ["source_index", "copybook", "program"],
+                                        "enum": [
+                                            "source_index",
+                                            "copybook",
+                                            "program",
+                                            "ast_proleap",
+                                            "asg_proleap",
+                                            "parse_report",
+                                        ],
                                     },
-                                    "examples": [["source_index", "copybook", "program"]],
+                                    "examples": [[
+                                        "source_index",
+                                        "copybook",
+                                        "program",
+                                        "ast_proleap",
+                                        "asg_proleap",
+                                        "parse_report",
+                                    ]],
                                 },
                                 "force_reparse": {"type": "boolean"},
                                 "run_id": {"type": "string"},
@@ -381,7 +398,8 @@ async def seed_capabilities() -> None:
                             "- **paths_root** (required): Root directory containing the checked-out repo (e.g., `/workspace`).\n"
                             "- **page_size** (optional): Number of artifacts per page (integer ≥ 1). Defaults to 3.\n"
                             "- **cursor** (optional): Opaque pagination token from a prior response; use `null` for the first page.\n"
-                            "- **kinds** (optional): list of artifact kinds that the MCP server should emit this page; derive from capability `produces_kinds`.\n"
+                            "- **kinds** (optional): subset of artifacts to emit this page; choose from "
+                            "`source_index`, `copybook`, `program`, `ast_proleap`, `asg_proleap`, `parse_report`.\n"
                             "- **force_reparse** (optional): Boolean to force a clean reparse ignoring caches.\n"
                             "- **run_id** (optional): Correlation id to be echoed back in responses."
                         ),
@@ -392,6 +410,9 @@ async def seed_capabilities() -> None:
                             "cam.asset.source_index",
                             "cam.cobol.copybook",
                             "cam.cobol.program",
+                            "cam.cobol.ast_proleap",
+                            "cam.cobol.asg_proleap",
+                            "cam.cobol.parse_report",
                         ],
                         extra_schema={
                             "type": "object",
@@ -416,6 +437,9 @@ async def seed_capabilities() -> None:
                                                 "source_index": {"type": "integer"},
                                                 "copybook": {"type": "integer"},
                                                 "program": {"type": "integer"},
+                                                "ast_proleap": {"type": "integer"},
+                                                "asg_proleap": {"type": "integer"},
+                                                "parse_report": {"type": "integer"},
                                             },
                                         },
                                         "page_size": {"type": "integer", "minimum": 1},
@@ -427,9 +451,12 @@ async def seed_capabilities() -> None:
                         schema_guide=(
                             "Each page responds with an envelope and (optionally) **artifacts**:\n"
                             "- `run`: echoes identifiers like `run_id` and `paths_root`.\n"
-                            "- `meta.counts`: per-kind artifact counts in this page; `meta.page_size` is the requested size.\n"
+                            "- `meta.counts`: per-kind artifact counts for the selected kinds; `meta.page_size` is the requested size.\n"
                             "- `next_cursor`: supply this on the next call to continue paging; `null` means last page.\n"
-                            "- `artifacts`: array of CAM objects (`cam.asset.source_index`, `cam.cobol.copybook`, `cam.cobol.program`). The artifacts.data property contains the actual data as per the json_schema property of an artifact kind."
+                            "- `artifacts`: array of CAM objects "
+                            "(`cam.asset.source_index`, `cam.cobol.copybook`, `cam.cobol.program`, "
+                            "`cam.cobol.ast_proleap`, `cam.cobol.asg_proleap`, `cam.cobol.parse_report`). "
+                            "The artifacts.data property contains the actual data as per the json_schema property of an artifact kind."
                         ),
                     ),
                 ),
@@ -446,7 +473,17 @@ async def seed_capabilities() -> None:
                                 "cursor": {"type": ["string", "null"]},
                                 "kinds": {
                                     "type": "array",
-                                    "items": {"type": "string", "enum": ["source_index", "copybook", "program"]},
+                                    "items": {
+                                        "type": "string",
+                                        "enum": [
+                                            "source_index",
+                                            "copybook",
+                                            "program",
+                                            "ast_proleap",
+                                            "asg_proleap",
+                                            "parse_report",
+                                        ],
+                                    },
                                 },
                                 "force_reparse": {"type": "boolean"},
                                 "run_id": {"type": "string"},
@@ -456,6 +493,9 @@ async def seed_capabilities() -> None:
                             "cam.asset.source_index",
                             "cam.cobol.copybook",
                             "cam.cobol.program",
+                            "cam.cobol.ast_proleap",
+                            "cam.cobol.asg_proleap",
+                            "cam.cobol.parse_report",
                         ],
                         timeout_sec=LONG_TIMEOUT,
                         retries=1,
@@ -753,7 +793,7 @@ async def seed_capabilities() -> None:
                     kind="http",
                     base_url="http://host.docker.internal:8001",
                     headers={
-                        "host":"localhost:8001"
+                        "host": "localhost:8001"
                     },
                     auth={"method": "none"},
                     timeout_sec=120,
