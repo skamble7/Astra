@@ -14,13 +14,21 @@ from app.seeds.seed_categories import ensure_categories_seed
 # Seed sources (ordered by precedence: earlier wins on _id conflicts)
 from app.seeds.seed_registry import KIND_DOCS as ASTRA_KIND_DOCS
 # from app.seeds.seed_registry_raina import docs as RAINA_KIND_DOCS
+
+# Existing packs
 from app.seeds.seed_data_pipeline_registry import KIND_DOCS as DATA_PIPELINE_KIND_DOCS
 from app.seeds.seed_kind_registry_cobol_modernization import KIND_DOCS as COBOL_KIND_DOCS
+
+# NEW: microservices architecture discovery pack registry kinds
+# NOTE: your actual filename is seed_microservices_arch_registry.py
+from app.seeds.seed_microservices_arch_registry import KIND_DOCS as MICROSERVICES_KIND_DOCS
 
 log = logging.getLogger(__name__)
 
 OVERWRITE_ALL = os.getenv("ASTRA_SEED_OVERWRITE", "").strip() in {"1", "true", "True", "yes"}
+
 FORCE_DATA_PIPELINE = os.getenv("ASTRA_SEED_FORCE_DATAPIPELINE", "").strip() in {"1", "true", "True", "yes"}
+FORCE_MICROSERVICES = os.getenv("ASTRA_SEED_FORCE_MICROSERVICES", "").strip() in {"1", "true", "True", "yes"}
 FORCE_COBOL = os.getenv("ASTRA_SEED_FORCE_COBOL", "").strip() in {"1", "true", "True", "yes"}
 
 
@@ -34,6 +42,9 @@ def _combine_and_dedupe_kind_docs() -> Tuple[List[Dict[str, Any]], Dict[str, int
     sources: List[Tuple[str, List[Dict[str, Any]]]] = [
         ("astra", ASTRA_KIND_DOCS),
         # ("raina", RAINA_KIND_DOCS),
+
+        # Packs
+        ("microservices_arch", MICROSERVICES_KIND_DOCS),
         ("data_pipeline", DATA_PIPELINE_KIND_DOCS),
         ("cobol_modernization", COBOL_KIND_DOCS),
     ]
@@ -58,6 +69,26 @@ def _kind_ids(docs: List[Dict[str, Any]]) -> List[str]:
     return [d["_id"] for d in docs if "_id" in d]
 
 
+def _warn_if_multiple_force_flags() -> None:
+    """
+    If multiple FORCE flags are set, log a warning and clarify precedence.
+    Precedence (highest wins): COBOL > MICROSERVICES > DATA_PIPELINE
+    """
+    active = [
+        ("ASTRA_SEED_FORCE_COBOL", FORCE_COBOL),
+        ("ASTRA_SEED_FORCE_MICROSERVICES", FORCE_MICROSERVICES),
+        ("ASTRA_SEED_FORCE_DATAPIPELINE", FORCE_DATA_PIPELINE),
+    ]
+    enabled = [name for name, v in active if v]
+    if len(enabled) <= 1:
+        return
+
+    log.warning(
+        "Multiple FORCE seed flags set: %s. Precedence: COBOL > MICROSERVICES > DATA_PIPELINE.",
+        ", ".join(enabled),
+    )
+
+
 async def ensure_registry_seed(db: AsyncIOMotorDatabase) -> Dict[str, Any]:
     """
     Ensures all canonical kind documents exist in the registry.
@@ -66,8 +97,9 @@ async def ensure_registry_seed(db: AsyncIOMotorDatabase) -> Dict[str, Any]:
     Env flags:
       - ASTRA_SEED_OVERWRITE=1 → overwrite (upsert) all desired docs.
       - ASTRA_SEED_FORCE_DATAPIPELINE=1 → only seed Data-Pipeline kinds.
+      - ASTRA_SEED_FORCE_MICROSERVICES=1 → only seed Microservices-Architecture kinds.
       - ASTRA_SEED_FORCE_COBOL=1 → only seed COBOL-modernization kinds.
-        (If both FORCE flags are set, COBOL takes precedence.)
+        (If multiple FORCE flags are set, precedence applies: COBOL > MICROSERVICES > DATA_PIPELINE.)
     """
     await ensure_registry_indexes(db)
     col = db[KINDS]
@@ -75,18 +107,26 @@ async def ensure_registry_seed(db: AsyncIOMotorDatabase) -> Dict[str, Any]:
     desired_docs, counts = _combine_and_dedupe_kind_docs()
 
     # Narrow selection if FORCE flags set
-    if FORCE_COBOL and FORCE_DATA_PIPELINE:
-        log.warning(
-            "Both ASTRA_SEED_FORCE_COBOL and ASTRA_SEED_FORCE_DATAPIPELINE are set. "
-            "Preferring COBOL kinds only."
-        )
+    _warn_if_multiple_force_flags()
 
     if FORCE_COBOL:
         desired_docs = list(COBOL_KIND_DOCS)  # copy
-        log.warning("ASTRA_SEED_FORCE_COBOL=1 → only seeding COBOL-modernization kinds (%d)", len(desired_docs))
+        log.warning(
+            "ASTRA_SEED_FORCE_COBOL=1 → only seeding COBOL-modernization kinds (%d)",
+            len(desired_docs),
+        )
+    elif FORCE_MICROSERVICES:
+        desired_docs = list(MICROSERVICES_KIND_DOCS)  # copy
+        log.warning(
+            "ASTRA_SEED_FORCE_MICROSERVICES=1 → only seeding Microservices-Architecture kinds (%d)",
+            len(desired_docs),
+        )
     elif FORCE_DATA_PIPELINE:
         desired_docs = list(DATA_PIPELINE_KIND_DOCS)  # copy
-        log.warning("ASTRA_SEED_FORCE_DATAPIPELINE=1 → only seeding Data-Pipeline kinds (%d)", len(desired_docs))
+        log.warning(
+            "ASTRA_SEED_FORCE_DATAPIPELINE=1 → only seeding Data-Pipeline kinds (%d)",
+            len(desired_docs),
+        )
 
     desired_ids = set(_kind_ids(desired_docs))
     existing: Set[str] = {d["_id"] async for d in col.find({}, {"_id": 1})}
@@ -100,18 +140,21 @@ async def ensure_registry_seed(db: AsyncIOMotorDatabase) -> Dict[str, Any]:
         mode = "fresh" if not existing else ("partial" if missing_ids else "skip")
 
     log.info(
-        "Seed sources: astra=%d, data_pipeline=%d, cobol_modernization=%d (combined unique=%d). Existing in DB=%d.",
+        "Seed sources: astra=%d, microservices_arch=%d, data_pipeline=%d, cobol_modernization=%d "
+        "(combined unique=%d). Existing in DB=%d.",
         counts.get("astra", 0),
+        counts.get("microservices_arch", 0),
         counts.get("data_pipeline", 0),
         counts.get("cobol_modernization", 0),
         len(desired_ids),
         len(existing),
     )
+
     if not OVERWRITE_ALL and target_ids:
         log.info(
             "Missing (to seed) [%d]: %s",
             len(target_ids),
-            ", ".join(target_ids[:50]) + ("..." if len(target_ids) > 50 else "")
+            ", ".join(target_ids[:50]) + ("..." if len(target_ids) > 50 else ""),
         )
     elif not OVERWRITE_ALL and not target_ids:
         log.info("No missing kinds detected; nothing to seed.")
@@ -130,9 +173,12 @@ async def ensure_registry_seed(db: AsyncIOMotorDatabase) -> Dict[str, Any]:
 
     log.info(
         "Kind registry seed: mode=%s existing=%d upserts=%d (desired_total=%d)",
-        mode, len(existing), seeded, len(desired_ids)
+        mode,
+        len(existing),
+        seeded,
+        len(desired_ids),
     )
-    if seeded and (OVERWRITE_ALL or FORCE_DATA_PIPELINE or FORCE_COBOL):
+    if seeded and (OVERWRITE_ALL or FORCE_DATA_PIPELINE or FORCE_MICROSERVICES or FORCE_COBOL):
         log.debug("Upserted kind ids: %s", ", ".join(target_ids))
 
     return {
@@ -142,6 +188,7 @@ async def ensure_registry_seed(db: AsyncIOMotorDatabase) -> Dict[str, Any]:
         "desired": len(desired_ids),
         "sources": counts,
         "force_data_pipeline": FORCE_DATA_PIPELINE,
+        "force_microservices": FORCE_MICROSERVICES,
         "force_cobol": FORCE_COBOL,
         "overwrite_all": OVERWRITE_ALL,
     }
