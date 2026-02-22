@@ -48,10 +48,12 @@ async def seed_microservices_packs() -> None:
     """
     Seeds RAINA Microservices Architecture Discovery capability pack.
 
-    v1.0:
+    v1.0.0:
       - Uses input contract: input.raina.user-stories-url
       - First step fetches cam.inputs.raina via shared MCP capability cap.raina.fetch_input
       - Then runs the microservices discovery chain and emits cam.architecture.microservices_architecture
+      - Adds an OPTIONAL guidance playbook that generates cam.documents.microservices-arch-guidance (MCP)
+        from a workspace_id-based input contract (input.microservices.architecture-guide).
     """
     svc = PackService()
 
@@ -69,11 +71,11 @@ async def seed_microservices_packs() -> None:
             "maps interactions, selects integration patterns, defines security/observability/deployment topology, "
             "ranks the tech stack, synthesizes the final architecture, and produces a phased migration plan."
         ),
-        # Uses the same URL-based input contract used by the data-pipeline v1.1 pack
         pack_input_ids=[
             "input.raina.user-stories-url",
+            # ✅ NEW: guidance-only input (expects workspace_id)
+            "input.microservices.architecture-guide",
         ],
-        # Capabilities used by this pack (includes shared MCP capability)
         capability_ids=[
             "cap.raina.fetch_input",
             "cap.discover.ubiquitous_language",
@@ -90,8 +92,9 @@ async def seed_microservices_packs() -> None:
             "cap.rank.tech_stack",
             "cap.assemble.microservices_architecture",
             "cap.plan.migration_rollout",
+            # ✅ NEW: MCP guidance capability (produces cam.documents.microservices-arch-guidance)
+            "cap.microservices.generate-arch-guidance",
         ],
-        # Optional agent capabilities (mirror your existing pattern)
         agent_capability_ids=[
             "cap.diagram.mermaid",
         ],
@@ -116,74 +119,107 @@ async def seed_microservices_packs() -> None:
                         "id": "dom-1",
                         "name": "Discover Ubiquitous Language",
                         "capability_id": "cap.discover.ubiquitous_language",
+                        "description": None,
                     },
                     {
                         "id": "dom-2",
                         "name": "Discover Bounded Contexts",
                         "capability_id": "cap.discover.bounded_contexts",
+                        "description": None,
                     },
                     {
                         "id": "svc-1",
                         "name": "Discover Candidate Microservices",
                         "capability_id": "cap.discover.microservices",
+                        "description": None,
                     },
                     {
                         "id": "ctr-1",
                         "name": "Define Service API Contracts",
                         "capability_id": "cap.define.service_apis",
+                        "description": None,
                     },
                     {
                         "id": "ctr-2",
                         "name": "Define Event Catalog",
                         "capability_id": "cap.define.event_catalog",
+                        "description": None,
                     },
                     {
                         "id": "data-1",
                         "name": "Define Service Data Ownership",
                         "capability_id": "cap.define.data_ownership",
+                        "description": None,
                     },
                     {
                         "id": "int-1",
                         "name": "Map Service Interactions",
                         "capability_id": "cap.map.service_interactions",
+                        "description": None,
                     },
                     {
                         "id": "int-2",
                         "name": "Select Integration Patterns",
                         "capability_id": "cap.select.integration_patterns",
+                        "description": None,
                     },
                     {
                         "id": "sec-1",
                         "name": "Define Security Architecture",
                         "capability_id": "cap.define.security_architecture",
+                        "description": None,
                     },
                     {
                         "id": "obs-1",
                         "name": "Define Observability Spec",
                         "capability_id": "cap.define.observability_spec",
+                        "description": None,
                     },
                     {
                         "id": "dep-1",
                         "name": "Define Deployment Topology",
                         "capability_id": "cap.define.deployment_topology",
+                        "description": None,
                     },
                     {
                         "id": "stk-1",
                         "name": "Rank Tech Stack",
                         "capability_id": "cap.rank.tech_stack",
+                        "description": None,
                     },
                     {
                         "id": "asm-1",
                         "name": "Assemble Microservices Architecture",
                         "capability_id": "cap.assemble.microservices_architecture",
+                        "description": None,
                     },
                     {
                         "id": "mig-1",
                         "name": "Plan Migration / Rollout",
                         "capability_id": "cap.plan.migration_rollout",
+                        "description": None,
                     },
                 ],
-            }
+            },
+            # ✅ NEW: Guidance-only playbook (mirrors data-pipeline guidance pattern)
+            {
+                "id": "pb.raina.microservices-arch.guidance.v1",
+                "name": "Microservices Architecture Guidance (v1)",
+                "description": (
+                    "Generate a comprehensive, prose-style microservices architecture guidance document grounded in the "
+                    "artifacts produced by the discovery flow (services, APIs/events, interactions, security, observability, "
+                    "topology, tech stack rankings, final architecture, migration plan, etc.)."
+                ),
+                "input_id": "input.microservices.architecture-guide",
+                "steps": [
+                    {
+                        "id": "guide-1",
+                        "name": "Generate Microservices Architecture Guidance Document",
+                        "capability_id": "cap.microservices.generate-arch-guidance",
+                        "description": None,
+                    }
+                ],
+            },
         ],
         status="published",
         created_by="seed",

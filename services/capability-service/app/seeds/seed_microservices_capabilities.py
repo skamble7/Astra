@@ -1,13 +1,10 @@
 # app/seeds/seed_microservices_capabilities.py
 from __future__ import annotations
 
-import logging
 import inspect
+import logging
 
-from app.models import (
-    GlobalCapabilityCreate,
-    LlmExecution,
-)
+from app.models import GlobalCapabilityCreate, LlmExecution
 from app.services import CapabilityService
 
 log = logging.getLogger("app.seeds.microservices_capabilities")
@@ -19,8 +16,14 @@ async def _try_wipe_all(svc: CapabilityService) -> bool:
     Tries common method names; returns True if any succeeded.
     """
     candidates = [
-        "delete_all", "purge_all", "purge", "truncate", "clear",
-        "reset", "drop_all", "wipe_all"
+        "delete_all",
+        "purge_all",
+        "purge",
+        "truncate",
+        "clear",
+        "reset",
+        "drop_all",
+        "wipe_all",
     ]
     for name in candidates:
         method = getattr(svc, name, None)
@@ -79,10 +82,137 @@ def _llm_cap(
     )
 
 
+def _mcp_cap_microservices_guidance() -> GlobalCapabilityCreate:
+    """
+    MCP-based capability to generate cam.documents.microservices-arch-guidance.
+
+    NOTE: We use GlobalCapabilityCreate.model_validate(...) so we do not need to import
+    MCP-specific Pydantic models in seed code; this matches the shape already stored
+    in Mongo for your data-eng MCP capability.
+    """
+    return GlobalCapabilityCreate.model_validate(
+        {
+            "id": "cap.microservices.generate-arch-guidance",
+            "name": "Generate Microservices Architecture Guidance Document",
+            "description": (
+                "Calls the MCP server to produce a Markdown microservices architecture guidance document grounded on "
+                "discovered microservices artifacts and RUN INPUTS; emits cam.documents.microservices-arch-guidance "
+                "with standard file metadata (and optional pre-signed download info)."
+            ),
+            "tags": ["microservices", "docs", "guidance", "mcp", "raina", "astra"],
+            "parameters_schema": None,
+            "produces_kinds": ["cam.documents.microservices-arch-guidance"],
+            "agent": None,
+            "execution": {
+                "mode": "mcp",
+                "transport": {
+                    "kind": "http",
+                    "base_url": "http://host.docker.internal:8002",
+                    "headers": {},
+                    "auth": {
+                        "method": "none",
+                        "alias_token": None,
+                        "alias_user": None,
+                        "alias_password": None,
+                        "alias_key": None,
+                    },
+                    "timeout_sec": 180,
+                    "verify_tls": False,
+                    "retry": {"max_attempts": 2, "backoff_ms": 250, "jitter_ms": 50},
+                    "health_path": "/health",
+                    "protocol_path": "/mcp",
+                },
+                "tool_calls": [
+                    {
+                        "tool": "generate.workspace.document",
+                        "args_schema": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["workspace_id"],
+                            "properties": {
+                                "workspace_id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "description": "Workspace identifier whose discovered artifacts ground the guidance document.",
+                                },
+                                "kind_id": {
+                                    "type": "string",
+                                    "const": "cam.documents.microservices-arch-guidance",
+                                    "description": "Driver kind for the document generation.",
+                                },
+                            },
+                        },
+                        "output_kinds": ["cam.documents.microservices-arch-guidance"],
+                        "result_schema": None,
+                        "timeout_sec": 3600,
+                        "retries": 1,
+                        "expects_stream": False,
+                        "cancellable": True,
+                    }
+                ],
+                "discovery": {
+                    "validate_tools": True,
+                    "validate_resources": False,
+                    "validate_prompts": False,
+                    "fail_fast": True,
+                },
+                "connection": {"singleton": True, "share_across_steps": True},
+                "io": {
+                    "input_contract": {
+                        "json_schema": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["workspace_id"],
+                            "properties": {
+                                "workspace_id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "description": (
+                                        "Workspace identifier whose artifacts will be used to ground the microservices "
+                                        "architecture guidance document."
+                                    ),
+                                    "examples": ["0084b4c5-b11b-44d3-8ec3-d616dfa3e873"],
+                                },
+                                "kind_id": {
+                                    "type": "string",
+                                    "const": "cam.documents.microservices-arch-guidance",
+                                    "description": "Fixed to the microservices architecture guidance document kind.",
+                                },
+                            },
+                        },
+                        "schema_guide": (
+                            "Call the MCP server to generate a single Markdown microservices architecture guidance "
+                            "document grounded on the workspace's discovered artifacts and RUN INPUTS.\n"
+                            "- **workspace_id** (required): The workspace to analyze.\n"
+                            "- **kind_id** (fixed): `cam.documents.microservices-arch-guidance`."
+                        ),
+                    },
+                    "output_contract": {
+                        "artifact_type": "cam",
+                        "kinds": ["cam.documents.microservices-arch-guidance"],
+                        "result_schema": None,
+                        "schema_guide": (
+                            "The MCP server returns one artifact of kind `cam.documents.microservices-arch-guidance` "
+                            "with file metadata and links:\n"
+                            "- `storage_uri` and `download_url` (may be pre-signed).\n"
+                            "- If pre-signed, `download_expires_at` may be present.\n"
+                            "- Other fields include `filename`, `path`, `size_bytes`, `mime_type`, etc."
+                        ),
+                        "extra_schema": {"type": "object", "additionalProperties": True},
+                    },
+                },
+            },
+        }
+    )
+
+
 async def seed_microservices_capabilities() -> None:
     """
-    Seeds ONLY microservices-architecture discovery LLM capabilities.
-    Note: cap.raina.fetch_input is reused and is seeded elsewhere (do not duplicate here).
+    Seeds microservices-architecture discovery capabilities.
+
+    Notes:
+    - cap.raina.fetch_input is reused and is seeded elsewhere (do not duplicate here).
+    - This file seeds both LLM-based capabilities and the MCP-based guidance document capability.
     """
     log.info("[capability.seeds.microservices] Begin")
 
@@ -116,7 +246,6 @@ async def seed_microservices_capabilities() -> None:
             ["cam.catalog.microservice_inventory"],
             tags=["astra", "raina", "microservices", "service-design"],
         ),
-
         # ---- Contracts & interactions ----
         _llm_cap(
             "cap.define.service_apis",
@@ -146,7 +275,6 @@ async def seed_microservices_capabilities() -> None:
             ["cam.architecture.service_interaction_matrix"],
             tags=["astra", "raina", "microservices", "interactions"],
         ),
-
         # ---- Cross-cutting & synthesis ----
         _llm_cap(
             "cap.select.integration_patterns",
@@ -190,7 +318,6 @@ async def seed_microservices_capabilities() -> None:
             ["cam.architecture.microservices_architecture"],
             tags=["astra", "raina", "microservices", "synthesis"],
         ),
-
         # ---- Delivery plan ----
         _llm_cap(
             "cap.plan.migration_rollout",
@@ -199,6 +326,8 @@ async def seed_microservices_capabilities() -> None:
             ["cam.deployment.microservices_migration_plan"],
             tags=["astra", "raina", "microservices", "migration"],
         ),
+        # ---- NEW: Guidance document (MCP) ----
+        _mcp_cap_microservices_guidance(),
     ]
 
     # Replace-by-id creation (idempotent)

@@ -83,7 +83,9 @@ KIND_DOCS: List[Dict[str, Any]] = [
                                 "definition": "An executed buy/sell transaction recorded for settlement and reporting.",
                                 "synonyms": ["Fill"],
                                 "context": "Trade Capture",
-                                "examples": ["A trade has side, quantity, price, and instrument."],
+                                "examples": [
+                                    "A trade has side, quantity, price, and instrument."
+                                ],
                             }
                         ],
                     }
@@ -124,7 +126,10 @@ KIND_DOCS: List[Dict[str, Any]] = [
                                         "items": {"type": "string"},
                                         "default": [],
                                     },
-                                    "core_domain": {"type": "boolean", "default": False},
+                                    "core_domain": {
+                                        "type": "boolean",
+                                        "default": False,
+                                    },
                                     "key_entities": {
                                         "type": "array",
                                         "items": {"type": "string"},
@@ -182,7 +187,11 @@ KIND_DOCS: List[Dict[str, Any]] = [
                             {
                                 "name": "Trade Capture",
                                 "description": "Captures, validates, and normalizes trades.",
-                                "capabilities": ["ingest trades", "validate", "normalize"],
+                                "capabilities": [
+                                    "ingest trades",
+                                    "validate",
+                                    "normalize",
+                                ],
                                 "core_domain": True,
                                 "key_entities": ["Trade", "Instrument"],
                             }
@@ -224,7 +233,10 @@ KIND_DOCS: List[Dict[str, Any]] = [
         "_id": "cam.catalog.microservice_inventory",
         "title": "Microservice Inventory",
         "category": "catalog",
-        "aliases": ["cam.catalog.service_inventory", "cam.architecture.service_inventory"],
+        "aliases": [
+            "cam.catalog.service_inventory",
+            "cam.architecture.service_inventory",
+        ],
         "status": "active",
         "latest_schema_version": LATEST,
         "schema_versions": [
@@ -242,10 +254,17 @@ KIND_DOCS: List[Dict[str, Any]] = [
                             "items": {
                                 "type": "object",
                                 "additionalProperties": False,
-                                "required": ["name", "bounded_context", "responsibilities"],
+                                "required": [
+                                    "name",
+                                    "bounded_context",
+                                    "responsibilities",
+                                ],
                                 "properties": {
                                     "name": {"type": "string", "minLength": 1},
-                                    "bounded_context": {"type": "string", "minLength": 1},
+                                    "bounded_context": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                    },
                                     "responsibilities": {
                                         "type": "array",
                                         "items": {"type": "string"},
@@ -290,7 +309,10 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     ),
                     "strict_json": True,
                 },
-                "depends_on": {"hard": ["cam.domain.bounded_context_map"], "soft": ["cam.inputs.raina"]},
+                "depends_on": {
+                    "hard": ["cam.domain.bounded_context_map"],
+                    "soft": ["cam.inputs.raina"],
+                },
                 "identity": {"natural_key": ["domain"]},
                 "examples": [
                     {
@@ -299,7 +321,11 @@ KIND_DOCS: List[Dict[str, Any]] = [
                             {
                                 "name": "trade-capture-svc",
                                 "bounded_context": "Trade Capture",
-                                "responsibilities": ["ingest trades", "validate trades", "publish TradeValidated"],
+                                "responsibilities": [
+                                    "ingest trades",
+                                    "validate trades",
+                                    "publish TradeValidated",
+                                ],
                                 "owned_data": ["Trade"],
                                 "apis": ["POST /trades", "GET /trades/{id}"],
                                 "events_published": ["TradeValidated"],
@@ -337,14 +363,30 @@ KIND_DOCS: List[Dict[str, Any]] = [
                             "items": {
                                 "type": "object",
                                 "additionalProperties": False,
-                                "required": ["from", "to", "mode", "mechanism", "purpose"],
+                                "required": [
+                                    "from",
+                                    "to",
+                                    "mode",
+                                    "mechanism",
+                                    "purpose",
+                                ],
                                 "properties": {
                                     "from": {"type": "string", "minLength": 1},
                                     "to": {"type": "string", "minLength": 1},
-                                    "mode": {"type": "string", "enum": ["sync", "async"]},
+                                    "mode": {
+                                        "type": "string",
+                                        "enum": ["sync", "async"],
+                                    },
                                     "mechanism": {
                                         "type": "string",
-                                        "enum": ["http_api", "grpc", "event", "queue", "file", "db_replication"],
+                                        "enum": [
+                                            "http_api",
+                                            "grpc",
+                                            "event",
+                                            "queue",
+                                            "file",
+                                            "db_replication",
+                                        ],
                                     },
                                     "purpose": {"type": "string", "minLength": 1},
                                     "reliability": {
@@ -364,7 +406,13 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     ),
                     "strict_json": True,
                 },
-                "depends_on": {"hard": ["cam.api.service_api_contract", "cam.events.event_catalog"], "soft": []},
+                "depends_on": {
+                    "hard": [
+                        "cam.api.service_api_contract",
+                        "cam.events.event_catalog",
+                    ],
+                    "soft": [],
+                },
                 "identity": {"natural_key": ["domain"]},
                 "examples": [
                     {
@@ -442,17 +490,34 @@ KIND_DOCS: List[Dict[str, Any]] = [
                                             "properties": {
                                                 "method": {
                                                     "type": "string",
-                                                    "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+                                                    "enum": [
+                                                        "GET",
+                                                        "POST",
+                                                        "PUT",
+                                                        "PATCH",
+                                                        "DELETE",
+                                                    ],
                                                 },
-                                                "path": {"type": "string", "minLength": 1},
-                                                "summary": {"type": "string", "minLength": 1},
+                                                "path": {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                },
+                                                "summary": {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                },
                                                 "request": {"type": ["object", "null"]},
-                                                "response": {"type": ["object", "null"]},
+                                                "response": {
+                                                    "type": ["object", "null"]
+                                                },
                                                 "auth": {
                                                     "type": ["string", "null"],
                                                     "description": "e.g., oauth2, mTLS, api-key, none",
                                                 },
-                                                "idempotent": {"type": "boolean", "default": False},
+                                                "idempotent": {
+                                                    "type": "boolean",
+                                                    "default": False,
+                                                },
                                             },
                                         },
                                     },
@@ -469,7 +534,10 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     ),
                     "strict_json": True,
                 },
-                "depends_on": {"hard": ["cam.catalog.microservice_inventory", "cam.inputs.raina"], "soft": []},
+                "depends_on": {
+                    "hard": ["cam.catalog.microservice_inventory", "cam.inputs.raina"],
+                    "soft": [],
+                },
                 "identity": {"natural_key": ["domain"]},
                 "examples": [
                     {
@@ -483,8 +551,14 @@ KIND_DOCS: List[Dict[str, Any]] = [
                                         "method": "POST",
                                         "path": "/trades",
                                         "summary": "Ingest a new trade event for validation.",
-                                        "request": {"content_type": "application/json", "schema_ref": "TradeIn"},
-                                        "response": {"status": 202, "schema_ref": "TradeAccepted"},
+                                        "request": {
+                                            "content_type": "application/json",
+                                            "schema_ref": "TradeIn",
+                                        },
+                                        "response": {
+                                            "status": 202,
+                                            "schema_ref": "TradeAccepted",
+                                        },
                                         "auth": "oauth2",
                                         "idempotent": True,
                                     }
@@ -549,7 +623,10 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     "strict_json": True,
                 },
                 "depends_on": {
-                    "hard": ["cam.catalog.microservice_inventory", "cam.domain.ubiquitous_language"],
+                    "hard": [
+                        "cam.catalog.microservice_inventory",
+                        "cam.domain.ubiquitous_language",
+                    ],
                     "soft": ["cam.inputs.raina"],
                 },
                 "identity": {"natural_key": ["domain"]},
@@ -562,7 +639,10 @@ KIND_DOCS: List[Dict[str, Any]] = [
                                 "description": "Emitted when a trade passes validation and normalization.",
                                 "publisher": "trade-capture-svc",
                                 "subscribers": ["settlement-svc", "risk-svc"],
-                                "schema": {"type": "object", "required": ["trade_id", "status"]},
+                                "schema": {
+                                    "type": "object",
+                                    "required": ["trade_id", "status"],
+                                },
                                 "delivery": "at-least-once + DLQ; idempotent subscribers",
                             }
                         ],
@@ -595,7 +675,11 @@ KIND_DOCS: List[Dict[str, Any]] = [
                             "items": {
                                 "type": "object",
                                 "additionalProperties": False,
-                                "required": ["service", "data_entities", "consistency_model"],
+                                "required": [
+                                    "service",
+                                    "data_entities",
+                                    "consistency_model",
+                                ],
                                 "properties": {
                                     "service": {"type": "string", "minLength": 1},
                                     "data_entities": {
@@ -609,7 +693,11 @@ KIND_DOCS: List[Dict[str, Any]] = [
                                     },
                                     "consistency_model": {
                                         "type": "string",
-                                        "enum": ["strong", "eventual", "bounded_staleness"],
+                                        "enum": [
+                                            "strong",
+                                            "eventual",
+                                            "bounded_staleness",
+                                        ],
                                     },
                                     "sharing_strategy": {
                                         "type": ["string", "null"],
@@ -629,7 +717,10 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     ),
                     "strict_json": True,
                 },
-                "depends_on": {"hard": ["cam.catalog.microservice_inventory", "cam.inputs.raina"], "soft": []},
+                "depends_on": {
+                    "hard": ["cam.catalog.microservice_inventory", "cam.inputs.raina"],
+                    "soft": [],
+                },
                 "identity": {"natural_key": ["domain"]},
                 "examples": [
                     {
@@ -716,7 +807,10 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     "strict_json": True,
                 },
                 "depends_on": {
-                    "hard": ["cam.architecture.service_interaction_matrix", "cam.data.service_data_ownership"],
+                    "hard": [
+                        "cam.architecture.service_interaction_matrix",
+                        "cam.data.service_data_ownership",
+                    ],
                     "soft": [],
                 },
                 "identity": {"natural_key": ["domain"]},
@@ -751,7 +845,12 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 "json_schema": {
                     "type": "object",
                     "additionalProperties": False,
-                    "required": ["domain", "principles", "service_to_service", "edge_security"],
+                    "required": [
+                        "domain",
+                        "principles",
+                        "service_to_service",
+                        "edge_security",
+                    ],
                     "properties": {
                         "domain": {"type": "string", "minLength": 1},
                         "principles": {
@@ -798,8 +897,14 @@ KIND_DOCS: List[Dict[str, Any]] = [
                             "additionalProperties": False,
                             "required": ["encryption_at_rest", "encryption_in_transit"],
                             "properties": {
-                                "encryption_at_rest": {"type": "string", "minLength": 1},
-                                "encryption_in_transit": {"type": "string", "minLength": 1},
+                                "encryption_at_rest": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                },
+                                "encryption_in_transit": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                },
                                 "pii_handling": {"type": ["string", "null"]},
                             },
                         },
@@ -828,14 +933,22 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     "strict_json": True,
                 },
                 "depends_on": {
-                    "hard": ["cam.catalog.microservice_inventory", "cam.api.service_api_contract", "cam.inputs.raina"],
+                    "hard": [
+                        "cam.catalog.microservice_inventory",
+                        "cam.api.service_api_contract",
+                        "cam.inputs.raina",
+                    ],
                     "soft": [],
                 },
                 "identity": {"natural_key": ["domain"]},
                 "examples": [
                     {
                         "domain": "Retail Equity Post-Trade",
-                        "principles": ["least privilege", "zero trust", "secure by default"],
+                        "principles": [
+                            "least privilege",
+                            "zero trust",
+                            "secure by default",
+                        ],
                         "identity_provider": "Keycloak",
                         "edge_security": {
                             "gateway": "API Gateway",
@@ -904,7 +1017,12 @@ KIND_DOCS: List[Dict[str, Any]] = [
                                 "golden_signals": {
                                     "type": "array",
                                     "items": {"type": "string"},
-                                    "default": ["latency", "traffic", "errors", "saturation"],
+                                    "default": [
+                                        "latency",
+                                        "traffic",
+                                        "errors",
+                                        "saturation",
+                                    ],
                                 },
                                 "custom_metrics": {
                                     "type": "array",
@@ -972,7 +1090,12 @@ KIND_DOCS: List[Dict[str, Any]] = [
                             "pii_redaction": "mask account_id",
                         },
                         "metrics": {
-                            "golden_signals": ["latency", "traffic", "errors", "saturation"],
+                            "golden_signals": [
+                                "latency",
+                                "traffic",
+                                "errors",
+                                "saturation",
+                            ],
                             "custom_metrics": ["trades_validated_per_sec"],
                         },
                         "traces": {
@@ -980,9 +1103,15 @@ KIND_DOCS: List[Dict[str, Any]] = [
                             "sampling": "head-based 10% + tail-based for errors",
                         },
                         "slos": [
-                            {"service": "trade-capture-svc", "objective": "p95<200ms and 99.9% availability"}
+                            {
+                                "service": "trade-capture-svc",
+                                "objective": "p95<200ms and 99.9% availability",
+                            }
                         ],
-                        "alerting": ["error_rate>2% for 10m", "p95_latency breach for 15m"],
+                        "alerting": [
+                            "error_rate>2% for 10m",
+                            "p95_latency breach for 15m",
+                        ],
                     }
                 ],
                 "diagram_recipes": [],
@@ -994,7 +1123,10 @@ KIND_DOCS: List[Dict[str, Any]] = [
         "_id": "cam.deployment.microservices_topology",
         "title": "Microservices Deployment Topology",
         "category": "deployment",
-        "aliases": ["cam.deployment.topology", "cam.deployment.microservices_deployment"],
+        "aliases": [
+            "cam.deployment.topology",
+            "cam.deployment.microservices_deployment",
+        ],
         "status": "active",
         "latest_schema_version": LATEST,
         "schema_versions": [
@@ -1044,7 +1176,10 @@ KIND_DOCS: List[Dict[str, Any]] = [
                                 "additionalProperties": False,
                                 "required": ["name", "purpose"],
                                 "properties": {
-                                    "name": {"type": "string", "enum": ["dev", "test", "staging", "prod"]},
+                                    "name": {
+                                        "type": "string",
+                                        "enum": ["dev", "test", "staging", "prod"],
+                                    },
                                     "purpose": {"type": "string", "minLength": 1},
                                     "scaling": {"type": ["string", "null"]},
                                 },
@@ -1066,24 +1201,44 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     "strict_json": True,
                 },
                 "depends_on": {
-                    "hard": ["cam.catalog.microservice_inventory", "cam.security.microservices_security_architecture"],
+                    "hard": [
+                        "cam.catalog.microservice_inventory",
+                        "cam.security.microservices_security_architecture",
+                    ],
                     "soft": ["cam.architecture.integration_patterns"],
                 },
                 "identity": {"natural_key": ["domain"]},
                 "examples": [
                     {
                         "domain": "Retail Equity Post-Trade",
-                        "runtime": {"platform": "Kubernetes", "service_mesh": "Istio", "ingress": "API Gateway"},
+                        "runtime": {
+                            "platform": "Kubernetes",
+                            "service_mesh": "Istio",
+                            "ingress": "API Gateway",
+                        },
                         "networking": {
                             "segmentation": "namespace-per-domain",
                             "east_west": "mTLS in-mesh",
                             "north_south": "WAF + gateway auth",
                         },
                         "environments": [
-                            {"name": "dev", "purpose": "developer integration testing", "scaling": "minimal autoscaling"},
-                            {"name": "prod", "purpose": "customer-facing runtime", "scaling": "HPA + multi-AZ"},
+                            {
+                                "name": "dev",
+                                "purpose": "developer integration testing",
+                                "scaling": "minimal autoscaling",
+                            },
+                            {
+                                "name": "prod",
+                                "purpose": "customer-facing runtime",
+                                "scaling": "HPA + multi-AZ",
+                            },
                         ],
-                        "dependencies": ["Kafka", "Postgres", "Vault", "Observability stack"],
+                        "dependencies": [
+                            "Kafka",
+                            "Postgres",
+                            "Vault",
+                            "Observability stack",
+                        ],
                     }
                 ],
                 "diagram_recipes": [
@@ -1111,7 +1266,10 @@ KIND_DOCS: List[Dict[str, Any]] = [
         "_id": "cam.catalog.tech_stack_rankings",
         "title": "Tech Stack Rankings",
         "category": "catalog",
-        "aliases": ["cam.catalog.stack_rankings", "cam.catalog.technology_recommendations"],
+        "aliases": [
+            "cam.catalog.stack_rankings",
+            "cam.catalog.technology_recommendations",
+        ],
         "status": "active",
         "latest_schema_version": LATEST,
         "schema_versions": [
@@ -1152,10 +1310,21 @@ KIND_DOCS: List[Dict[str, Any]] = [
                                             "additionalProperties": False,
                                             "required": ["name", "rank", "reasoning"],
                                             "properties": {
-                                                "name": {"type": "string", "minLength": 1},
-                                                "rank": {"type": "integer", "minimum": 1},
-                                                "reasoning": {"type": "string", "minLength": 1},
-                                                "tradeoffs": {"type": ["string", "null"]},
+                                                "name": {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                },
+                                                "rank": {
+                                                    "type": "integer",
+                                                    "minimum": 1,
+                                                },
+                                                "reasoning": {
+                                                    "type": "string",
+                                                    "minLength": 1,
+                                                },
+                                                "tradeoffs": {
+                                                    "type": ["string", "null"]
+                                                },
                                             },
                                         },
                                     },
@@ -1173,7 +1342,11 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     "strict_json": True,
                 },
                 "depends_on": {
-                    "hard": ["cam.architecture.integration_patterns", "cam.deployment.microservices_topology", "cam.inputs.raina"],
+                    "hard": [
+                        "cam.architecture.integration_patterns",
+                        "cam.deployment.microservices_topology",
+                        "cam.inputs.raina",
+                    ],
                     "soft": ["cam.observability.microservices_observability_spec"],
                 },
                 "identity": {"natural_key": ["domain"]},
@@ -1213,7 +1386,10 @@ KIND_DOCS: List[Dict[str, Any]] = [
         "_id": "cam.architecture.microservices_architecture",
         "title": "Microservices Architecture",
         "category": "architecture",
-        "aliases": ["cam.architecture.microservices", "cam.architecture.target_microservices_architecture"],
+        "aliases": [
+            "cam.architecture.microservices",
+            "cam.architecture.target_microservices_architecture",
+        ],
         "status": "active",
         "latest_schema_version": LATEST,
         "schema_versions": [
@@ -1222,14 +1398,24 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 "json_schema": {
                     "type": "object",
                     "additionalProperties": False,
-                    "required": ["domain", "summary", "services", "contracts", "cross_cutting"],
+                    "required": [
+                        "domain",
+                        "summary",
+                        "services",
+                        "contracts",
+                        "cross_cutting",
+                    ],
                     "properties": {
                         "domain": {"type": "string", "minLength": 1},
                         "summary": {"type": "string", "minLength": 1},
                         "services": {
                             "type": "object",
                             "additionalProperties": False,
-                            "required": ["inventory_ref", "interaction_matrix_ref", "data_ownership_ref"],
+                            "required": [
+                                "inventory_ref",
+                                "interaction_matrix_ref",
+                                "data_ownership_ref",
+                            ],
                             "properties": {
                                 "inventory_ref": {
                                     "type": "string",
@@ -1268,11 +1454,17 @@ KIND_DOCS: List[Dict[str, Any]] = [
                                 "tech_stack_rankings_ref",
                             ],
                             "properties": {
-                                "integration_patterns_ref": {"type": "string", "minLength": 1},
+                                "integration_patterns_ref": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                },
                                 "security_arch_ref": {"type": "string", "minLength": 1},
                                 "observability_ref": {"type": "string", "minLength": 1},
                                 "topology_ref": {"type": "string", "minLength": 1},
-                                "tech_stack_rankings_ref": {"type": "string", "minLength": 1},
+                                "tech_stack_rankings_ref": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                },
                             },
                         },
                         "key_decisions": {
@@ -1328,7 +1520,10 @@ KIND_DOCS: List[Dict[str, Any]] = [
                         "cam.deployment.microservices_topology",
                         "cam.catalog.tech_stack_rankings",
                     ],
-                    "soft": ["cam.domain.bounded_context_map", "cam.domain.ubiquitous_language"],
+                    "soft": [
+                        "cam.domain.bounded_context_map",
+                        "cam.domain.ubiquitous_language",
+                    ],
                 },
                 "identity": {"natural_key": ["domain"]},
                 "examples": [
@@ -1359,7 +1554,10 @@ KIND_DOCS: List[Dict[str, Any]] = [
                             }
                         ],
                         "risks": [
-                            {"risk": "Operational complexity of Kafka + mesh", "mitigation": "platform templates + SRE runbooks"}
+                            {
+                                "risk": "Operational complexity of Kafka + mesh",
+                                "mitigation": "platform templates + SRE runbooks",
+                            }
                         ],
                     }
                 ],
@@ -1381,6 +1579,207 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "narratives_spec": DEFAULT_NARRATIVES_SPEC,
+            }
+        ],
+    },
+    {
+        "_id": "cam.documents.microservices-arch-guidance",
+        "title": "Microservices Architecture Guidance",
+        "category": "documents",
+        "aliases": [
+            "cam.doc.microservices_guidance",
+            "cam.docs.microservices_arch_guidance",
+            "cam.docs.microservices_architecture_guidance",
+        ],
+        "status": "active",
+        "latest_schema_version": "1.0.0",
+        "schema_versions": [
+            {
+                "version": "1.0.0",
+                "json_schema": {
+                    "type": "object",
+                    "additionalProperties": True,
+                    "required": ["name"],
+                    "properties": {
+                        "name": {
+                            "type": ["string", "null"],
+                            "description": "Human-friendly file name (may differ from filename).",
+                        },
+                        "description": {
+                            "type": ["string", "null"],
+                            "description": "Optional description of the file contents/purpose.",
+                        },
+                        "filename": {
+                            "type": ["string", "null"],
+                            "description": "Actual filename including extension.",
+                        },
+                        "path": {
+                            "type": ["string", "null"],
+                            "description": "Logical or repository path (if applicable).",
+                        },
+                        "storage_uri": {
+                            "type": ["string", "null"],
+                            "description": "Canonical storage URI.",
+                        },
+                        "download_url": {
+                            "type": ["string", "null"],
+                            "format": "uri",
+                            "description": "Direct link to download the file.",
+                        },
+                        "download_expires_at": {
+                            "type": ["string", "null"],
+                            "format": "date-time",
+                            "description": "If the download link is temporary, its expiry.",
+                        },
+                        "size_bytes": {
+                            "type": ["integer", "string", "null"],
+                            "description": "Size of the file in bytes.",
+                        },
+                        "mime_type": {
+                            "type": ["string", "null"],
+                            "description": "IANA media type.",
+                        },
+                        "encoding": {
+                            "type": ["string", "null"],
+                            "description": "Text/binary encoding if relevant.",
+                        },
+                        "checksum": {
+                            "type": ["object", "null"],
+                            "additionalProperties": True,
+                            "properties": {
+                                "md5": {"type": ["string", "null"]},
+                                "sha1": {"type": ["string", "null"]},
+                                "sha256": {"type": ["string", "null"]},
+                            },
+                        },
+                        "revision": {
+                            "type": ["string", "null"],
+                            "description": "File revision/version identifier.",
+                        },
+                        "source_system": {
+                            "type": ["string", "null"],
+                            "description": "Originating system or repository.",
+                        },
+                        "owner": {
+                            "type": ["string", "null"],
+                            "description": "Owner or steward of the file.",
+                        },
+                        "tags": {
+                            "type": ["array", "null"],
+                            "items": {"type": "string"},
+                            "description": "Free-form tags.",
+                        },
+                        "created_at": {
+                            "type": ["string", "null"],
+                            "format": "date-time",
+                        },
+                        "updated_at": {
+                            "type": ["string", "null"],
+                            "format": "date-time",
+                        },
+                        "access_policy": {
+                            "type": ["string", "object", "null"],
+                            "description": "Policy label or inline ACL summary for the file.",
+                        },
+                        "metadata": {
+                            "type": ["object", "null"],
+                            "additionalProperties": True,
+                            "description": "Arbitrary extra metadata.",
+                        },
+                        "preview": {
+                            "type": ["object", "null"],
+                            "additionalProperties": True,
+                            "properties": {
+                                "thumbnail_url": {
+                                    "type": ["string", "null"],
+                                    "format": "uri",
+                                },
+                                "text_excerpt": {"type": ["string", "null"]},
+                                "page_count": {"type": ["integer", "string", "null"]},
+                            },
+                            "description": "Optional preview hints for UIs.",
+                        },
+                        "related_assets": {
+                            "type": ["array", "null"],
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": True,
+                                "required": ["id"],
+                                "properties": {
+                                    "id": {
+                                        "type": ["string", "null"],
+                                        "description": "CAM ID of a related asset/kind.",
+                                    },
+                                    "relation": {
+                                        "type": ["string", "null"],
+                                        "description": "Relation (e.g., derived-from, source-of).",
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+                "additional_props_policy": "allow",
+                "prompt": {
+                    "system": 'You are to author a comprehensive **Architecture Guidance Document** for a *microservices* target architecture as the lead architect instructing delivery teams.\n\n# Grounding sources (MUST cite both)\n1) The section labeled exactly: `=== RUN INPUTS (authoritative, from request.inputs) ===` — contains AVC/FSS/PSS, FR/NFR, goals, constraints.\n2) The section labeled exactly: `=== DEPENDENCIES (discovered artifacts) ===` — already-staged CAM artifacts and their facts.\n\n# Output CONTRACT (STRICT)\n- Output **exactly one** JSON object. **No text before or after** the JSON.\n- The JSON object MUST include:\n\t - `name`: "Microservices Architecture Guidance"\n\t - `description`: one-line summary\n\t - `filename`: "microservices-architecture-guidance.md"\n\t - `mime_type`: "text/markdown"\n\t - `tags`: array of sensible tags, e.g. ["architecture","guidance","microservices"]\n\t - `content`: a **single string** that is a **valid GitHub-Flavored Markdown document** (GFM).\n- You MAY include additional metadata fields permitted by schema (e.g., `owner`, `revision`, `related_assets`, `metadata`, etc.), but **all prose MUST live inside `content`**.\n\n# Markdown FORMAT RULES (HARD)\n- Use proper Markdown headings only (`#`, `##`, `###` …). No ad-hoc banners or underlines.\n- Provide a title H1: `# Microservices Architecture Guidance`\n- Immediately follow with a metadata table (Owner, Version, Date, Scope, Out of Scope).\n- Provide a **Table of Contents** with **anchor links** to sections (GFM link style).\n- **Every diagram MUST be fenced** as:\n\t ```mermaid\n\t <valid mermaid>\n\t ```\n\t **CRITICAL:** Do NOT include a blank ` ``` ` fence before or after the ` ```mermaid` block. Flowcharts MUST use `flowchart TD` or `flowchart LR` syntax (NOT `gantt`). Use safe ASCII arrows `-->`.\n- When referencing facts from artifacts, cite inline like: *(from cam.catalog.microservice_inventory: services[0].name)*.\n- If a fact is unknown from RUN INPUTS or DEPENDENCIES, either omit it, or include it under **Assumptions**.\n\n# Document SECTIONS (REQUIRED)\n1. Executive Summary (context from AVC; recommended target style: event-driven vs sync-first)\n2. Domain Decomposition (ubiquitous language + bounded contexts; boundaries and anti-goals)\n3. Target Architecture Overview (high-level view and principles; mermaid optional)\n4. Service Inventory & Ownership (per bounded context; responsibilities; owned data; team alignment)\n5. API Design Guidance (API contracts, versioning, idempotency, error model, pagination)\n6. Eventing & Messaging Guidance (event catalog, naming, schemas, delivery semantics, DLQ)\n7. Service Interaction Model (sync vs async; interaction matrix; reliability patterns)\n8. Data Ownership & Consistency (database-per-service, consistency model, sharing strategy)\n9. Integration Patterns & Resilience (outbox, saga, retries, circuit breakers, bulkheads)\n10. Security Architecture (edge + service-to-service trust, secrets, zero trust, threat mitigations)\n11. Observability & SLOs (logs/metrics/traces, correlation, alerts, SLOs per service)\n12. Deployment Topology & Environments (runtime, mesh/ingress, networking, dev→prod strategy)\n13. Tech Stack Recommendations (rankings with rationale and tradeoffs, aligned to constraints)\n14. Delivery & Migration Plan (phases, cutover/testing strategy, rollback, org enablement)\n15. **ADRs** (3–6): Context → Decision → Consequences → Alternatives\n16. Risks & Mitigations, Assumptions, Open Questions\n17. Appendices (glossary, artifact references, example payloads, runbooks)\n\n# Tone & Constraints\n- Directive, precise, implementation-oriented; no hand-waving.\n- Prefer concise, accurate prose; separate **Facts** vs **Assumptions**.\n- All statements MUST be grounded in RUN INPUTS and/or DEPENDENCIES; explicitly label assumptions.\n\n# Self-Validation CHECKLIST (perform before emitting JSON)\n- [ ] Output is a **single JSON object**.\n- [ ] JSON contains a **string** field `content`.\n- [ ] `content` starts with `# Microservices Architecture Guidance`.\n- [ ] All diagrams (if any) are inside a **single** fenced block starting with ```mermaid and ending with ``` on their own lines.\n- [ ] No stray “mermaid” tokens outside fences.\n- [ ] Table of Contents contains anchor links that match headings.\n- [ ] Required sections 1–17 present.\n- [ ] File metadata fields set exactly as specified.\n\nNow produce the JSON.\n\n=== RUN INPUTS (authoritative, from request.inputs) ===\n{{RUN_INPUTS}}\n\n=== DEPENDENCIES (discovered artifacts) ===\n{{DEPENDENCIES}}',
+                    "strict_json": True,
+                },
+                "depends_on": {
+                    "hard": [
+                        "cam.inputs.raina",
+                        "cam.domain.ubiquitous_language",
+                        "cam.domain.bounded_context_map",
+                        "cam.catalog.microservice_inventory",
+                        "cam.api.service_api_contract",
+                        "cam.events.event_catalog",
+                        "cam.architecture.service_interaction_matrix",
+                        "cam.data.service_data_ownership",
+                        "cam.architecture.integration_patterns",
+                        "cam.security.microservices_security_architecture",
+                        "cam.observability.microservices_observability_spec",
+                        "cam.deployment.microservices_topology",
+                        "cam.catalog.tech_stack_rankings",
+                        "cam.architecture.microservices_architecture",
+                        "cam.deployment.microservices_migration_plan",
+                    ],
+                    "soft": [],
+                },
+                "identity": {"natural_key": ["filename", "revision"]},
+                "examples": [
+                    {
+                        "name": "Microservices Architecture Guidance",
+                        "description": "Directive architecture guidance grounded on discovered microservices artifacts and RUN INPUTS.",
+                        "filename": "microservices-architecture-guidance.md",
+                        "mime_type": "text/markdown",
+                        "tags": ["architecture", "guidance", "microservices"],
+                        "content": "# Microservices Architecture Guidance\n\n<!-- Example structure only; real content generated at runtime -->\n\n| Field | Value |\n|---|---|\n| Owner | Platform Architecture |\n| Version | 1.0 |\n| Date | 2026-02-17 |\n| Scope | Target microservices architecture and rollout guidance |\n| Out of Scope | Low-level code design and per-team sprint plans |\n\n## Table of Contents\n- [Executive Summary](#executive-summary)\n- [Domain Decomposition](#domain-decomposition)\n- [Target Architecture Overview](#target-architecture-overview)\n- [ADRs](#architecture-decision-records-adrs)\n- [Appendices](#appendices)\n\n## Executive Summary\n...\n",
+                        "related_assets": [
+                            {
+                                "id": "cam.architecture.microservices_architecture",
+                                "relation": "grounds",
+                            },
+                            {
+                                "id": "cam.catalog.microservice_inventory",
+                                "relation": "cites",
+                            },
+                            {
+                                "id": "cam.architecture.service_interaction_matrix",
+                                "relation": "cites",
+                            },
+                            {
+                                "id": "cam.deployment.microservices_migration_plan",
+                                "relation": "drives",
+                            },
+                        ],
+                    }
+                ],
+                "diagram_recipes": [],
+                "narratives_spec": {
+                    "allowed_formats": ["markdown", "asciidoc"],
+                    "default_format": "markdown",
+                    "max_length_chars": 50000,
+                    "allowed_locales": ["en-US"],
+                },
             }
         ],
     },
@@ -1412,11 +1811,27 @@ KIND_DOCS: List[Dict[str, Any]] = [
                                 "required": ["name", "scope", "exit_criteria"],
                                 "properties": {
                                     "name": {"type": "string", "minLength": 1},
-                                    "scope": {"type": "array", "items": {"type": "string"}, "default": []},
-                                    "dependencies": {"type": "array", "items": {"type": "string"}, "default": []},
-                                    "risks": {"type": "array", "items": {"type": "string"}, "default": []},
+                                    "scope": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                        "default": [],
+                                    },
+                                    "dependencies": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                        "default": [],
+                                    },
+                                    "risks": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                        "default": [],
+                                    },
                                     "rollback_strategy": {"type": ["string", "null"]},
-                                    "exit_criteria": {"type": "array", "items": {"type": "string"}, "default": []},
+                                    "exit_criteria": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                        "default": [],
+                                    },
                                 },
                             },
                         },
@@ -1438,7 +1853,13 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     ),
                     "strict_json": True,
                 },
-                "depends_on": {"hard": ["cam.architecture.microservices_architecture", "cam.inputs.raina"], "soft": []},
+                "depends_on": {
+                    "hard": [
+                        "cam.architecture.microservices_architecture",
+                        "cam.inputs.raina",
+                    ],
+                    "soft": [],
+                },
                 "identity": {"natural_key": ["domain"]},
                 "examples": [
                     {
@@ -1446,11 +1867,19 @@ KIND_DOCS: List[Dict[str, Any]] = [
                         "phases": [
                             {
                                 "name": "Phase 1 - Establish platform foundation",
-                                "scope": ["Kubernetes baseline", "CI/CD", "Observability stack", "Gateway + OIDC"],
+                                "scope": [
+                                    "Kubernetes baseline",
+                                    "CI/CD",
+                                    "Observability stack",
+                                    "Gateway + OIDC",
+                                ],
                                 "dependencies": ["Cloud account setup", "Networking"],
                                 "risks": ["Platform delays"],
                                 "rollback_strategy": "N/A (foundation work)",
-                                "exit_criteria": ["Prod-ready cluster", "Golden path templates available"],
+                                "exit_criteria": [
+                                    "Prod-ready cluster",
+                                    "Golden path templates available",
+                                ],
                             }
                         ],
                         "cutover_strategy": "strangler fig",
