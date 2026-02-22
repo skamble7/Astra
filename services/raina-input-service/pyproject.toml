@@ -1,11 +1,13 @@
 [project]
 name = "raina-input-service"
-version = "0.1.0"
-description = "Minimal FastAPI service that returns a Raina input JSON for a given pack_id."
+version = "0.2.0"
+description = "FastAPI service that returns Raina input JSON for the active project from MongoDB."
 requires-python = ">=3.10"
 dependencies = [
   "fastapi==0.115.0",
   "uvicorn[standard]==0.30.6",
+  "motor==3.6.0",
+  "pydantic>=2.7",
 ]
 
 [project.optional-dependencies]
