@@ -14,10 +14,10 @@ logger = logging.getLogger("app.llm.openai")
 
 class OpenAIAdapter(AgentLLM):
     def __init__(self) -> None:
-        if not settings.openai_api_key:
-            raise RuntimeError("OPENAI_API_KEY is not configured")
+        if not settings.llm_api_key:
+            raise RuntimeError("LLM_API_KEY is not configured")
 
-        self.client = AsyncOpenAI(api_key=settings.openai_api_key)
+        self.client = AsyncOpenAI(api_key=settings.llm_api_key)
         self.model = settings.llm_model
         self.temperature = settings.llm_temperature
         self.max_tokens = settings.llm_max_tokens

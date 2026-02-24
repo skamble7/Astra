@@ -4,6 +4,7 @@ from __future__ import annotations
 from app.config import settings
 from app.llm.base import AgentLLM
 from app.llm.openai_adapter import OpenAIAdapter
+from app.llm.gemini_adapter import GeminiAdapter
 
 
 def get_agent_llm() -> AgentLLM:
@@ -14,6 +15,8 @@ def get_agent_llm() -> AgentLLM:
     provider = settings.llm_provider.lower()
     if provider == "openai":
         return OpenAIAdapter()
+    elif provider == "gemini":
+        return GeminiAdapter()
     # elif provider == "anthropic":
     #     return AnthropicAdapter()
     # elif provider == "ollama":

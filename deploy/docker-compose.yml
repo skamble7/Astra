@@ -64,6 +64,10 @@ services:
       SERVICE_NAME: conductor-service
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
+      # NOTE: LLM config loaded from ../services/conductor-service/.env.example
+      # You can override by setting these env vars before running docker compose
+      # Example: LLM_PROVIDER=gemini LLM_API_KEY=your-key docker compose up -d
+
       # NEW: make the workspace path explicit (optional but handy)
       WORKSPACE_FOLDER: /workspace
       WORKSPACE_MOUNT: /workspace
@@ -85,8 +89,15 @@ services:
     environment:
       SERVICE_NAME: raina-input-service
       APP_PORT: ${APP_PORT:-9023}
-      # Optional CORS origins (comma-separated). "*" by default.
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-*}
+
+      # NEW: Mongo config (align with other services)
+      MONGO_URI: ${MONGO_URI:-mongodb+srv://sandeepk:sandeep@cluster0.tnbpi.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0}
+      MONGO_DB: ${MONGO_DB:-raina_inputs_db}
+      MONGO_COLLECTION: ${MONGO_COLLECTION:-projects}
+
+      # Optional: default project name for first-time seed
+      DEFAULT_PROJECT_NAME: ${DEFAULT_PROJECT_NAME:-Rail Freight Billing Demo}
     ports:
       - "9023:9023"
     extra_hosts:

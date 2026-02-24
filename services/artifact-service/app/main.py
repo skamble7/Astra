@@ -32,6 +32,7 @@ for name in ("", "uvicorn.access", "uvicorn.error", __name__.split(".")[0] or "a
 _shutdown_event: asyncio.Event | None = None
 _consumer_task: asyncio.Task | None = None
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _shutdown_event, _consumer_task
@@ -84,6 +85,7 @@ async def lifespan(app: FastAPI):
                 pass
         log.info("Artifact service shutdown complete")
 
+
 app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(CorrelationIdMiddleware)
@@ -100,6 +102,7 @@ app.add_middleware(
 app.include_router(registry_router)
 app.include_router(category_router)
 app.include_router(artifact_router)
+
 
 @app.get("/healthz")
 async def healthz():

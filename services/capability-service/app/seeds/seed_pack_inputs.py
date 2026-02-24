@@ -16,6 +16,7 @@ async def seed_pack_inputs() -> None:
     - Keeps (and replaces-by-id) the Astra Discovery input contract with a form-style root {"inputs": ...}.
     - Keeps (and replaces-by-id) the Renova Workspace Summary input contract for generating a COBOL artifacts summary.
     - Keeps (and replaces-by-id) the Data Engineering Architecture Guidance input contract.
+    - ADDS the Microservices Architecture Guidance input contract.
     - ADDS a new "Raina – User Stories Source URL" input contract that points to the Raina Input Service.
     """
     svc = PackInputService()
@@ -45,19 +46,19 @@ async def seed_pack_inputs() -> None:
                     "title": "Title",
                     "minLength": 1,
                     "default": "Minimal COBOL Pack Run",
-                    "description": "Human-friendly name of the run."
+                    "description": "Human-friendly name of the run.",
                 },
                 "description": {
                     "type": "string",
                     "title": "Description",
                     "default": "Clone + Parse using MCP servers",
-                    "description": "Optional notes about the run."
+                    "description": "Optional notes about the run.",
                 },
                 "shallowClone": {
                     "type": "boolean",
                     "title": "Shallow clone",
                     "default": True,
-                    "description": "Use a shallow git clone (e.g., --depth=1)."
+                    "description": "Use a shallow git clone (e.g., --depth=1).",
                 },
                 "repository": {
                     "type": "object",
@@ -70,23 +71,23 @@ async def seed_pack_inputs() -> None:
                             "title": "Git URL",
                             "format": "uri",
                             "default": "https://github.com/skamble7/CardDemo_minimal",
-                            "description": "HTTPS/SSH URL to the repository to clone."
+                            "description": "HTTPS/SSH URL to the repository to clone.",
                         },
                         "branch": {
                             "type": "string",
                             "title": "Branch",
                             "default": "master",
                             "minLength": 1,
-                            "description": "Branch or ref to checkout."
+                            "description": "Branch or ref to checkout.",
                         },
                         "destination": {
                             "type": "string",
                             "title": "Local destination (folder)",
                             "default": "/workspace",
                             "minLength": 1,
-                            "description": "Filesystem path where the repo will be cloned."
-                        }
-                    }
+                            "description": "Filesystem path where the repo will be cloned.",
+                        },
+                    },
                 },
                 "options": {
                     "type": "object",
@@ -97,17 +98,17 @@ async def seed_pack_inputs() -> None:
                             "type": "boolean",
                             "title": "Validate",
                             "default": True,
-                            "description": "Validate against the pack input schema before starting."
+                            "description": "Validate against the pack input schema before starting.",
                         },
                         "strictJson": {
                             "type": "boolean",
                             "title": "Strict JSON",
                             "default": True,
-                            "description": "Require strictly valid JSON when generating inputs."
-                        }
-                    }
-                }
-            }
+                            "description": "Require strictly valid JSON when generating inputs.",
+                        },
+                    },
+                },
+            },
         },
         examples=[],
     )
@@ -123,9 +124,16 @@ async def seed_pack_inputs() -> None:
             if ok:
                 log.info("[pack_inputs.seeds] replaced existing: %s", renova_target.id)
             else:
-                log.warning("[pack_inputs.seeds] could not delete existing: %s (continuing)", renova_target.id)
+                log.warning(
+                    "[pack_inputs.seeds] could not delete existing: %s (continuing)",
+                    renova_target.id,
+                )
         except Exception as e:
-            log.warning("[pack_inputs.seeds] delete failed for %s: %s (continuing)", renova_target.id, e)
+            log.warning(
+                "[pack_inputs.seeds] delete failed for %s: %s (continuing)",
+                renova_target.id,
+                e,
+            )
 
     created = await svc.create(renova_target, actor="seed")
     log.info("[pack_inputs.seeds] created: %s", created.id)
@@ -152,7 +160,7 @@ async def seed_pack_inputs() -> None:
             "required": ["inputs"],
             "properties": {
                 "inputs": {"$ref": "#/$defs/DiscoveryInputs"},
-                "options": {"$ref": "#/$defs/DiscoveryOptions"}
+                "options": {"$ref": "#/$defs/DiscoveryOptions"},
             },
             "$defs": {
                 "AVCGoal": {
@@ -162,8 +170,8 @@ async def seed_pack_inputs() -> None:
                     "properties": {
                         "id": {"type": "string", "minLength": 1},
                         "text": {"type": "string", "minLength": 1},
-                        "metric": {"type": ["string", "null"]}
-                    }
+                        "metric": {"type": ["string", "null"]},
+                    },
                 },
                 "AVCNonFunctional": {
                     "type": "object",
@@ -171,16 +179,16 @@ async def seed_pack_inputs() -> None:
                     "required": ["type", "target"],
                     "properties": {
                         "type": {"type": "string", "minLength": 1},
-                        "target": {"type": "string", "minLength": 1}
-                    }
+                        "target": {"type": "string", "minLength": 1},
+                    },
                 },
                 "AVCContext": {
                     "type": "object",
                     "additionalProperties": False,
                     "properties": {
                         "domain": {"type": ["string", "null"]},
-                        "actors": {"type": "array", "items": {"type": "string"}, "default": []}
-                    }
+                        "actors": {"type": "array", "items": {"type": "string"}, "default": []},
+                    },
                 },
                 "AVCSuccessCriterion": {
                     "type": "object",
@@ -188,23 +196,43 @@ async def seed_pack_inputs() -> None:
                     "required": ["kpi", "target"],
                     "properties": {
                         "kpi": {"type": "string", "minLength": 1},
-                        "target": {"type": "string", "minLength": 1}
-                    }
+                        "target": {"type": "string", "minLength": 1},
+                    },
                 },
                 "AVC": {
                     "type": "object",
                     "additionalProperties": False,
                     "properties": {
                         "vision": {"type": "array", "items": {"type": "string"}, "default": []},
-                        "problem_statements": {"type": "array", "items": {"type": "string"}, "default": []},
+                        "problem_statements": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "default": [],
+                        },
                         "goals": {"type": "array", "items": {"$ref": "#/$defs/AVCGoal"}, "default": []},
-                        "non_functionals": {"type": "array", "items": {"$ref": "#/$defs/AVCNonFunctional"}, "default": []},
-                        "constraints": {"type": "array", "items": {"type": "string"}, "default": []},
-                        "assumptions": {"type": "array", "items": {"type": "string"}, "default": []},
+                        "non_functionals": {
+                            "type": "array",
+                            "items": {"$ref": "#/$defs/AVCNonFunctional"},
+                            "default": [],
+                        },
+                        "constraints": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "default": [],
+                        },
+                        "assumptions": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "default": [],
+                        },
                         "context": {"allOf": [{"$ref": "#/$defs/AVCContext"}], "default": {}},
-                        "success_criteria": {"type": "array", "items": {"$ref": "#/$defs/AVCSuccessCriterion"}, "default": []}
+                        "success_criteria": {
+                            "type": "array",
+                            "items": {"$ref": "#/$defs/AVCSuccessCriterion"},
+                            "default": [],
+                        },
                     },
-                    "required": ["context"]
+                    "required": ["context"],
                 },
                 "FSSStory": {
                     "type": "object",
@@ -217,17 +245,21 @@ async def seed_pack_inputs() -> None:
                             "oneOf": [
                                 {"type": "string"},
                                 {"type": "array", "items": {"type": "string"}},
-                                {"type": "null"}
+                                {"type": "null"},
                             ]
                         },
-                        "acceptance_criteria": {"type": "array", "items": {"type": "string"}, "default": []},
+                        "acceptance_criteria": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "default": [],
+                        },
                         "tags": {
                             "type": "array",
                             "items": {"type": "string"},
                             "description": "Structured tags like prefix:value (e.g., domain:auth).",
-                            "default": []
-                        }
-                    }
+                            "default": [],
+                        },
+                    },
                 },
                 "FSS": {
                     "type": "object",
@@ -235,7 +267,7 @@ async def seed_pack_inputs() -> None:
                     "properties": {
                         "stories": {"type": "array", "items": {"$ref": "#/$defs/FSSStory"}, "default": []}
                     },
-                    "required": ["stories"]
+                    "required": ["stories"],
                 },
                 "PSS": {
                     "type": "object",
@@ -244,8 +276,8 @@ async def seed_pack_inputs() -> None:
                     "properties": {
                         "paradigm": {"type": "string", "minLength": 1},
                         "style": {"type": "array", "items": {"type": "string"}, "default": []},
-                        "tech_stack": {"type": "array", "items": {"type": "string"}, "default": []}
-                    }
+                        "tech_stack": {"type": "array", "items": {"type": "string"}, "default": []},
+                    },
                 },
                 "DiscoveryInputs": {
                     "type": "object",
@@ -254,8 +286,8 @@ async def seed_pack_inputs() -> None:
                     "properties": {
                         "avc": {"$ref": "#/$defs/AVC"},
                         "fss": {"$ref": "#/$defs/FSS"},
-                        "pss": {"$ref": "#/$defs/PSS"}
-                    }
+                        "pss": {"$ref": "#/$defs/PSS"},
+                    },
                 },
                 "DiscoveryOptions": {
                     "type": "object",
@@ -265,10 +297,10 @@ async def seed_pack_inputs() -> None:
                         "dry_run": {"type": "boolean", "default": False},
                         "validate": {"type": "boolean", "default": True},
                         "pack_key": {"type": ["string", "null"]},
-                        "pack_version": {"type": ["string", "null"]}
-                    }
-                }
-            }
+                        "pack_version": {"type": ["string", "null"]},
+                    },
+                },
+            },
         },
         examples=[
             {
@@ -276,28 +308,24 @@ async def seed_pack_inputs() -> None:
                     "avc": {
                         "vision": [
                             "Modernize COBOL CardDemo into secure, scalable microservices",
-                            "Retain core capabilities for back-office operations and batch"
+                            "Retain core capabilities for back-office operations and batch",
                         ],
                         "problem_statements": ["Tightly coupled monolith impedes feature velocity"],
                         "goals": [
-                            {"id": "G1", "text": "Microservices with clear bounded contexts", "metric": "services decomposed by domain"}
+                            {
+                                "id": "G1",
+                                "text": "Microservices with clear bounded contexts",
+                                "metric": "services decomposed by domain",
+                            }
                         ],
                         "non_functionals": [{"type": "performance", "target": "p95<200ms"}],
                         "constraints": ["cloud: aws"],
                         "assumptions": ["Greenfield microservices can coexist with legacy batch for a period"],
                         "context": {"domain": "Cards", "actors": ["Customer", "BackOfficeUser"]},
-                        "success_criteria": [{"kpi": "deployment_frequency", "target": ">= daily"}]
+                        "success_criteria": [{"kpi": "deployment_frequency", "target": ">= daily"}],
                     },
-                    "fss": {
-                        "stories": [
-                            {"key": "CARD-101", "title": "As a user, I can log in and navigate the portal"}
-                        ]
-                    },
-                    "pss": {
-                        "paradigm": "Service-Based",
-                        "style": ["Microservices"],
-                        "tech_stack": ["FastAPI", "MongoDB"]
-                    }
+                    "fss": {"stories": [{"key": "CARD-101", "title": "As a user, I can log in and navigate the portal"}]},
+                    "pss": {"paradigm": "Service-Based", "style": ["Microservices"], "tech_stack": ["FastAPI", "MongoDB"]},
                 }
             }
         ],
@@ -314,9 +342,16 @@ async def seed_pack_inputs() -> None:
             if ok:
                 log.info("[pack_inputs.seeds] replaced existing: %s", discovery_target.id)
             else:
-                log.warning("[pack_inputs.seeds] could not delete existing: %s (continuing)", discovery_target.id)
+                log.warning(
+                    "[pack_inputs.seeds] could not delete existing: %s (continuing)",
+                    discovery_target.id,
+                )
         except Exception as e:
-            log.warning("[pack_inputs.seeds] delete failed for %s: %s (continuing)", discovery_target.id, e)
+            log.warning(
+                "[pack_inputs.seeds] delete failed for %s: %s (continuing)",
+                discovery_target.id,
+                e,
+            )
 
     created_discovery = await svc.create(discovery_target, actor="seed")
     log.info("[pack_inputs.seeds] created: %s", created_discovery.id)
@@ -341,20 +376,17 @@ async def seed_pack_inputs() -> None:
                     "type": "string",
                     "minLength": 1,
                     "description": "Workspace identifier to summarize.",
-                    "examples": ["0084b4c5-b11b-44d3-8ec3-d616dfa3e873"]
+                    "examples": ["0084b4c5-b11b-44d3-8ec3-d616dfa3e873"],
                 },
                 "kind_id": {
                     "type": "string",
                     "const": "cam.asset.cobol_artifacts_summary",
-                    "description": "Fixed to the COBOL workspace document kind."
-                }
-            }
+                    "description": "Fixed to the COBOL workspace document kind.",
+                },
+            },
         },
         examples=[
-            {
-                "workspace_id": "0084b4c5-b11b-44d3-8ec3-d616dfa3e873",
-                "kind_id": "cam.asset.cobol_artifacts_summary"
-            }
+            {"workspace_id": "0084b4c5-b11b-44d3-8ec3-d616dfa3e873", "kind_id": "cam.asset.cobol_artifacts_summary"}
         ],
         schema_guide=(
             "Call the MCP server to generate a single Markdown document summarizing COBOL artifacts for the given workspace.\n"
@@ -374,9 +406,16 @@ async def seed_pack_inputs() -> None:
             if ok:
                 log.info("[pack_inputs.seeds] replaced existing: %s", workspace_summary.id)
             else:
-                log.warning("[pack_inputs.seeds] could not delete existing: %s (continuing)", workspace_summary.id)
+                log.warning(
+                    "[pack_inputs.seeds] could not delete existing: %s (continuing)",
+                    workspace_summary.id,
+                )
         except Exception as e:
-            log.warning("[pack_inputs.seeds] delete failed for %s: %s (continuing)", workspace_summary.id, e)
+            log.warning(
+                "[pack_inputs.seeds] delete failed for %s: %s (continuing)",
+                workspace_summary.id,
+                e,
+            )
 
     created_ws = await svc.create(workspace_summary, actor="seed")
     log.info("[pack_inputs.seeds] created: %s", created_ws.id)
@@ -405,19 +444,19 @@ async def seed_pack_inputs() -> None:
                     "type": "string",
                     "minLength": 1,
                     "description": "Workspace identifier to analyze for guidance generation.",
-                    "examples": ["0084b4c5-b11b-44d3-8ec3-d616dfa3e873"]
+                    "examples": ["0084b4c5-b11b-44d3-8ec3-d616dfa3e873"],
                 },
                 "kind_id": {
                     "type": "string",
                     "const": "cam.documents.data-pipeline-arch-guidance",
-                    "description": "Fixed to the data-engineering architecture guidance document kind."
-                }
-            }
+                    "description": "Fixed to the data-engineering architecture guidance document kind.",
+                },
+            },
         },
         examples=[
             {
                 "workspace_id": "0084b4c5-b11b-44d3-8ec3-d616dfa3e873",
-                "kind_id": "cam.documents.data-pipeline-arch-guidance"
+                "kind_id": "cam.documents.data-pipeline-arch-guidance",
             }
         ],
         schema_guide=(
@@ -440,12 +479,94 @@ async def seed_pack_inputs() -> None:
             if ok:
                 log.info("[pack_inputs.seeds] replaced existing: %s", data_eng_arch.id)
             else:
-                log.warning("[pack_inputs.seeds] could not delete existing: %s (continuing)", data_eng_arch.id)
+                log.warning(
+                    "[pack_inputs.seeds] could not delete existing: %s (continuing)",
+                    data_eng_arch.id,
+                )
         except Exception as e:
-            log.warning("[pack_inputs.seeds] delete failed for %s: %s (continuing)", data_eng_arch.id, e)
+            log.warning(
+                "[pack_inputs.seeds] delete failed for %s: %s (continuing)",
+                data_eng_arch.id,
+                e,
+            )
 
     created_arch = await svc.create(data_eng_arch, actor="seed")
     log.info("[pack_inputs.seeds] created: %s", created_arch.id)
+
+    # ─────────────────────────────────────────────────────────────
+    # Microservices – Architecture Guidance (REPLACE-BY-ID)
+    # ─────────────────────────────────────────────────────────────
+    microservices_arch = PackInputCreate(
+        id="input.microservices.architecture-guide",
+        name="Microservices – Architecture Guidance",
+        description=(
+            "Input contract to generate a single Markdown microservices architecture guidance document grounded on the "
+            "workspace’s discovered microservices artifacts (AVC/FSS/PSS, ubiquitous language, bounded contexts, service "
+            "inventory, API contracts, event catalog, interaction matrix, data ownership, integration patterns, "
+            "security, observability, topology, tech stack rankings, architecture overview, migration plan)."
+        ),
+        tags=["microservices", "architecture", "guidance", "inputs", "form"],
+        json_schema={
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "$id": "https://astra.example/schemas/microservices-arch-guidance-input.json",
+            "title": "Microservices Architecture Guidance – Input",
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["workspace_id"],
+            "properties": {
+                "workspace_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Workspace identifier to analyze for microservices guidance generation.",
+                    "examples": ["0084b4c5-b11b-44d3-8ec3-d616dfa3e873"],
+                },
+                "kind_id": {
+                    "type": "string",
+                    "const": "cam.documents.microservices-arch-guidance",
+                    "description": "Fixed to the microservices architecture guidance document kind.",
+                },
+            },
+        },
+        examples=[
+            {
+                "workspace_id": "0084b4c5-b11b-44d3-8ec3-d616dfa3e873",
+                "kind_id": "cam.documents.microservices-arch-guidance",
+            }
+        ],
+        schema_guide=(
+            "Request the MCP workspace-doc-generator to produce a comprehensive microservices architecture guidance "
+            "document grounded in artifacts already present in the workspace (bounded context map, service inventory, "
+            "API contracts, event catalog, interaction matrix, data ownership, resilience patterns, security model, "
+            "observability/SLOs, deployment topology, tech stack rankings, target architecture, and migration plan).\n"
+            "- **workspace_id** (required): Target workspace to read artifacts from.\n"
+            "- **kind_id** (fixed): `cam.documents.microservices-arch-guidance`."
+        ),
+    )
+
+    try:
+        existing_ms = await svc.get(microservices_arch.id)
+    except Exception:
+        existing_ms = None
+
+    if existing_ms:
+        try:
+            ok = await svc.delete(microservices_arch.id, actor="seed")
+            if ok:
+                log.info("[pack_inputs.seeds] replaced existing: %s", microservices_arch.id)
+            else:
+                log.warning(
+                    "[pack_inputs.seeds] could not delete existing: %s (continuing)",
+                    microservices_arch.id,
+                )
+        except Exception as e:
+            log.warning(
+                "[pack_inputs.seeds] delete failed for %s: %s (continuing)",
+                microservices_arch.id,
+                e,
+            )
+
+    created_ms = await svc.create(microservices_arch, actor="seed")
+    log.info("[pack_inputs.seeds] created: %s", created_ms.id)
 
     # ─────────────────────────────────────────────────────────────
     # NEW: Raina – User Stories Source URL (REPLACE-BY-ID)
@@ -473,17 +594,11 @@ async def seed_pack_inputs() -> None:
                     "title": "User Stories URL",
                     "description": "HTTP endpoint exposing user stories consumed by the Raina package.",
                     "default": "http://host.docker.internal:9023/raina-input/data-pipeline-arch%40v1.0",
-                    "examples": [
-                        "http://host.docker.internal:9023/raina-input/data-pipeline-arch%40v1.0"
-                    ]
+                    "examples": ["http://host.docker.internal:9023/raina-input/data-pipeline-arch%40v1.0"],
                 }
-            }
+            },
         },
-        examples=[
-            {
-                "stories_url": "http://host.docker.internal:9023/raina-input/data-pipeline-arch%40v1.0"
-            }
-        ],
+        examples=[{"stories_url": "http://host.docker.internal:9023/raina-input/data-pipeline-arch%40v1.0"}],
         schema_guide=(
             "Provide a single URL for the Raina package to fetch user stories (and related AVC/FSS/PSS). "
             "This service is typically backed by the Raina Input Service (`/raina-input/{pack_id}`)."
@@ -501,9 +616,16 @@ async def seed_pack_inputs() -> None:
             if ok:
                 log.info("[pack_inputs.seeds] replaced existing: %s", stories_url_input.id)
             else:
-                log.warning("[pack_inputs.seeds] could not delete existing: %s (continuing)", stories_url_input.id)
+                log.warning(
+                    "[pack_inputs.seeds] could not delete existing: %s (continuing)",
+                    stories_url_input.id,
+                )
         except Exception as e:
-            log.warning("[pack_inputs.seeds] delete failed for %s: %s (continuing)", stories_url_input.id, e)
+            log.warning(
+                "[pack_inputs.seeds] delete failed for %s: %s (continuing)",
+                stories_url_input.id,
+                e,
+            )
 
     created_stories = await svc.create(stories_url_input, actor="seed")
     log.info("[pack_inputs.seeds] created: %s", created_stories.id)

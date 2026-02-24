@@ -5,7 +5,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, TypedDict
+from typing import Any, Dict, Optional, TypedDict, Annotated
 
 from langgraph.graph import StateGraph
 from langgraph.graph.state import END
@@ -41,16 +41,18 @@ class GraphState(TypedDict, total=False):
     step_idx: int
     current_step_id: Optional[str]
     phase: str  # "discover" | "enrich"
-    dispatch: Dict[str, Any]
+    # Use Annotated with reducer to allow multiple writes per step (capability_executor -> mcp_input_resolver)
+    dispatch: Annotated[Dict[str, Any], lambda left, right: right]
     logs: list[str]
     validations: list[Dict[str, Any]]
     started_at: str
     completed_at: Optional[str]
     staged_artifacts: list[Dict[str, Any]]
-    last_mcp_summary: Dict[str, Any]
-    last_mcp_error: Optional[str]
-    last_enrichment_summary: Dict[str, Any]
-    last_enrichment_error: Optional[str]
+    # These fields can be written by multiple nodes in the same step, use Annotated to take latest value
+    last_mcp_summary: Annotated[Dict[str, Any], lambda left, right: right]
+    last_mcp_error: Annotated[Optional[str], lambda left, right: right]
+    last_enrichment_summary: Annotated[Dict[str, Any], lambda left, right: right]
+    last_enrichment_error: Annotated[Optional[str], lambda left, right: right]
     persist_summary: Dict[str, Any]
 
 
