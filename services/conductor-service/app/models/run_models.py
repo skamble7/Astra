@@ -180,6 +180,26 @@ class StepState(BaseModel):
 
 
 # ─────────────────────────────────────────────────────────────
+# LLM Configuration
+# ─────────────────────────────────────────────────────────────
+
+class LLMConfig(BaseModel):
+    """
+    Optional per-request LLM configuration override for conductor agent.
+    Falls back to environment settings (.env) for any unspecified fields.
+    """
+    provider: Optional[str] = Field(default=None, description="LLM provider: openai, gemini, anthropic, etc.")
+    model: Optional[str] = Field(default=None, description="Provider-specific model name")
+    temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0, description="Sampling temperature")
+    max_tokens: Optional[int] = Field(default=None, gt=0, description="Maximum output tokens")
+    strict_json: Optional[bool] = Field(default=None, description="Force JSON mode (OpenAI only)")
+    override_capabilities: Optional[bool] = Field(
+        default=None,
+        description="Force all capabilities to use conductor's LLM settings (overrides capability configs)"
+    )
+
+
+# ─────────────────────────────────────────────────────────────
 # Requests & persisted run doc
 # ─────────────────────────────────────────────────────────────
 
@@ -200,6 +220,12 @@ class StartRunRequest(BaseModel):
 
     # Strategy (baseline|delta). If omitted, conductor decides based on workspace state.
     strategy: Optional[RunStrategy] = None
+
+    # Optional LLM configuration override for conductor agent (and optionally capabilities)
+    llm_config: Optional[LLMConfig] = Field(
+        default=None,
+        description="Override LLM settings for this run (falls back to .env if not provided)"
+    )
 
 
 class RunSummary(BaseModel):

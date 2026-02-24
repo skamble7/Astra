@@ -199,25 +199,42 @@ def llm_execution_node(*, runs_repo: RunRepository):
         exec_cfg = (capability.get("execution") or {}).get("llm_config") or {}
         
         # Check if conductor should override capability LLM settings
+        # Priority: request.llm_config.override_capabilities > env OVERRIDE_CAPABILITY_LLM
         from app.config import settings
-        if settings.override_capability_llm:
+        
+        request_llm_config = state.get("request", {}).get("llm_config") or {}
+        override_capabilities = request_llm_config.get("override_capabilities")
+        if override_capabilities is None:
+            override_capabilities = settings.override_capability_llm
+        
+        if override_capabilities:
+            # Use conductor's LLM settings (which may come from request or env)
+            # Request-level settings were already applied when building the agent LLM
+            req_provider = request_llm_config.get("provider") or settings.llm_provider
+            req_model = request_llm_config.get("model") or settings.llm_model
+            req_temp = request_llm_config.get("temperature")
+            if req_temp is None:
+                req_temp = settings.llm_temperature
+            req_max_tokens = request_llm_config.get("max_tokens") or settings.llm_max_tokens
+            
             logger.info(
                 "[llm] OVERRIDE: Using conductor LLM settings (provider=%s model=%s) instead of capability config",
-                settings.llm_provider,
-                settings.llm_model,
+                req_provider,
+                req_model,
             )
+            
             # Use conductor's settings
-            provider = settings.llm_provider
-            model = settings.llm_model
+            provider = req_provider
+            model = req_model
             base_url = None
             organization = None
             headers = {}
             query_params = {}
             timeout_sec = 90
             retry_policy = {}
-            temperature = settings.llm_temperature
+            temperature = req_temp
             top_p = None
-            max_tokens = settings.llm_max_tokens
+            max_tokens = req_max_tokens
             # Use conductor's API key directly
             auth_alias = {"method": "api_key", "alias_key": "LLM_API_KEY"}
         else:

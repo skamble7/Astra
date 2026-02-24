@@ -13,15 +13,27 @@ logger = logging.getLogger("app.llm.openai")
 
 
 class OpenAIAdapter(AgentLLM):
-    def __init__(self) -> None:
-        if not settings.llm_api_key:
+    def __init__(
+        self,
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        strict_json: Optional[bool] = None,
+        api_key: Optional[str] = None,
+    ) -> None:
+        """
+        Initialize OpenAI adapter with optional config overrides.
+        Falls back to settings for any None values.
+        """
+        resolved_api_key = api_key or settings.llm_api_key
+        if not resolved_api_key:
             raise RuntimeError("LLM_API_KEY is not configured")
 
-        self.client = AsyncOpenAI(api_key=settings.llm_api_key)
-        self.model = settings.llm_model
-        self.temperature = settings.llm_temperature
-        self.max_tokens = settings.llm_max_tokens
-        self.strict_json = settings.llm_strict_json
+        self.client = AsyncOpenAI(api_key=resolved_api_key)
+        self.model = model or settings.llm_model
+        self.temperature = temperature if temperature is not None else settings.llm_temperature
+        self.max_tokens = max_tokens or settings.llm_max_tokens
+        self.strict_json = strict_json if strict_json is not None else settings.llm_strict_json
 
     async def acomplete(
         self, prompt: str, *, temperature: Optional[float] = None, max_tokens: Optional[int] = None

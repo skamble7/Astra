@@ -69,10 +69,17 @@ class ConductorGraph:
     cap_client: CapabilityServiceClient
     art_client: ArtifactServiceClient
 
-    def build(self):
+    def build(self, llm_config: Optional[Dict[str, Any]] = None):
+        """
+        Build the conductor graph with optional LLM configuration override.
+        
+        Args:
+            llm_config: Optional dict from StartRunRequest.llm_config to override agent LLM settings
+        """
         graph = StateGraph(GraphState)
 
-        agent_llm = get_agent_llm()
+        # Build agent LLM with optional request-level config
+        agent_llm = get_agent_llm(llm_config)
 
         graph.add_node(
             "input_resolver",
@@ -169,11 +176,14 @@ async def run_input_bootstrap(
     start_request: Dict[str, Any],
     run_doc: PlaybookRun,
 ) -> Dict[str, Any]:
+    # Extract optional LLM config from request
+    llm_config_dict = start_request.get("llm_config")
+    
     compiled = ConductorGraph(
         runs_repo=runs_repo,
         cap_client=cap_client,
         art_client=art_client,
-    ).build()
+    ).build(llm_config=llm_config_dict)
 
     now = datetime.now(timezone.utc).isoformat()
 
