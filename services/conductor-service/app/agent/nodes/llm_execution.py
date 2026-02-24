@@ -235,8 +235,10 @@ def llm_execution_node(*, runs_repo: RunRepository):
             temperature = req_temp
             top_p = None
             max_tokens = req_max_tokens
-            # Use conductor's API key directly
-            auth_alias = {"method": "api_key", "alias_key": "LLM_API_KEY"}
+            
+            # Use provider-specific API key via magic token
+            # This auto-resolves to OPENAI_API_KEY, GEMINI_API_KEY, etc. based on provider
+            auth_alias = {"method": "api_key", "alias_key": "PROVIDER_API_KEY"}
         else:
             # Use capability's LLM configuration
             provider = exec_cfg.get("provider")
