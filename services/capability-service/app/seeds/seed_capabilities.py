@@ -1188,7 +1188,7 @@ async def seed_capabilities() -> None:
                     "model": "gpt-4o-mini",
                     "parameters": {"temperature": 0, "max_tokens": 2000},
                     # IMPORTANT: Using api_key (not bearer) per instruction.
-                    "auth": {"method": "api_key", "alias_key": "OPENAI_API_KEY"},
+                    "auth": {"method": "api_key", "alias_key": "PROVIDER_API_KEY"},
                 },
                 # (Optional) If you later want strict I/O, add io=ExecutionIO(...).
             ),
@@ -1230,7 +1230,7 @@ async def seed_capabilities() -> None:
                     "model": "gpt-4o-mini",
                     "parameters": {"temperature": 0, "max_tokens": 2000},
                     # IMPORTANT: Using api_key (not bearer) per instruction.
-                    "auth": {"method": "api_key", "alias_key": "OPENAI_API_KEY"},
+                    "auth": {"method": "api_key", "alias_key": "PROVIDER_API_KEY"},
                 },
             ),
         ),

@@ -35,11 +35,14 @@ class Settings(BaseSettings):
 
     # LLM (Agent driver)
     llm_provider: str = os.getenv("LLM_PROVIDER", "openai")
-    openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
+    llm_api_key: str = os.getenv("LLM_API_KEY", "")
     llm_model: str = os.getenv("LLM_MODEL", "gpt-4o-mini")
     llm_temperature: float = float(os.getenv("LLM_TEMPERATURE", "0.1"))
     llm_max_tokens: int = int(os.getenv("LLM_MAX_TOKENS", "4000"))
     llm_strict_json: bool = bool(int(os.getenv("LLM_STRICT_JSON", "1")))
+    
+    # LLM Override: When true, all capabilities use conductor's LLM settings
+    override_capability_llm: bool = bool(int(os.getenv("OVERRIDE_CAPABILITY_LLM", "0")))
 
     model_config = SettingsConfigDict(env_file=None, extra="ignore")
 

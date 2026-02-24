@@ -74,7 +74,7 @@ def _llm_cap(
                     "alias_token": None,
                     "alias_user": None,
                     "alias_password": None,
-                    "alias_key": "OPENAI_API_KEY",
+                    "alias_key": "PROVIDER_API_KEY",
                 },
             },
             io=None,

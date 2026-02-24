@@ -64,6 +64,10 @@ services:
       SERVICE_NAME: conductor-service
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
+      # NOTE: LLM config loaded from ../services/conductor-service/.env.example
+      # You can override by setting these env vars before running docker compose
+      # Example: LLM_PROVIDER=gemini LLM_API_KEY=your-key docker compose up -d
+
       # NEW: make the workspace path explicit (optional but handy)
       WORKSPACE_FOLDER: /workspace
       WORKSPACE_MOUNT: /workspace

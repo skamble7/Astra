@@ -3,6 +3,7 @@ from typing import Dict, Optional, Tuple
 
 from app.llm.execution_base import ExecLLM
 from app.llm.execution_openai import OpenAIExecAdapter
+from app.llm.execution_gemini import GeminiExecAdapter
 from app.llm.execution_http import GenericHTTPExecAdapter
 from app.secrets.resolver import SecretResolver, ResolvedAuth
 
@@ -43,6 +44,15 @@ def build_exec_llm(
             api_key=auth.token or auth.key,  # bearer or api_key
             base_url=base_url,
             organization=organization if provider == "openai" else None,
+            model=model,
+            timeout_sec=timeout_sec,
+            headers=headers,
+            query_params=query_params,
+        )
+
+    elif provider == "gemini":
+        return GeminiExecAdapter(
+            api_key=auth.token or auth.key,
             model=model,
             timeout_sec=timeout_sec,
             headers=headers,

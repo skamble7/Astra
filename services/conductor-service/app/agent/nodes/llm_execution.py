@@ -195,22 +195,47 @@ def llm_execution_node(*, runs_repo: RunRepository):
         except Exception:
             logger.exception("[llm] failed to log artifact_kinds catalog")
 
-        # Pull LLM config
+        # Pull LLM config from capability (or override with conductor's settings)
         exec_cfg = (capability.get("execution") or {}).get("llm_config") or {}
-        provider = exec_cfg.get("provider")
-        model = exec_cfg.get("model")
-        base_url = exec_cfg.get("base_url")
-        organization = exec_cfg.get("organization")
-        headers = dict(exec_cfg.get("headers") or {})
-        query_params = dict(exec_cfg.get("query_params") or {})
-        timeout_sec = int(exec_cfg.get("timeout_sec") or 60)
-        retry_policy = exec_cfg.get("retry") or {}
-        params = (exec_cfg.get("parameters") or {})
-        auth_alias = exec_cfg.get("auth")
+        
+        # Check if conductor should override capability LLM settings
+        from app.config import settings
+        if settings.override_capability_llm:
+            logger.info(
+                "[llm] OVERRIDE: Using conductor LLM settings (provider=%s model=%s) instead of capability config",
+                settings.llm_provider,
+                settings.llm_model,
+            )
+            # Use conductor's settings
+            provider = settings.llm_provider
+            model = settings.llm_model
+            base_url = None
+            organization = None
+            headers = {}
+            query_params = {}
+            timeout_sec = 90
+            retry_policy = {}
+            temperature = settings.llm_temperature
+            top_p = None
+            max_tokens = settings.llm_max_tokens
+            # Use conductor's API key directly
+            auth_alias = {"method": "api_key", "alias_key": "LLM_API_KEY"}
+        else:
+            # Use capability's LLM configuration
+            provider = exec_cfg.get("provider")
+            model = exec_cfg.get("model")
+            base_url = exec_cfg.get("base_url")
+            organization = exec_cfg.get("organization")
+            headers = dict(exec_cfg.get("headers") or {})
+            query_params = dict(exec_cfg.get("query_params") or {})
+            timeout_sec = int(exec_cfg.get("timeout_sec") or 60)
+            retry_policy = exec_cfg.get("retry") or {}
+            params = (exec_cfg.get("parameters") or {})
+            auth_alias = exec_cfg.get("auth")
 
-        temperature = params.get("temperature")
-        top_p = params.get("top_p")
-        max_tokens = params.get("max_tokens")
+            temperature = params.get("temperature")
+            top_p = params.get("top_p")
+            max_tokens = params.get("max_tokens")
 
         max_attempts = int(retry_policy.get("max_attempts", 2))
         backoff_ms = int(retry_policy.get("backoff_ms", 250))
@@ -228,9 +253,9 @@ def llm_execution_node(*, runs_repo: RunRepository):
             {"max_attempts": max_attempts, "backoff_ms": backoff_ms, "jitter_ms": jitter_ms},
         )
 
-        # Resolve auth now (alias -> secret)
+        # Resolve auth now (alias -> secret, with provider context for magic token)
         try:
-            resolved_auth = secret_resolver.resolve_auth(auth_alias)
+            resolved_auth = secret_resolver.resolve_auth(auth_alias, provider=provider)
         except Exception as e:
             err = f"LLM auth resolution failed: {e}"
             logger.error("[llm] %s", err)
