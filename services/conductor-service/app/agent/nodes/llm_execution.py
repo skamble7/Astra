@@ -13,7 +13,6 @@ from langgraph.types import Command
 
 from app.db.run_repository import RunRepository
 from app.models.run_models import StepAudit, ToolCallAudit
-from app.secrets.resolver import SecretResolver
 from app.llm.execution_factory import build_exec_llm
 from app.llm.execution_base import ExecLLM
 
@@ -147,7 +146,6 @@ async def _with_retry(coro_factory, *, max_attempts: int, backoff_ms: int, jitte
 
 # ------------- node -------------
 def llm_execution_node(*, runs_repo: RunRepository):
-    secret_resolver = SecretResolver()
 
     async def _node(
         state: Dict[str, Any]
@@ -227,7 +225,6 @@ def llm_execution_node(*, runs_repo: RunRepository):
             provider = req_provider
             model = req_model
             base_url = None
-            organization = None
             headers = {}
             query_params = {}
             timeout_sec = 90
@@ -244,7 +241,6 @@ def llm_execution_node(*, runs_repo: RunRepository):
             provider = exec_cfg.get("provider")
             model = exec_cfg.get("model")
             base_url = exec_cfg.get("base_url")
-            organization = exec_cfg.get("organization")
             headers = dict(exec_cfg.get("headers") or {})
             query_params = dict(exec_cfg.get("query_params") or {})
             timeout_sec = int(exec_cfg.get("timeout_sec") or 60)
@@ -272,44 +268,19 @@ def llm_execution_node(*, runs_repo: RunRepository):
             {"max_attempts": max_attempts, "backoff_ms": backoff_ms, "jitter_ms": jitter_ms},
         )
 
-        # Resolve auth now (alias -> secret, with provider context for magic token)
-        try:
-            resolved_auth = secret_resolver.resolve_auth(auth_alias, provider=provider)
-        except Exception as e:
-            err = f"LLM auth resolution failed: {e}"
-            logger.error("[llm] %s", err)
-            await runs_repo.append_step_audit(
-                run_uuid,
-                StepAudit(
-                    step_id=step_id,
-                    capability_id=cap_id,
-                    mode="llm",
-                    inputs_preview={"error": "auth resolution failed"},
-                    calls=[
-                        ToolCallAudit(
-                            system_prompt=None,
-                            user_prompt=None,
-                            llm_config=exec_cfg,
-                            raw_output_sample=str(e)[:400],
-                            status="error",
-                        )
-                    ],
-                ),
-            )
-            await runs_repo.step_failed(run_uuid, step_id, error=err)
-            return Command(goto="capability_executor", update={"dispatch": {}, "last_mcp_error": err})
-
-        # Build provider adapter
+        # Build provider adapter (polyllm resolves auth from env via api_key_ref)
         try:
             adapter: ExecLLM = build_exec_llm(
                 provider=provider,
                 model=model,
                 base_url=base_url,
-                organization=organization,
                 headers=headers,
                 query_params=query_params,
                 timeout_sec=timeout_sec,
-                auth=resolved_auth,
+                auth_config=auth_alias,
+                temperature=temperature,
+                top_p=top_p,
+                max_tokens=max_tokens,
             )
             logger.info("[llm] adapter ready provider=%s model=%s", provider, model)
         except Exception as e:

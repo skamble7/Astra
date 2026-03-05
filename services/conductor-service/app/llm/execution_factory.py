@@ -1,71 +1,125 @@
 from __future__ import annotations
-from typing import Dict, Optional, Tuple
+
+import logging
+from typing import Dict, Optional
+
+from polyllm import LLMClient, PolyllmConfig
 
 from app.llm.execution_base import ExecLLM
-from app.llm.execution_openai import OpenAIExecAdapter
-from app.llm.execution_gemini import GeminiExecAdapter
-from app.llm.execution_http import GenericHTTPExecAdapter
-from app.secrets.resolver import SecretResolver, ResolvedAuth
+from app.llm.polyllm_exec import PolyllmExecLLM
+
+logger = logging.getLogger("app.llm.execution_factory")
+
+# Mapping from conductor/capability provider names to polyllm provider identifiers
+POLYLLM_PROVIDER_MAP: Dict[str, str] = {
+    "openai": "openai",
+    "azure_openai": "azure_openai",
+    "azure-openai": "azure_openai",
+    "gemini": "google_genai",
+    "google_genai": "google_genai",
+    "anthropic": "anthropic",
+    "bedrock": "bedrock",
+}
+
+# Provider → env var for API key (used to resolve PROVIDER_API_KEY magic token)
+PROVIDER_KEY_MAP: Dict[str, str] = {
+    "openai": "OPENAI_API_KEY",
+    "azure_openai": "AZURE_OPENAI_API_KEY",
+    "azure-openai": "AZURE_OPENAI_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+    "google_genai": "GEMINI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+    "cohere": "COHERE_API_KEY",
+    "bedrock": "AWS_ACCESS_KEY_ID",
+    "openrouter": "OPENROUTER_API_KEY",
+}
+
+
+def _resolve_api_key_ref(auth_config: Optional[dict], provider: str) -> Optional[str]:
+    """
+    Map a capability's raw auth config dict to a polyllm api_key_ref string.
+
+    Supported auth methods:
+      - api_key: uses alias_key (or PROVIDER_API_KEY magic token)
+      - bearer:  uses alias_token (or PROVIDER_API_KEY magic token)
+      - none / missing: returns None (no auth)
+    """
+    if not auth_config:
+        return None
+
+    method = (auth_config.get("method") or "none").lower()
+    if method == "none":
+        return None
+
+    alias_key = auth_config.get("alias_key") or auth_config.get("alias_token")
+
+    if alias_key == "PROVIDER_API_KEY":
+        # Magic token: map to the provider's canonical env var
+        env_var = PROVIDER_KEY_MAP.get(provider.lower())
+        if not env_var:
+            raise ValueError(
+                f"Unknown provider '{provider}' for PROVIDER_API_KEY magic token"
+            )
+        logger.info(
+            "Magic token: PROVIDER_API_KEY + provider=%s → env:%s", provider, env_var
+        )
+        return f"env:{env_var}"
+
+    if alias_key:
+        return f"env:{alias_key}"
+
+    return None
+
 
 def build_exec_llm(
     *,
     provider: str,
     model: str,
     base_url: Optional[str],
-    organization: Optional[str],
     headers: Dict[str, str],
     query_params: Dict[str, str],
     timeout_sec: int,
-    auth: ResolvedAuth,
+    auth_config: Optional[dict],
+    temperature: Optional[float],
+    top_p: Optional[float],
+    max_tokens: Optional[int],
 ) -> ExecLLM:
-    provider = (provider or "").lower()
+    """
+    Build an execution LLM adapter backed by polyllm.
 
-    # Auth header wiring
-    auth_header: Optional[str] = None
-    basic_tuple: Optional[Tuple[str, str]] = None
-    api_key_header: Optional[Tuple[str, str]] = None
+    Provider selection, model, temperature/max_tokens, and auth are all
+    resolved here and baked into the polyllm profile. The returned adapter
+    implements ExecLLM.acomplete().
 
-    if auth.method == "bearer" and auth.token:
-        auth_header = f"Bearer {auth.token}"
-    elif auth.method == "basic" and auth.user and auth.password:
-        basic_tuple = (auth.user, auth.password)
-    elif auth.method == "api_key" and auth.key:
-        # NOTE: For generic_http/OpenRouter/etc., pass API key as "Authorization: Bearer" or provider-specific header.
-        # Leave it general here; callers can set a static header name in headers if desired.
-        # If caller didn’t, we’ll default to "x-api-key".
-        if "Authorization" not in headers:
-            api_key_header = ("x-api-key", auth.key)
+    Note: top_p is accepted for interface compatibility but is not forwarded —
+    polyllm ModelProfile does not have a top_p field.
+    """
+    _ = top_p  # not in polyllm ModelProfile
+    provider_lower = (provider or "").lower()
+    polyllm_provider = POLYLLM_PROVIDER_MAP.get(provider_lower, "openai")
 
-    # Known providers
-    if provider in {"openai", "azure_openai"}:
-        # The OpenAI SDK also works for Azure if base_url points to your Azure endpoint.
-        # Organization is ignored by Azure.
-        return OpenAIExecAdapter(
-            api_key=auth.token or auth.key,  # bearer or api_key
-            base_url=base_url,
-            organization=organization if provider == "openai" else None,
-            model=model,
-            timeout_sec=timeout_sec,
-            headers=headers,
-            query_params=query_params,
-        )
+    api_key_ref = _resolve_api_key_ref(auth_config, provider_lower)
 
-    elif provider == "gemini":
-        return GeminiExecAdapter(
-            api_key=auth.token or auth.key,
-            model=model,
-            timeout_sec=timeout_sec,
-            headers=headers,
-            query_params=query_params,
-        )
+    profile: dict = {
+        "provider": polyllm_provider,
+        "model": model,
+        "headers": headers or {},
+        "query_params": query_params or {},
+        "timeout_seconds": timeout_sec,
+    }
+    if temperature is not None:
+        profile["temperature"] = temperature
+    if max_tokens is not None:
+        profile["max_tokens"] = max_tokens
+    if api_key_ref:
+        profile["api_key_ref"] = api_key_ref
+    if base_url:
+        profile["base_url"] = base_url
 
-    # Generic HTTP (OpenRouter, custom proxies, Ollama via HTTP, etc.)
-    return GenericHTTPExecAdapter(
-        base_url=base_url or "",
-        headers=headers,
-        timeout_sec=timeout_sec,
-        query_params=query_params,
-        auth_header=auth_header,
-        basic_tuple=basic_tuple,
-        api_key_header=api_key_header,
+    cfg = PolyllmConfig(
+        default_profile="exec",
+        profiles={"exec": profile},
     )
+    client = LLMClient(cfg)
+    logger.info("Exec LLM ready: provider=%s model=%s", polyllm_provider, model)
+    return PolyllmExecLLM(client)

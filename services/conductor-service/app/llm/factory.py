@@ -1,100 +1,83 @@
-# services/conductor-service/app/llm/factory.py
 from __future__ import annotations
 
-import os
+import logging
 from typing import Any, Dict, Optional
+
+from polyllm import LLMClient, PolyllmConfig
 
 from app.config import settings
 from app.llm.base import AgentLLM
-from app.llm.openai_adapter import OpenAIAdapter
-from app.llm.gemini_adapter import GeminiAdapter
+from app.llm.polyllm_agent import PolyllmAgentLLM
 
+logger = logging.getLogger("app.llm.factory")
 
-# Provider-to-environment-variable mapping (same pattern as SecretResolver)
-PROVIDER_KEY_MAP = {
+# Mapping from conductor provider names to polyllm provider identifiers
+POLYLLM_PROVIDER_MAP: Dict[str, str] = {
+    "openai": "openai",
+    "gemini": "google_genai",
+    "google_genai": "google_genai",
+    "anthropic": "anthropic",
+    "bedrock": "bedrock",
+    "azure_openai": "azure_openai",
+    "azure-openai": "azure_openai",
+}
+
+# Mapping from provider to the env var holding its API key
+PROVIDER_KEY_MAP: Dict[str, str] = {
     "openai": "OPENAI_API_KEY",
     "gemini": "GEMINI_API_KEY",
+    "google_genai": "GEMINI_API_KEY",
     "anthropic": "ANTHROPIC_API_KEY",
     "cohere": "COHERE_API_KEY",
+    "azure_openai": "AZURE_OPENAI_API_KEY",
     "azure-openai": "AZURE_OPENAI_API_KEY",
 }
 
 
 def get_agent_llm(llm_config: Optional[Dict[str, Any]] = None) -> AgentLLM:
     """
-    Factory for the LLM driving the conductor agent.
-    
+    Factory for the LLM driving the conductor agent, backed by polyllm.
+
     Args:
-        llm_config: Optional configuration override from StartRunRequest.llm_config
-                   Falls back to settings.* for any None/missing fields
-    
-    Returns:
-        Configured AgentLLM adapter (OpenAI, Gemini, etc.)
-    
-    Raises:
-        ValueError: If provider is not supported
+        llm_config: Optional configuration override from StartRunRequest.llm_config.
+                    Falls back to settings.* for any None/missing fields.
     """
     if llm_config is None:
         llm_config = {}
-    
-    # Merge with fallback to settings
+
     provider = llm_config.get("provider") or settings.llm_provider
     model = llm_config.get("model") or settings.llm_model
-    
+
     temperature = llm_config.get("temperature")
     if temperature is None:
         temperature = settings.llm_temperature
-    
-    max_tokens = llm_config.get("max_tokens")
-    if max_tokens is None:
-        max_tokens = settings.llm_max_tokens
-    
-    strict_json = llm_config.get("strict_json")
-    if strict_json is None:
-        strict_json = settings.llm_strict_json
-    
-    # Resolve provider-specific API key
-    # If provider differs from settings.llm_provider, use provider-specific env var
-    # Otherwise, use LLM_API_KEY (conductor's default)
+
+    max_tokens = llm_config.get("max_tokens") or settings.llm_max_tokens
+
     provider_lower = provider.lower()
-    
+    polyllm_provider = POLYLLM_PROVIDER_MAP.get(provider_lower, provider_lower)
+
+    # Resolve which env var holds the API key.
+    # If using the conductor's default provider, use LLM_API_KEY.
+    # If overriding to a different provider, use that provider's canonical key.
     if provider_lower == settings.llm_provider.lower():
-        # Using conductor's default provider, use LLM_API_KEY
-        api_key = settings.llm_api_key
+        api_key_ref = "env:LLM_API_KEY"
     else:
-        # Using different provider, resolve to provider-specific key
-        env_var_name = PROVIDER_KEY_MAP.get(provider_lower)
-        if env_var_name:
-            api_key = os.getenv(env_var_name)
-            if not api_key:
-                raise ValueError(
-                    f"Provider '{provider}' requires {env_var_name} environment variable to be set"
-                )
-        else:
-            # Fallback to LLM_API_KEY for unknown providers
-            api_key = settings.llm_api_key
-    
-    # Build adapter with merged config
-    if provider_lower == "openai":
-        return OpenAIAdapter(
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            strict_json=strict_json,
-            api_key=api_key,
-        )
-    elif provider_lower == "gemini":
-        return GeminiAdapter(
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            api_key=api_key,
-        )
-    # elif provider_lower == "anthropic":
-    #     return AnthropicAdapter(
-    #         model=model,
-    #         temperature=temperature,
-    #         max_tokens=max_tokens,
-    #     )
-    
-    raise ValueError(f"Unsupported LLM provider: {provider}")
+        env_var = PROVIDER_KEY_MAP.get(provider_lower, "LLM_API_KEY")
+        api_key_ref = f"env:{env_var}"
+
+    cfg = PolyllmConfig(
+        default_profile="agent",
+        profiles={
+            "agent": {
+                "provider": polyllm_provider,
+                "model": model,
+                "api_key_ref": api_key_ref,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+        },
+    )
+    client = LLMClient(cfg)
+    logger.info("Agent LLM ready: provider=%s model=%s", polyllm_provider, model)
+    return PolyllmAgentLLM(client)
