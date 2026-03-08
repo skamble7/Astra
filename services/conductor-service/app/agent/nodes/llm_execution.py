@@ -13,7 +13,7 @@ from langgraph.types import Command
 
 from app.db.run_repository import RunRepository
 from app.models.run_models import StepAudit, ToolCallAudit
-from app.llm.execution_factory import build_exec_llm
+from app.llm.execution_factory import build_exec_llm_from_ref
 from app.llm.execution_base import ExecLLM
 
 logger = logging.getLogger("app.agent.nodes.llm_execution")
@@ -193,98 +193,45 @@ def llm_execution_node(*, runs_repo: RunRepository):
         except Exception:
             logger.exception("[llm] failed to log artifact_kinds catalog")
 
-        # Pull LLM config from capability (or override with conductor's settings)
-        exec_cfg = (capability.get("execution") or {}).get("llm_config") or {}
-        
-        # Check if conductor should override capability LLM settings
-        # Priority: request.llm_config.override_capabilities > env OVERRIDE_CAPABILITY_LLM
+        # Determine which ConfigForge ref to use for the LLM adapter
         from app.config import settings
-        
+
         request_llm_config = state.get("request", {}).get("llm_config") or {}
         override_capabilities = request_llm_config.get("override_capabilities")
         if override_capabilities is None:
             override_capabilities = settings.override_capability_llm
-        
+
         if override_capabilities:
-            # Use conductor's LLM settings (which may come from request or env)
-            # Request-level settings were already applied when building the agent LLM
-            req_provider = request_llm_config.get("provider") or settings.llm_provider
-            req_model = request_llm_config.get("model") or settings.llm_model
-            req_temp = request_llm_config.get("temperature")
-            if req_temp is None:
-                req_temp = settings.llm_temperature
-            req_max_tokens = request_llm_config.get("max_tokens") or settings.llm_max_tokens
-            
-            logger.info(
-                "[llm] OVERRIDE: Using conductor LLM settings (provider=%s model=%s) instead of capability config",
-                req_provider,
-                req_model,
-            )
-            
-            # Use conductor's settings
-            provider = req_provider
-            model = req_model
-            base_url = None
-            headers = {}
-            query_params = {}
-            timeout_sec = 90
-            retry_policy = {}
-            temperature = req_temp
-            top_p = None
-            max_tokens = req_max_tokens
-            
-            # Use provider-specific API key via magic token
-            # This auto-resolves to OPENAI_API_KEY, GEMINI_API_KEY, etc. based on provider
-            auth_alias = {"method": "api_key", "alias_key": "PROVIDER_API_KEY"}
+            llm_config_ref = settings.conductor_llm_config_ref
+            if not llm_config_ref:
+                err = "OVERRIDE_CAPABILITY_LLM is set but CONDUCTOR_LLM_CONFIG_REF is not configured."
+                logger.error("[llm] %s", err)
+                await runs_repo.step_failed(run_uuid, step_id, error=err)
+                return Command(goto="capability_executor", update={"dispatch": {}, "last_mcp_error": err})
+            logger.info("[llm] OVERRIDE: using conductor ref=%s", llm_config_ref)
         else:
-            # Use capability's LLM configuration
-            provider = exec_cfg.get("provider")
-            model = exec_cfg.get("model")
-            base_url = exec_cfg.get("base_url")
-            headers = dict(exec_cfg.get("headers") or {})
-            query_params = dict(exec_cfg.get("query_params") or {})
-            timeout_sec = int(exec_cfg.get("timeout_sec") or 60)
-            retry_policy = exec_cfg.get("retry") or {}
-            params = (exec_cfg.get("parameters") or {})
-            auth_alias = exec_cfg.get("auth")
+            llm_config_ref = (capability.get("execution") or {}).get("llm_config_ref")
+            if not llm_config_ref:
+                err = (
+                    f"Capability '{cap_id}' has no execution.llm_config_ref. "
+                    "Set llm_config_ref on the capability or enable OVERRIDE_CAPABILITY_LLM."
+                )
+                logger.error("[llm] %s", err)
+                await runs_repo.step_failed(run_uuid, step_id, error=err)
+                return Command(goto="capability_executor", update={"dispatch": {}, "last_mcp_error": err})
+            logger.info("[llm] using capability ref=%s cap_id=%s", llm_config_ref, cap_id)
 
-            temperature = params.get("temperature")
-            top_p = params.get("top_p")
-            max_tokens = params.get("max_tokens")
+        # Retry defaults (polyllm handles transport-level retries; these are application-level)
+        max_attempts = 2
+        backoff_ms = 250
+        jitter_ms = 50
 
-        max_attempts = int(retry_policy.get("max_attempts", 2))
-        backoff_ms = int(retry_policy.get("backoff_ms", 250))
-        jitter_ms = int(retry_policy.get("jitter_ms", 50))
-
-        logger.info(
-            "[llm] config provider=%s model=%s base=%s timeout_s=%s temp=%s top_p=%s max_tokens=%s retries=%s",
-            provider,
-            model,
-            (base_url or "")[:80],
-            timeout_sec,
-            temperature,
-            top_p,
-            max_tokens,
-            {"max_attempts": max_attempts, "backoff_ms": backoff_ms, "jitter_ms": jitter_ms},
-        )
-
-        # Build provider adapter (polyllm resolves auth from env via api_key_ref)
+        # Build adapter via ConfigForge
         try:
-            adapter: ExecLLM = build_exec_llm(
-                provider=provider,
-                model=model,
-                base_url=base_url,
-                headers=headers,
-                query_params=query_params,
-                timeout_sec=timeout_sec,
-                auth_config=auth_alias,
-                temperature=temperature,
-                top_p=top_p,
-                max_tokens=max_tokens,
-            )
-            logger.info("[llm] adapter ready provider=%s model=%s", provider, model)
+            adapter: ExecLLM = await build_exec_llm_from_ref(llm_config_ref)
+            logger.info("[llm] adapter ready ref=%s", llm_config_ref)
         except Exception as e:
-            err = f"LLM adapter construction failed: {e}"
+            err = f"LLM adapter construction failed for ref={llm_config_ref}: {e}"
             logger.error("[llm] %s", err)
             await runs_repo.append_step_audit(
                 run_uuid,
@@ -297,7 +244,7 @@ def llm_execution_node(*, runs_repo: RunRepository):
                         ToolCallAudit(
                             system_prompt=None,
                             user_prompt=None,
-                            llm_config=exec_cfg,
+                            llm_config={"llm_config_ref": llm_config_ref},
                             raw_output_sample=str(e)[:400],
                             status="error",
                         )
@@ -333,7 +280,7 @@ def llm_execution_node(*, runs_repo: RunRepository):
                         ToolCallAudit(
                             system_prompt=None,
                             user_prompt=None,
-                            llm_config=exec_cfg,
+                            llm_config={"llm_config_ref": llm_config_ref},
                             raw_output_sample=msg,
                             status="error",
                         )
@@ -397,9 +344,9 @@ def llm_execution_node(*, runs_repo: RunRepository):
                     return await adapter.acomplete(
                         system_prompt=system_prompt,
                         user_prompt=user_prompt,
-                        temperature=temperature,
-                        top_p=top_p,
-                        max_tokens=max_tokens,
+                        temperature=None,
+                        top_p=None,
+                        max_tokens=None,
                     )
 
                 call_started = datetime.now(timezone.utc)
@@ -425,7 +372,7 @@ def llm_execution_node(*, runs_repo: RunRepository):
                             ToolCallAudit(
                                 system_prompt=system_prompt,
                                 user_prompt=user_prompt,
-                                llm_config=exec_cfg,
+                                llm_config={"llm_config_ref": llm_config_ref},
                                 raw_output_sample=(str(pe)[:400]),
                                 status="error",
                             )
@@ -448,7 +395,7 @@ def llm_execution_node(*, runs_repo: RunRepository):
                         ToolCallAudit(
                             system_prompt=system_prompt,
                             user_prompt=user_prompt,
-                            llm_config=exec_cfg,
+                            llm_config={"llm_config_ref": llm_config_ref},
                             raw_output_sample=(raw_text[:800]),
                             validation_errors=validation_errors,
                             duration_ms=duration_ms,
@@ -477,7 +424,7 @@ def llm_execution_node(*, runs_repo: RunRepository):
                         ToolCallAudit(
                             system_prompt=system_prompt,
                             user_prompt=user_prompt,
-                            llm_config=exec_cfg,
+                            llm_config={"llm_config_ref": llm_config_ref},
                             raw_output_sample=str(e)[:800],
                             duration_ms=duration_ms,
                             status="error",
@@ -576,7 +523,7 @@ def llm_execution_node(*, runs_repo: RunRepository):
                         ToolCallAudit(
                             system_prompt=None,
                             user_prompt=None,
-                            llm_config=exec_cfg,
+                            llm_config={"llm_config_ref": llm_config_ref},
                             raw_output_sample=str(e)[:800],
                             status="failed",
                         )

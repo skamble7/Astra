@@ -186,16 +186,15 @@ class StepState(BaseModel):
 class LLMConfig(BaseModel):
     """
     Optional per-request LLM configuration override for conductor agent.
-    Falls back to environment settings (.env) for any unspecified fields.
+    Uses a ConfigForge canonical ref to swap the agent LLM for this run.
     """
-    provider: Optional[str] = Field(default=None, description="LLM provider: openai, gemini, anthropic, etc.")
-    model: Optional[str] = Field(default=None, description="Provider-specific model name")
-    temperature: Optional[float] = Field(default=None, ge=0.0, le=2.0, description="Sampling temperature")
-    max_tokens: Optional[int] = Field(default=None, gt=0, description="Maximum output tokens")
-    strict_json: Optional[bool] = Field(default=None, description="Force JSON mode (OpenAI only)")
+    llm_config_ref: Optional[str] = Field(
+        default=None,
+        description="ConfigForge canonical ref for the conductor agent LLM this run (e.g. 'dev.llm.openai.fast')"
+    )
     override_capabilities: Optional[bool] = Field(
         default=None,
-        description="Force all capabilities to use conductor's LLM settings (overrides capability configs)"
+        description="Force all capabilities to use CONDUCTOR_LLM_CONFIG_REF instead of their own llm_config_ref"
     )
 
 

@@ -59,26 +59,7 @@ def _llm_cap(
         agent=None,
         execution=LlmExecution(
             mode="llm",
-            llm_config={
-                "provider": "openai",
-                "model": "gpt-4o-mini",
-                "base_url": None,
-                "organization": None,
-                "headers": {},
-                "query_params": {},
-                "timeout_sec": 90,
-                "retry": None,
-                "parameters": {"temperature": 0, "top_p": None, "max_tokens": 4000},
-                "auth": {
-                    "method": "api_key",
-                    "alias_token": None,
-                    "alias_user": None,
-                    "alias_password": None,
-                    "alias_key": "PROVIDER_API_KEY",
-                },
-            },
-            io=None,
-            config_ref="dev.llm.openai.fast",
+            llm_config_ref="dev.llm.openai.fast",
         ),
     )
 

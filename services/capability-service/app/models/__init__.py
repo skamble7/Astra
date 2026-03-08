@@ -7,7 +7,6 @@ from .capability_models import (
     StdioTransport,
     Transport,
     ToolCallSpec,
-    LlmParameters,
     McpExecution,
     LlmExecution,
     ExecutionInput,          # ← added
@@ -50,7 +49,6 @@ __all__ = [
     "StdioTransport",
     "Transport",
     "ToolCallSpec",
-    "LlmParameters",
     "McpExecution",
     "LlmExecution",
     "ExecutionInput",          # ← added

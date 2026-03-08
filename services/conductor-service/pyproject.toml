@@ -26,7 +26,7 @@ dependencies = [
   # polyllm: provider-agnostic LLM client (replaces hand-written provider adapters)
   # Use the base package only; langchain provider SDKs are listed explicitly below
   # to avoid pulling in heavy optional extras (e.g. langchain-aws / boto3).
-  "polyllm @ git+https://github.com/skamble7/platform-libraries.git@polyllm-v0.1.3#subdirectory=libs/polyllm",
+  "polyllm @ git+https://github.com/skamble7/platform-libraries.git@polyllm-v0.1.8#subdirectory=libs/polyllm",
   "langchain-openai>=0.2",
   "langchain-google-genai>=2.0",
   "langgraph>=0.2",

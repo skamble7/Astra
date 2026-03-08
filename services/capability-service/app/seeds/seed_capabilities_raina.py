@@ -49,13 +49,7 @@ async def seed_capabilities_raina() -> None:
 
     LLM_DEFAULT = LlmExecution(
         mode="llm",
-        llm_config={
-            "provider": "openai",
-            "model": "gpt-4o-mini",
-            "parameters": {"temperature": 0, "max_tokens": 2000},
-            "auth": {"method": "api_key", "alias_key": "PROVIDER_API_KEY"},
-        },
-        config_ref="dev.llm.openai.fast",
+        llm_config_ref="dev.llm.openai.fast",
     )
 
     # ─────────────────────────────────────────────────────────────
