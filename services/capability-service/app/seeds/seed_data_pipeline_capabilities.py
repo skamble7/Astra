@@ -74,6 +74,7 @@ def _llm_cap(
                 },
             },
             io=None,
+            config_ref="dev.llm.openai.fast",
         ),
     )
 

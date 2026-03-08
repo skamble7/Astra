@@ -216,6 +216,9 @@ class LlmExecution(BaseModel):
     llm_config: LlmConfig  # { provider, model, parameters?: LlmParameters, output_contracts?: [cam.*], auth?: AuthAlias (alias-based) }
     # Allow LLM executions to also declare structured I/O if desired
     io: Optional[ExecutionIO] = None
+    # ConfigForge canonical ref (e.g. "dev.llm.openai.fast"). When set, the conductor
+    # fetches the LLM client via RemoteConfigLoader instead of building it from llm_config.
+    config_ref: Optional[str] = None
 
 
 ExecutionUnion = Annotated[Union[McpExecution, LlmExecution], Field(discriminator="mode")]

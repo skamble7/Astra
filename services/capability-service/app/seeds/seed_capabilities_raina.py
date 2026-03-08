@@ -55,6 +55,7 @@ async def seed_capabilities_raina() -> None:
             "parameters": {"temperature": 0, "max_tokens": 2000},
             "auth": {"method": "api_key", "alias_key": "PROVIDER_API_KEY"},
         },
+        config_ref="dev.llm.openai.fast",
     )
 
     # ─────────────────────────────────────────────────────────────

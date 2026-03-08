@@ -1190,6 +1190,7 @@ async def seed_capabilities() -> None:
                     # IMPORTANT: Using api_key (not bearer) per instruction.
                     "auth": {"method": "api_key", "alias_key": "PROVIDER_API_KEY"},
                 },
+                config_ref="dev.llm.openai.fast",
                 # (Optional) If you later want strict I/O, add io=ExecutionIO(...).
             ),
         ),
@@ -1232,6 +1233,7 @@ async def seed_capabilities() -> None:
                     # IMPORTANT: Using api_key (not bearer) per instruction.
                     "auth": {"method": "api_key", "alias_key": "PROVIDER_API_KEY"},
                 },
+                config_ref="dev.llm.openai.fast",
             ),
         ),
 
