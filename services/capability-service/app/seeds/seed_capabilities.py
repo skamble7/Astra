@@ -1183,14 +1183,7 @@ async def seed_capabilities() -> None:
             produces_kinds=["cam.data.model", "cam.domain.dictionary"],
             execution=LlmExecution(
                 mode="llm",
-                llm_config={
-                    "provider": "openai",
-                    "model": "gpt-4o-mini",
-                    "parameters": {"temperature": 0, "max_tokens": 2000},
-                    # IMPORTANT: Using api_key (not bearer) per instruction.
-                    "auth": {"method": "api_key", "alias_key": "PROVIDER_API_KEY"},
-                },
-                # (Optional) If you later want strict I/O, add io=ExecutionIO(...).
+                llm_config_ref="dev.llm.openai.fast",
             ),
         ),
 
@@ -1225,13 +1218,7 @@ async def seed_capabilities() -> None:
             produces_kinds=["cam.workflow.process"],
             execution=LlmExecution(
                 mode="llm",
-                llm_config={
-                    "provider": "openai",
-                    "model": "gpt-4o-mini",
-                    "parameters": {"temperature": 0, "max_tokens": 2000},
-                    # IMPORTANT: Using api_key (not bearer) per instruction.
-                    "auth": {"method": "api_key", "alias_key": "PROVIDER_API_KEY"},
-                },
+                llm_config_ref="dev.llm.openai.fast",
             ),
         ),
 

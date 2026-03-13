@@ -1,71 +1,28 @@
 from __future__ import annotations
-from typing import Dict, Optional, Tuple
+
+import logging
+
+from polyllm import RemoteConfigLoader
 
 from app.llm.execution_base import ExecLLM
-from app.llm.execution_openai import OpenAIExecAdapter
-from app.llm.execution_gemini import GeminiExecAdapter
-from app.llm.execution_http import GenericHTTPExecAdapter
-from app.secrets.resolver import SecretResolver, ResolvedAuth
+from app.llm.polyllm_exec import PolyllmExecLLM
 
-def build_exec_llm(
-    *,
-    provider: str,
-    model: str,
-    base_url: Optional[str],
-    organization: Optional[str],
-    headers: Dict[str, str],
-    query_params: Dict[str, str],
-    timeout_sec: int,
-    auth: ResolvedAuth,
-) -> ExecLLM:
-    provider = (provider or "").lower()
+logger = logging.getLogger("app.llm.execution_factory")
 
-    # Auth header wiring
-    auth_header: Optional[str] = None
-    basic_tuple: Optional[Tuple[str, str]] = None
-    api_key_header: Optional[Tuple[str, str]] = None
 
-    if auth.method == "bearer" and auth.token:
-        auth_header = f"Bearer {auth.token}"
-    elif auth.method == "basic" and auth.user and auth.password:
-        basic_tuple = (auth.user, auth.password)
-    elif auth.method == "api_key" and auth.key:
-        # NOTE: For generic_http/OpenRouter/etc., pass API key as "Authorization: Bearer" or provider-specific header.
-        # Leave it general here; callers can set a static header name in headers if desired.
-        # If caller didn’t, we’ll default to "x-api-key".
-        if "Authorization" not in headers:
-            api_key_header = ("x-api-key", auth.key)
+async def build_exec_llm_from_ref(llm_config_ref: str) -> ExecLLM:
+    """
+    Build an execution LLM adapter by fetching the profile from ConfigForge.
 
-    # Known providers
-    if provider in {"openai", "azure_openai"}:
-        # The OpenAI SDK also works for Azure if base_url points to your Azure endpoint.
-        # Organization is ignored by Azure.
-        return OpenAIExecAdapter(
-            api_key=auth.token or auth.key,  # bearer or api_key
-            base_url=base_url,
-            organization=organization if provider == "openai" else None,
-            model=model,
-            timeout_sec=timeout_sec,
-            headers=headers,
-            query_params=query_params,
-        )
+    CONFIG_FORGE_URL must be set in the environment.
 
-    elif provider == "gemini":
-        return GeminiExecAdapter(
-            api_key=auth.token or auth.key,
-            model=model,
-            timeout_sec=timeout_sec,
-            headers=headers,
-            query_params=query_params,
-        )
+    Args:
+        llm_config_ref: ConfigForge canonical ref, e.g. "dev.llm.openai.fast".
 
-    # Generic HTTP (OpenRouter, custom proxies, Ollama via HTTP, etc.)
-    return GenericHTTPExecAdapter(
-        base_url=base_url or "",
-        headers=headers,
-        timeout_sec=timeout_sec,
-        query_params=query_params,
-        auth_header=auth_header,
-        basic_tuple=basic_tuple,
-        api_key_header=api_key_header,
-    )
+    Returns:
+        An ExecLLM adapter backed by the resolved polyllm LLMClient.
+    """
+    loader = RemoteConfigLoader()  # reads CONFIG_FORGE_URL from environment
+    client = await loader.load(llm_config_ref)
+    logger.info("Exec LLM ready via ConfigForge: ref=%s", llm_config_ref)
+    return PolyllmExecLLM(client)

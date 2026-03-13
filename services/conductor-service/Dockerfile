@@ -13,6 +13,7 @@ WORKDIR /app
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       ca-certificates \
+      git \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Prepare a writable workspace path (bind-mounted by docker-compose) -----

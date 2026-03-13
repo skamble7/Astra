@@ -180,6 +180,25 @@ class StepState(BaseModel):
 
 
 # ─────────────────────────────────────────────────────────────
+# LLM Configuration
+# ─────────────────────────────────────────────────────────────
+
+class LLMConfig(BaseModel):
+    """
+    Optional per-request LLM configuration override for conductor agent.
+    Uses a ConfigForge canonical ref to swap the agent LLM for this run.
+    """
+    llm_config_ref: Optional[str] = Field(
+        default=None,
+        description="ConfigForge canonical ref for the conductor agent LLM this run (e.g. 'dev.llm.openai.fast')"
+    )
+    override_capabilities: Optional[bool] = Field(
+        default=None,
+        description="Force all capabilities to use CONDUCTOR_LLM_CONFIG_REF instead of their own llm_config_ref"
+    )
+
+
+# ─────────────────────────────────────────────────────────────
 # Requests & persisted run doc
 # ─────────────────────────────────────────────────────────────
 
@@ -200,6 +219,12 @@ class StartRunRequest(BaseModel):
 
     # Strategy (baseline|delta). If omitted, conductor decides based on workspace state.
     strategy: Optional[RunStrategy] = None
+
+    # Optional LLM configuration override for conductor agent (and optionally capabilities)
+    llm_config: Optional[LLMConfig] = Field(
+        default=None,
+        description="Override LLM settings for this run (falls back to .env if not provided)"
+    )
 
 
 class RunSummary(BaseModel):

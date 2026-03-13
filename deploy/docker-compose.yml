@@ -8,7 +8,7 @@ services:
     env_file:
       - ../services/artifact-service/.env.example
     environment:
-      MONGO_URI: ${MONGO_URI:-mongodb+srv://sandeepk:sandeep@cluster0.tnbpi.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0}
+      MONGO_URI: ${MONGO_URI:-mongodb://host.docker.internal:27017/}
       MONGO_DB: ${MONGO_DB:-astra}
       RABBITMQ_URI: ${RABBITMQ_URI:-amqp://raina:raina@host.docker.internal:5672/}
       RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-raina.events}
@@ -30,7 +30,7 @@ services:
     env_file:
       - ../services/capability-service/.env.example
     environment:
-      MONGO_URI: ${MONGO_URI:-mongodb+srv://sandeepk:sandeep@cluster0.tnbpi.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0}
+      MONGO_URI: ${MONGO_URI:-mongodb://host.docker.internal:27017/}
       MONGO_DB: ${MONGO_DB:-astra}
       RABBITMQ_URI: ${RABBITMQ_URI:-amqp://raina:raina@host.docker.internal:5672/}
       RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-raina.events}
@@ -52,7 +52,7 @@ services:
     env_file:
       - ../services/conductor-service/.env.example
     environment:
-      MONGO_URI: ${MONGO_URI:-mongodb+srv://sandeepk:sandeep@cluster0.tnbpi.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0}
+      MONGO_URI: ${MONGO_URI:-mongodb://host.docker.internal:27017/}
       MONGO_DB: ${MONGO_DB:-astra}
       RABBITMQ_URI: ${RABBITMQ_URI:-amqp://raina:raina@host.docker.internal:5672/}
       RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-raina.events}
@@ -64,10 +64,7 @@ services:
       SERVICE_NAME: conductor-service
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
-      # NOTE: LLM config loaded from ../services/conductor-service/.env.example
-      # You can override by setting these env vars before running docker compose
-      # Example: LLM_PROVIDER=gemini LLM_API_KEY=your-key docker compose up -d
-
+      # NOTE: LLM config (ConfigForge) loaded from ../services/conductor-service/.env.example
       # NEW: make the workspace path explicit (optional but handy)
       WORKSPACE_FOLDER: /workspace
       WORKSPACE_MOUNT: /workspace
@@ -92,7 +89,7 @@ services:
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-*}
 
       # NEW: Mongo config (align with other services)
-      MONGO_URI: ${MONGO_URI:-mongodb+srv://sandeepk:sandeep@cluster0.tnbpi.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0}
+      MONGO_URI: ${MONGO_URI:-mongodb://host.docker.internal:27017/}
       MONGO_DB: ${MONGO_DB:-raina_inputs_db}
       MONGO_COLLECTION: ${MONGO_COLLECTION:-projects}
 
@@ -116,7 +113,7 @@ services:
         APP_PORT: ${ASTRAUI_RESOLVER_PORT:-9024}
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
         # Share the same Mongo defaults as other services
-        MONGO_URI: ${MONGO_URI:-mongodb+srv://sandeepk:sandeep@cluster0.tnbpi.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0}
+        MONGO_URI: ${MONGO_URI:-mongodb://host.docker.internal:27017/}
         MONGO_DB: ${MONGO_DB:-astra}
         # Optional CORS
         CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-*}
