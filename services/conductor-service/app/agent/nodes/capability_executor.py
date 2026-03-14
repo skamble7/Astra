@@ -33,7 +33,7 @@ def capability_executor_node(*, runs_repo: RunRepository):
 
     async def _node(
         state: Dict[str, Any]
-    ) -> Command[Literal["mcp_input_resolver", "llm_execution", "diagram_enrichment", "capability_executor", "persist_run"]] | Dict[str, Any]:
+    ) -> Command[Literal["mcp_input_resolver", "llm_execution", "diagram_enrichment", "narrative_enrichment", "capability_executor", "persist_run"]] | Dict[str, Any]:
         logs: List[str] = state.get("logs", [])
         request: Dict[str, Any] = state["request"]
         run_doc: Dict[str, Any] = state["run"]
@@ -48,7 +48,7 @@ def capability_executor_node(*, runs_repo: RunRepository):
 
         publisher = EventPublisher(bus=get_bus())
 
-        # Two-phase step: discover -> enrich
+        # Three-phase step: discover -> enrich (diagram) -> narrative_enrich
         phase = state.get("phase") or "discover"
 
         # Sole writer policy: only this node writes current_step_id/step_idx/phase advancement.
@@ -57,6 +57,8 @@ def capability_executor_node(*, runs_repo: RunRepository):
         last_mcp_error = state.get("last_mcp_error")
         last_enrich = state.get("last_enrichment_summary") or {}
         last_enrich_error = state.get("last_enrichment_error")
+        last_narrative = state.get("last_narrative_summary") or {}
+        last_narrative_error = state.get("last_narrative_error")
 
         # Terminate on executor-reported discovery failure -> persist_run
         if last_mcp_error and current_step_id:
@@ -102,6 +104,10 @@ def capability_executor_node(*, runs_repo: RunRepository):
                 "dispatch": {},
                 "last_mcp_summary": {},
                 # keep last_mcp_error for visibility (persist_run can incorporate it)
+                "last_enrichment_summary": {},
+                "last_enrichment_error": None,
+                "last_narrative_summary": {},
+                "last_narrative_error": None,
             }
             _log_terminal_state(state, term_update, reason="mcp_error")
             return Command(goto="persist_run", update=term_update)
@@ -109,6 +115,10 @@ def capability_executor_node(*, runs_repo: RunRepository):
         # Enrichment error policy (soft-continue)
         if last_enrich_error:
             logs.append(f"Enrichment warning (soft-continue): {last_enrich_error}")
+
+        # Narrative enrichment error policy (soft-continue)
+        if last_narrative_error:
+            logs.append(f"Narrative enrichment warning (soft-continue): {last_narrative_error}")
 
         # Consume completion breadcrumbs depending on phase
         if phase == "discover" and current_step_id and last_mcp.get("completed_step_id") == current_step_id:
@@ -190,8 +200,8 @@ def capability_executor_node(*, runs_repo: RunRepository):
             current_step = None
             if pb:
                 current_step = next((s for s in pb.get("steps", []) if s.get("id") == current_step_id), None)
-            
-            # Enrichment done for this step -> emit enrichment_completed and step.completed, then advance
+
+            # Diagram enrichment done -> emit enrichment_completed, then transition to narrative_enrich
             await publisher.publish_once(
                 runs_repo=runs_repo,
                 run_id=run_uuid,
@@ -217,6 +227,29 @@ def capability_executor_node(*, runs_repo: RunRepository):
                 emitter="capability_executor",
                 correlation_id=correlation_id,
             )
+            logger.info("[capability_executor] phase_transition enrich->narrative_enrich step_id=%s", current_step_id)
+            return Command(
+                goto="narrative_enrichment",
+                update={
+                    "step_idx": step_idx,
+                    "current_step_id": current_step_id,
+                    "phase": "narrative_enrich",
+                    "dispatch": state.get("dispatch") or {},
+                    "last_enrichment_summary": {},
+                    "last_enrichment_error": None,
+                    "last_narrative_summary": {},
+                    "last_narrative_error": None,
+                },
+            )
+
+        if phase == "narrative_enrich" and current_step_id and last_narrative.get("completed_step_id") == current_step_id:
+            # Get step details for events
+            pb = next((p for p in (pack.get("playbooks") or []) if p.get("id") == playbook_id), None)
+            current_step = None
+            if pb:
+                current_step = next((s for s in pb.get("steps", []) if s.get("id") == current_step_id), None)
+
+            # Narrative enrichment done -> emit step.completed, advance to next step
             await publisher.publish_once(
                 runs_repo=runs_repo,
                 run_id=run_uuid,
@@ -240,11 +273,10 @@ def capability_executor_node(*, runs_repo: RunRepository):
                 emitter="capability_executor",
                 correlation_id=correlation_id,
             )
-
             step_idx += 1
             current_step_id = None
             phase = "discover"
-            logger.info("[capability_executor] enrichment_complete advancing_to_step_idx=%d", step_idx)
+            logger.info("[capability_executor] narrative_enrich_complete advancing_to_step_idx=%d", step_idx)
 
         # Guard invalid inputs -> persist_run
         if not state.get("inputs_valid", False):
@@ -263,6 +295,8 @@ def capability_executor_node(*, runs_repo: RunRepository):
                 "phase": "discover",
                 "last_enrichment_summary": {},
                 "last_enrichment_error": None,
+                "last_narrative_summary": {},
+                "last_narrative_error": None,
             }
             _log_terminal_state(state, term_update, reason="inputs_invalid")
             return Command(goto="persist_run", update=term_update)
@@ -281,6 +315,8 @@ def capability_executor_node(*, runs_repo: RunRepository):
                 "phase": "discover",
                 "last_enrichment_summary": {},
                 "last_enrichment_error": None,
+                "last_narrative_summary": {},
+                "last_narrative_error": None,
             }
             _log_terminal_state(state, term_update, reason="playbook_not_found")
             return Command(goto="persist_run", update=term_update)
@@ -298,6 +334,8 @@ def capability_executor_node(*, runs_repo: RunRepository):
                 "phase": "discover",
                 "last_enrichment_summary": {},
                 "last_enrichment_error": None,
+                "last_narrative_summary": {},
+                "last_narrative_error": None,
             }
             _log_terminal_state(state, term_update, reason="all_steps_completed")
             return Command(goto="persist_run", update=term_update)
@@ -314,6 +352,21 @@ def capability_executor_node(*, runs_repo: RunRepository):
                     "dispatch": state.get("dispatch") or {},
                     "last_enrichment_summary": {},
                     "last_enrichment_error": None,
+                },
+            )
+
+        # If we arrive here with phase="narrative_enrich" but no narrative breadcrumb yet, dispatch narrative
+        if phase == "narrative_enrich" and current_step_id:
+            logger.info("[capability_executor] dispatch_narrative_enrichment step_id=%s", current_step_id)
+            return Command(
+                goto="narrative_enrichment",
+                update={
+                    "step_idx": step_idx,
+                    "current_step_id": current_step_id,
+                    "phase": "narrative_enrich",
+                    "dispatch": state.get("dispatch") or {},
+                    "last_narrative_summary": {},
+                    "last_narrative_error": None,
                 },
             )
 
@@ -449,6 +502,8 @@ def capability_executor_node(*, runs_repo: RunRepository):
             "last_mcp_error": None,
             "last_enrichment_summary": {},
             "last_enrichment_error": None,
+            "last_narrative_summary": {},
+            "last_narrative_error": None,
         }
 
         if mode == "mcp":

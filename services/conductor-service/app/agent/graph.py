@@ -22,6 +22,7 @@ from app.agent.nodes.mcp_execution import mcp_execution_node
 from app.agent.nodes.llm_execution import llm_execution_node
 from app.agent.nodes.persist_run import persist_run_node
 from app.agent.nodes.diagram_enrichment import diagram_enrichment_node  # NEW
+from app.agent.nodes.narrative_enrichment import narrative_enrichment_node  # NEW
 
 from app.llm.factory import get_agent_llm
 
@@ -40,7 +41,7 @@ class GraphState(TypedDict, total=False):
     input_fingerprint: Optional[str]
     step_idx: int
     current_step_id: Optional[str]
-    phase: str  # "discover" | "enrich"
+    phase: str  # "discover" | "enrich" | "narrative_enrich"
     # Use Annotated with reducer to allow multiple writes per step (capability_executor -> mcp_input_resolver)
     dispatch: Annotated[Dict[str, Any], lambda left, right: right]
     logs: list[str]
@@ -53,6 +54,8 @@ class GraphState(TypedDict, total=False):
     last_mcp_error: Annotated[Optional[str], lambda left, right: right]
     last_enrichment_summary: Annotated[Dict[str, Any], lambda left, right: right]
     last_enrichment_error: Annotated[Optional[str], lambda left, right: right]
+    last_narrative_summary: Annotated[Dict[str, Any], lambda left, right: right]
+    last_narrative_error: Annotated[Optional[str], lambda left, right: right]
     persist_summary: Dict[str, Any]
 
 
@@ -124,6 +127,14 @@ class ConductorGraph:
         )
 
         graph.add_node(
+            "narrative_enrichment",
+            narrative_enrichment_node(
+                runs_repo=self.runs_repo,
+                llm=agent_llm,
+            ),
+        )
+
+        graph.add_node(
             "persist_run",
             persist_run_node(
                 runs_repo=self.runs_repo,
@@ -144,6 +155,9 @@ class ConductorGraph:
             if phase == "enrich" and state.get("current_step_id"):
                 return "diagram_enrichment"
 
+            if phase == "narrative_enrich" and state.get("current_step_id"):
+                return "narrative_enrichment"
+
             if cap and step:
                 mode = (cap.get("execution") or {}).get("mode")
                 if mode == "mcp":
@@ -161,6 +175,7 @@ class ConductorGraph:
         graph.add_edge("mcp_execution", "capability_executor")
         graph.add_edge("llm_execution", "capability_executor")
         graph.add_edge("diagram_enrichment", "capability_executor")
+        graph.add_edge("narrative_enrichment", "capability_executor")
 
         return graph.compile()
 
@@ -208,6 +223,8 @@ async def run_input_bootstrap(
         "last_mcp_error": None,
         "last_enrichment_summary": {},
         "last_enrichment_error": None,
+        "last_narrative_summary": {},
+        "last_narrative_error": None,
         "persist_summary": {},
     }
 
