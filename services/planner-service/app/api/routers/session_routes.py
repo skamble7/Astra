@@ -22,6 +22,8 @@ from app.models.session_models import (
 from app.agent.planner_graph import invoke_planner
 from app.agent.execution_graph import run_execution_plan
 from app.events.stream import publish_to_session
+from app.events.rabbit import get_bus
+from libs.astra_common.events import Service
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 logger = logging.getLogger("app.api.sessions")
@@ -178,22 +180,63 @@ async def get_run_status(session_id: str, run_id: str) -> Dict[str, Any]:
 async def _run_planner_bg(session_id: str, message: str) -> None:
     try:
         response = await invoke_planner(session_id=session_id, user_message=message)
+        # draft_plan is the correct state key — PlannerState uses "draft_plan", not "plan"
+        plan_steps = response.get("draft_plan", [])
+        status = response.get("status", "planning")
+        response_message = response.get("response_message", "")
+        at = datetime.now(timezone.utc).isoformat()
+
+        # 1) Push to direct WebSocket subscribers (PlannerStream in extension)
         publish_to_session(session_id, {
             "type": "planner.response",
             "session_id": session_id,
-            "message": response.get("response_message", ""),
-            "plan": response.get("plan", []),
-            "status": response.get("status", "planning"),
-            "at": datetime.now(timezone.utc).isoformat(),
+            "message": response_message,
+            "plan": plan_steps,
+            "status": status,
+            "at": at,
         })
+
+        # 2) Publish to RabbitMQ so the notification service broadcasts to output window
+        try:
+            bus = get_bus()
+            await bus.publish(
+                service=Service.PLANNER.value,
+                event="session.response",
+                payload={
+                    "type": "planner.response",
+                    "session_id": session_id,
+                    "message": response_message,
+                    "plan": plan_steps,
+                    "status": status,
+                    "at": at,
+                },
+            )
+        except Exception:
+            logger.warning("RabbitMQ publish failed for planner.response session=%s", session_id, exc_info=True)
+
     except Exception:
         logger.exception("Planner agent failed for session=%s", session_id)
+        at = datetime.now(timezone.utc).isoformat()
         publish_to_session(session_id, {
             "type": "planner.error",
             "session_id": session_id,
             "error": "Planner agent encountered an error",
-            "at": datetime.now(timezone.utc).isoformat(),
+            "at": at,
         })
+        try:
+            bus = get_bus()
+            await bus.publish(
+                service=Service.PLANNER.value,
+                event="session.error",
+                payload={
+                    "type": "planner.error",
+                    "session_id": session_id,
+                    "error": "Planner agent encountered an error",
+                    "at": at,
+                },
+            )
+        except Exception:
+            logger.warning("RabbitMQ publish failed for planner.error session=%s", session_id, exc_info=True)
 
 
 async def _run_execution_bg(session_id: str, strategy: str, workspace_id: str) -> None:
@@ -209,18 +252,48 @@ async def _run_execution_bg(session_id: str, strategy: str, workspace_id: str) -
         )
         await session_repo.set_status(session_id, SessionStatus.COMPLETED)
         await session_repo.set_active_run(session_id, run_id)
+        at = datetime.now(timezone.utc).isoformat()
         publish_to_session(session_id, {
             "type": "execution.completed",
             "session_id": session_id,
             "run_id": run_id,
-            "at": datetime.now(timezone.utc).isoformat(),
+            "at": at,
         })
+        try:
+            bus = get_bus()
+            await bus.publish(
+                service=Service.PLANNER.value,
+                event="execution.completed",
+                payload={
+                    "type": "execution.completed",
+                    "session_id": session_id,
+                    "run_id": run_id,
+                    "at": at,
+                },
+            )
+        except Exception:
+            logger.warning("RabbitMQ publish failed for execution.completed session=%s", session_id, exc_info=True)
     except Exception as e:
         logger.exception("Execution failed for session=%s", session_id)
         await session_repo.set_status(session_id, SessionStatus.FAILED)
+        at = datetime.now(timezone.utc).isoformat()
         publish_to_session(session_id, {
             "type": "execution.failed",
             "session_id": session_id,
             "error": str(e),
-            "at": datetime.now(timezone.utc).isoformat(),
+            "at": at,
         })
+        try:
+            bus = get_bus()
+            await bus.publish(
+                service=Service.PLANNER.value,
+                event="execution.failed",
+                payload={
+                    "type": "execution.failed",
+                    "session_id": session_id,
+                    "error": str(e),
+                    "at": at,
+                },
+            )
+        except Exception:
+            logger.warning("RabbitMQ publish failed for execution.failed session=%s", session_id, exc_info=True)
