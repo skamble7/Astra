@@ -1,0 +1,283 @@
+# services/planner-service/app/agent/execution_graph.py
+"""
+Execution Agent for planner-service.
+
+Converts an approved PlannerSession plan into the conductor-service pack/playbook
+format and runs it using conductor_core execution nodes.
+
+Graph:
+  plan_init → capability_executor → [plan_input_resolver → mcp_execution |
+              llm_execution] → diagram_enrichment → narrative_enrichment → persist_run
+"""
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timezone
+from typing import Annotated, Any, Dict, List, Optional, TypedDict
+from uuid import uuid4
+
+from langgraph.graph import StateGraph
+from langgraph.graph.state import END
+
+from conductor_core.models.run_models import (
+    PlaybookRun, RunStatus, RunStrategy, StepState, StepStatus,
+)
+from conductor_core.nodes.capability_executor import capability_executor_node
+from conductor_core.nodes.mcp_execution import mcp_execution_node
+from conductor_core.nodes.llm_execution import llm_execution_node
+from conductor_core.nodes.diagram_enrichment import diagram_enrichment_node
+from conductor_core.nodes.narrative_enrichment import narrative_enrichment_node
+from conductor_core.nodes.persist_run import persist_run_node
+from conductor_core.llm.factory import get_agent_llm
+
+from app.agent.nodes.plan_input_resolver import plan_input_resolver_node
+from app.db.session_repository import SessionRepository
+from app.db.run_repository import RunRepository
+from app.cache.manifest_cache import get_manifest_cache
+from app.events.rabbit import get_bus, EventPublisher
+from app.clients.artifact_service import ArtifactServiceClient
+from app.events.stream import publish_to_session
+
+logger = logging.getLogger("app.agent.execution_graph")
+
+
+# ── State mirrors conductor-service GraphState ────────────────────────────────
+
+class ExecutionState(TypedDict, total=False):
+    request: Dict[str, Any]
+    run: Dict[str, Any]
+    pack: Dict[str, Any]
+    artifact_kinds: Dict[str, Dict[str, Any]]
+    agent_capabilities: list
+    agent_capabilities_map: Dict[str, Dict[str, Any]]
+    inputs_valid: bool
+    input_errors: list
+    input_fingerprint: Optional[str]
+    step_idx: int
+    current_step_id: Optional[str]
+    phase: str
+    dispatch: Annotated[Dict[str, Any], lambda left, right: right]
+    logs: list
+    validations: list
+    started_at: str
+    completed_at: Optional[str]
+    staged_artifacts: list
+    last_mcp_summary: Annotated[Dict[str, Any], lambda left, right: right]
+    last_mcp_error: Annotated[Optional[str], lambda left, right: right]
+    last_enrichment_summary: Annotated[Dict[str, Any], lambda left, right: right]
+    last_enrichment_error: Annotated[Optional[str], lambda left, right: right]
+    last_narrative_summary: Annotated[Dict[str, Any], lambda left, right: right]
+    last_narrative_error: Annotated[Optional[str], lambda left, right: right]
+    persist_summary: Dict[str, Any]
+    # Planner-specific
+    session_id: Optional[str]
+
+
+# ── Plan-init node ────────────────────────────────────────────────────────────
+
+def plan_init_node(*, session_repo: SessionRepository, run_repo: RunRepository):
+    """
+    Converts an approved PlannerSession into conductor-service state format.
+    Creates a PlaybookRun document and initializes the execution state.
+    """
+    async def _node(state: Dict[str, Any]) -> Dict[str, Any]:
+        session_id = state.get("session_id")
+        workspace_id = state.get("workspace_id", "")
+        strategy = state.get("strategy", RunStrategy.BASELINE.value)
+
+        try:
+            session = await session_repo.get_or_raise(session_id)
+        except Exception as e:
+            logger.error("[plan_init] session load failed: %s", e)
+            return {"inputs_valid": False, "input_errors": [str(e)]}
+
+        # Load full capability objects from cache
+        cache = get_manifest_cache()
+        capabilities = []
+        for step in session.plan:
+            if not step.enabled:
+                continue
+            cap = await cache.get_capability(step.capability_id)
+            if cap:
+                capabilities.append(cap)
+            else:
+                logger.warning("[plan_init] capability not found: %s", step.capability_id)
+
+        # Build playbook (maps plan steps to conductor-service step format)
+        enabled_steps = [s for s in session.plan if s.enabled]
+        playbook_steps = []
+        for i, ps in enumerate(enabled_steps):
+            playbook_steps.append({
+                "id": ps.step_id or f"step-{i}",
+                "capability_id": ps.capability_id,
+                "name": ps.title,
+                "description": ps.description or ps.title,
+                "inputs": ps.inputs or {},
+                "order": i,
+            })
+
+        playbook_id = session_id  # use session_id as playbook_id
+        pack = {
+            "capabilities": capabilities,
+            "playbooks": [{"id": playbook_id, "steps": playbook_steps}],
+        }
+
+        # Create PlaybookRun
+        run_id = uuid4()
+        run = PlaybookRun(
+            run_id=str(run_id),
+            workspace_id=workspace_id or session.workspace_id,
+            pack_id=session_id,
+            playbook_id=playbook_id,
+            strategy=RunStrategy.BASELINE,
+            status=RunStatus.RUNNING,
+            steps=[
+                StepState(id=s["id"], capability_id=s["capability_id"], status=StepStatus.PENDING)
+                for s in playbook_steps
+            ],
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        await run_repo.create_run(run)
+        await session_repo.set_active_run(session_id, str(run_id))
+
+        request = {
+            "playbook_id": playbook_id,
+            "inputs": {},
+            "strategy": strategy,
+            "workspace_id": workspace_id or session.workspace_id,
+            "llm_config": {},
+        }
+
+        logger.info("[plan_init] initialized run_id=%s steps=%d", run_id, len(playbook_steps))
+
+        # Notify WebSocket
+        publish_to_session(session_id, {
+            "type": "execution.run_created",
+            "session_id": session_id,
+            "run_id": str(run_id),
+            "step_count": len(playbook_steps),
+            "at": datetime.now(timezone.utc).isoformat(),
+        })
+
+        return {
+            "request": request,
+            "run": run.model_dump(mode="json"),
+            "pack": pack,
+            "artifact_kinds": {},
+            "agent_capabilities": [],
+            "agent_capabilities_map": {},
+            "inputs_valid": True,
+            "input_errors": [],
+            "input_fingerprint": None,
+            "step_idx": 0,
+            "current_step_id": None,
+            "phase": "discover",
+            "dispatch": {},
+            "logs": [],
+            "validations": [],
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "completed_at": None,
+            "staged_artifacts": [],
+            "last_mcp_summary": {},
+            "last_mcp_error": None,
+            "last_enrichment_summary": {},
+            "last_enrichment_error": None,
+            "last_narrative_summary": {},
+            "last_narrative_error": None,
+            "persist_summary": {},
+        }
+
+    return _node
+
+
+# ── Graph builder ─────────────────────────────────────────────────────────────
+
+async def _build_execution_graph(
+    *,
+    session_repo: SessionRepository,
+    run_repo: RunRepository,
+    art_client: ArtifactServiceClient,
+):
+    llm = await get_agent_llm(None)
+    publisher = EventPublisher(bus=get_bus())
+
+    graph = StateGraph(ExecutionState)
+
+    graph.add_node("plan_init", plan_init_node(session_repo=session_repo, run_repo=run_repo))
+    graph.add_node("capability_executor", capability_executor_node(runs_repo=run_repo, publisher=publisher))
+    graph.add_node("plan_input_resolver", plan_input_resolver_node(runs_repo=run_repo))
+    graph.add_node("mcp_execution", mcp_execution_node(runs_repo=run_repo))
+    graph.add_node("llm_execution", llm_execution_node(runs_repo=run_repo))
+    graph.add_node("diagram_enrichment", diagram_enrichment_node(runs_repo=run_repo))
+    graph.add_node("narrative_enrichment", narrative_enrichment_node(runs_repo=run_repo, llm=llm))
+    graph.add_node("persist_run", persist_run_node(runs_repo=run_repo, art_client=art_client, publisher=publisher))
+
+    graph.set_entry_point("plan_init")
+    graph.add_edge("plan_init", "capability_executor")
+
+    def route_from_capability_executor(state: ExecutionState):
+        phase = state.get("phase") or "discover"
+        dispatch = state.get("dispatch") or {}
+        cap = dispatch.get("capability") or {}
+        step = dispatch.get("step") or None
+
+        if phase == "enrich" and state.get("current_step_id"):
+            return "diagram_enrichment"
+        if phase == "narrative_enrich" and state.get("current_step_id"):
+            return "narrative_enrichment"
+        if cap and step:
+            mode = (cap.get("execution") or {}).get("mode")
+            if mode == "mcp":
+                return "plan_input_resolver"
+            elif mode == "llm":
+                return "llm_execution"
+            return "capability_executor"
+        return END
+
+    graph.add_conditional_edges("capability_executor", route_from_capability_executor)
+
+    graph.add_edge("plan_input_resolver", "mcp_execution")
+    graph.add_edge("mcp_execution", "capability_executor")
+    graph.add_edge("llm_execution", "capability_executor")
+    graph.add_edge("diagram_enrichment", "capability_executor")
+    graph.add_edge("narrative_enrichment", "capability_executor")
+
+    return graph.compile()
+
+
+# ── Public function ───────────────────────────────────────────────────────────
+
+async def run_execution_plan(
+    *,
+    session_id: str,
+    strategy: str,
+    workspace_id: str,
+    session_repo: SessionRepository,
+    run_repo: RunRepository,
+) -> str:
+    """
+    Build and run the execution graph for an approved plan.
+    Returns the run_id of the created run.
+    """
+    art_client = ArtifactServiceClient()
+    compiled = await _build_execution_graph(
+        session_repo=session_repo,
+        run_repo=run_repo,
+        art_client=art_client,
+    )
+
+    initial_state: Dict[str, Any] = {
+        "session_id": session_id,
+        "workspace_id": workspace_id,
+        "strategy": strategy,
+    }
+
+    final_state = await compiled.ainvoke(
+        initial_state,
+        config={"recursion_limit": 256},
+    )
+
+    run_doc = final_state.get("run") or {}
+    return run_doc.get("run_id", "")

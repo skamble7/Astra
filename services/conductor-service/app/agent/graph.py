@@ -16,7 +16,7 @@ from app.db.run_repository import RunRepository
 from conductor_core.models.run_models import PlaybookRun
 
 from app.agent.nodes.input_resolver import input_resolver_node
-from app.agent.nodes.capability_executor import capability_executor_node
+from conductor_core.nodes.capability_executor import capability_executor_node
 from conductor_core.nodes.mcp_input_resolver import mcp_input_resolver_node
 from conductor_core.nodes.mcp_execution import mcp_execution_node
 from conductor_core.nodes.llm_execution import llm_execution_node
@@ -95,6 +95,7 @@ class ConductorGraph:
             "capability_executor",
             capability_executor_node(
                 runs_repo=self.runs_repo,
+                publisher=EventPublisher(bus=get_bus()),
             ),
         )
 

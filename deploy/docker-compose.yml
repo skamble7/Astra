@@ -121,3 +121,43 @@ services:
         - "9024:9024"
       extra_hosts:
         - "host.docker.internal:host-gateway"
+
+  astra-redis:
+    image: redis:7-alpine
+    container_name: astra-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --save "" --appendonly no
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  astra-planner-service:
+    build:
+      context: ..
+      dockerfile: services/planner-service/Dockerfile
+    container_name: astra-planner-service
+    restart: unless-stopped
+    env_file:
+      - ../services/planner-service/.env.example
+    environment:
+      MONGO_URI: ${MONGO_URI:-mongodb://host.docker.internal:27017/}
+      MONGO_DB: ${PLANNER_MONGO_DB:-astra_planner}
+      RABBITMQ_URI: ${RABBITMQ_URI:-amqp://raina:raina@host.docker.internal:5672/}
+      RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-raina.events}
+      EVENTS_ORG: ${EVENTS_ORG:-astra}
+      REDIS_URL: ${REDIS_URL:-redis://astra-redis:6379/0}
+      CAPABILITY_SVC_BASE_URL: ${CAPABILITY_SVC_BASE_URL:-http://astra-capability-service:9021}
+      CONDUCTOR_SVC_BASE_URL: ${CONDUCTOR_SVC_BASE_URL:-http://astra-conductor-service:9022}
+      ARTIFACT_SVC_BASE_URL: ${ARTIFACT_SVC_BASE_URL:-http://astra-artifact-service:9020}
+      SERVICE_NAME: planner-service
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "9025:9025"
+    depends_on:
+      - astra-redis
+      - astra-capability-service
+      - astra-conductor-service
+      - astra-artifact-service
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
