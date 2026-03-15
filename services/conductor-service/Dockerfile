@@ -26,6 +26,10 @@ COPY libs/pyproject.toml /tmp/libs/pyproject.toml
 COPY libs /tmp/libs/libs
 RUN pip install -e /tmp/libs
 
+# --- Install conductor-core --------------------------------------------------
+COPY libs/conductor-core /tmp/conductor-core
+RUN pip install /tmp/conductor-core
+
 # Optional sanity check for shared libs
 RUN python - <<'PY'
 import importlib

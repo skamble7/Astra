@@ -1,4 +1,4 @@
-# services/conductor-service/app/agent/artifacts/adapter.py
+# conductor_core/artifacts/adapter.py
 from __future__ import annotations
 
 import logging
@@ -6,7 +6,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
 import fastjsonschema
 
-logger = logging.getLogger("app.agent.artifacts.adapter")
+logger = logging.getLogger("conductor_core.artifacts.adapter")
 
 # ---------------------------
 # Schema registry (pulls from Artifact Service)

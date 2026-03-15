@@ -1,4 +1,4 @@
-# services/conductor-service/app/agent/nodes/diagram_enrichment.py
+# conductor_core/nodes/diagram_enrichment.py
 from __future__ import annotations
 
 import json
@@ -10,11 +10,11 @@ from uuid import UUID
 from typing_extensions import Literal
 from langgraph.types import Command
 
-from app.db.run_repository import RunRepository
-from app.models.run_models import StepAudit, ToolCallAudit
-from app.agent.mcp.mcp_client import MCPConnection, MCPTransportConfig
+from conductor_core.protocols.repositories import RunRepositoryProtocol as RunRepository
+from conductor_core.models.run_models import StepAudit, ToolCallAudit
+from conductor_core.mcp.mcp_client import MCPConnection, MCPTransportConfig
 
-logger = logging.getLogger("app.agent.nodes.diagram_enrichment")
+logger = logging.getLogger("conductor_core.nodes.diagram_enrichment")
 
 
 def _transport_from_capability(cap: Dict[str, Any]) -> MCPTransportConfig:

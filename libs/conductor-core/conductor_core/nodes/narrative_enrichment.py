@@ -1,4 +1,4 @@
-# services/conductor-service/app/agent/nodes/narrative_enrichment.py
+# conductor_core/nodes/narrative_enrichment.py
 from __future__ import annotations
 
 import json
@@ -10,11 +10,11 @@ from uuid import UUID
 from typing_extensions import Literal
 from langgraph.types import Command
 
-from app.db.run_repository import RunRepository
-from app.llm.base import AgentLLM
-from app.models.run_models import StepAudit, ToolCallAudit
+from conductor_core.protocols.repositories import RunRepositoryProtocol as RunRepository
+from conductor_core.llm.base import AgentLLM
+from conductor_core.models.run_models import StepAudit, ToolCallAudit
 
-logger = logging.getLogger("app.agent.nodes.narrative_enrichment")
+logger = logging.getLogger("conductor_core.nodes.narrative_enrichment")
 
 _DATA_CLIP = 12_000   # chars of artifact JSON sent to LLM
 _PROMPT_SAMPLE = 800  # chars logged for debugging

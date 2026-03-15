@@ -6,9 +6,9 @@ from typing import Any, Dict, Optional
 
 from polyllm import LLMClient
 
-from app.llm.base import AgentLLM, CompletionResult
+from conductor_core.llm.base import AgentLLM, CompletionResult
 
-logger = logging.getLogger("app.llm.polyllm_agent")
+logger = logging.getLogger("conductor_core.llm.polyllm_agent")
 
 
 class PolyllmAgentLLM:

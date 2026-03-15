@@ -1,4 +1,4 @@
-# services/conductor-service/app/agent/nodes/llm_execution.py
+# conductor_core/nodes/llm_execution.py
 from __future__ import annotations
 from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timezone
@@ -6,17 +6,18 @@ from uuid import UUID
 import asyncio
 import json
 import logging
+import os
 
 from typing_extensions import Literal
 from jsonschema import Draft202012Validator, ValidationError
 from langgraph.types import Command
 
-from app.db.run_repository import RunRepository
-from app.models.run_models import StepAudit, ToolCallAudit
-from app.llm.execution_factory import build_exec_llm_from_ref
-from app.llm.execution_base import ExecLLM
+from conductor_core.protocols.repositories import RunRepositoryProtocol as RunRepository
+from conductor_core.models.run_models import StepAudit, ToolCallAudit
+from conductor_core.llm.execution_factory import build_exec_llm_from_ref
+from conductor_core.llm.execution_base import ExecLLM
 
-logger = logging.getLogger("app.agent.nodes.llm_execution")
+logger = logging.getLogger("conductor_core.nodes.llm_execution")
 
 
 # ------------- helpers -------------
@@ -194,15 +195,16 @@ def llm_execution_node(*, runs_repo: RunRepository):
             logger.exception("[llm] failed to log artifact_kinds catalog")
 
         # Determine which ConfigForge ref to use for the LLM adapter
-        from app.config import settings
+        _override_env = os.getenv("OVERRIDE_CAPABILITY_LLM", "0") == "1"
+        _conductor_ref = os.getenv("CONDUCTOR_LLM_CONFIG_REF", "")
 
         request_llm_config = state.get("request", {}).get("llm_config") or {}
         override_capabilities = request_llm_config.get("override_capabilities")
         if override_capabilities is None:
-            override_capabilities = settings.override_capability_llm
+            override_capabilities = _override_env
 
         if override_capabilities:
-            llm_config_ref = settings.conductor_llm_config_ref
+            llm_config_ref = _conductor_ref
             if not llm_config_ref:
                 err = "OVERRIDE_CAPABILITY_LLM is set but CONDUCTOR_LLM_CONFIG_REF is not configured."
                 logger.error("[llm] %s", err)
@@ -333,7 +335,7 @@ def llm_execution_node(*, runs_repo: RunRepository):
                         kind_id,
                         len(system_prompt or ""),
                         len(user_prompt or ""),
-                        len(dep_payload.keys()),    
+                        len(dep_payload.keys()),
                     )
                     logger.debug("[llm] system(kind=%s) %s", kind_id, _json_preview(system_prompt))
                     logger.debug("[llm] user(kind=%s) %s", kind_id, _json_preview(user_prompt, 1800))

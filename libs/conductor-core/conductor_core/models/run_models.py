@@ -1,4 +1,4 @@
-# services/conductor-service/app/models/run_models.py
+# conductor_core/models/run_models.py
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -103,6 +103,7 @@ class StepAudit(BaseModel):
     mode: Literal["mcp", "llm"]
     inputs_preview: Dict[str, Any] = Field(default_factory=dict)
     calls: List[ToolCallAudit] = Field(default_factory=list)
+    notes_md: Optional[str] = None
 
 
 # ─────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-# services/conductor-service/app/agent/nodes/persist_run.py
+# conductor_core/nodes/persist_run.py
 from __future__ import annotations
 
 import logging
@@ -10,20 +10,22 @@ from datetime import datetime, date, timezone
 from typing import Any, Dict, List, Optional, Iterable, Tuple
 from uuid import UUID
 
-from app.db.run_repository import RunRepository
-from app.models.run_models import (
+from conductor_core.protocols.repositories import (
+    RunRepositoryProtocol as RunRepository,
+    ArtifactServiceClientProtocol as ArtifactServiceClient,
+    EventPublisherProtocol as EventPublisher,
+)
+from conductor_core.models.run_models import (
     ArtifactEnvelope,
     ArtifactProvenance,
     RunStatus,
     RunStrategy,
 )
-from app.clients.artifact_service import ArtifactServiceClient
-from app.events.rabbit import get_bus, EventPublisher  # NEW
 
-# NEW: dynamic adapter (no hardcoded kind logic)
-from app.agent.artifacts.adapter import KindSchemaRegistry, ArtifactAdapter
+# Dynamic adapter (no hardcoded kind logic)
+from conductor_core.artifacts.adapter import KindSchemaRegistry, ArtifactAdapter
 
-logger = logging.getLogger("app.agent.nodes.persist_run")
+logger = logging.getLogger("conductor_core.nodes.persist_run")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -188,7 +190,6 @@ def _normalize_to_envelope(
             narratives=narratives_san,
             provenance=provenance,
         )
-        # Option B: avoid typing.cast; guard dict shape safely
         data_san_dict = data_san if isinstance(data_san, dict) else {}
         setattr(env, "_derived_name", _derive_name(kind_id, data_san_dict))
         return env
@@ -324,7 +325,7 @@ async def _filter_known_kinds(client: ArtifactServiceClient, kinds: List[str], c
 # ─────────────────────────────────────────────────────────────
 # Node
 # ─────────────────────────────────────────────────────────────
-def persist_run_node(*, runs_repo: RunRepository, art_client: ArtifactServiceClient):
+def persist_run_node(*, runs_repo: RunRepository, art_client: ArtifactServiceClient, publisher: EventPublisher):
     async def _node(state: Dict[str, Any]) -> Dict[str, Any]:
         run_doc: Dict[str, Any] = state["run"]
         run_id = UUID(run_doc["run_id"])
@@ -342,8 +343,6 @@ def persist_run_node(*, runs_repo: RunRepository, art_client: ArtifactServiceCli
         inputs_hash: Optional[str] = state.get("input_fingerprint")
         kind_specs: Dict[str, Any] = state.get("artifact_kinds") or {}
         correlation_id: Optional[str] = state.get("correlation_id")
-
-        publisher = EventPublisher(bus=get_bus())
 
         # Set up dynamic schema/adapter using the SAME artifact client
         def _client_getter():
@@ -519,7 +518,7 @@ def persist_run_node(*, runs_repo: RunRepository, art_client: ArtifactServiceCli
         # ── Emit completed.partial (post-persist summary) ────────────────────
         try:
             artifact_ids = [getattr(e, "identity", {}).get("_hash") or getattr(e, "identity", {}).get("key") for e in envelopes]
-            await EventPublisher(bus=get_bus()).publish_once(
+            await publisher.publish_once(
                 runs_repo=runs_repo,
                 run_id=run_id,
                 event="completed.partial",
@@ -549,7 +548,6 @@ def persist_run_node(*, runs_repo: RunRepository, art_client: ArtifactServiceCli
             logger.warning("[persist_run] emit completed.partial failed", exc_info=True)
 
         # ── Emit final completed / failed ────────────────────────────────────
-        publisher = EventPublisher(bus=get_bus())
         if final_status == RunStatus.COMPLETED:
             try:
                 duration_s = None

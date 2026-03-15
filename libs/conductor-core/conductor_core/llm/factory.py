@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import Optional
 
 from polyllm import RemoteConfigLoader
 
-from app.config import settings
-from app.llm.base import AgentLLM
-from app.llm.polyllm_agent import PolyllmAgentLLM
+from conductor_core.llm.base import AgentLLM
+from conductor_core.llm.polyllm_agent import PolyllmAgentLLM
 
-logger = logging.getLogger("app.llm.factory")
+logger = logging.getLogger("conductor_core.llm.factory")
 
 
 async def get_agent_llm(llm_config_ref: Optional[str] = None) -> AgentLLM:
@@ -18,12 +18,12 @@ async def get_agent_llm(llm_config_ref: Optional[str] = None) -> AgentLLM:
 
     Args:
         llm_config_ref: Per-request override ref. Falls back to
-                        settings.conductor_llm_config_ref when not provided.
+                        CONDUCTOR_LLM_CONFIG_REF env var when not provided.
 
     Raises:
         ValueError: If no ref is available (neither per-request nor env-configured).
     """
-    ref = llm_config_ref or settings.conductor_llm_config_ref
+    ref = llm_config_ref or os.getenv("CONDUCTOR_LLM_CONFIG_REF", "")
     if not ref:
         raise ValueError(
             "No LLM config ref available for conductor agent. "

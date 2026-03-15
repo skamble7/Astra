@@ -1,4 +1,4 @@
-# app/agent/mcp/mcp_client.py
+# conductor_core/mcp/mcp_client.py
 from __future__ import annotations
 
 import json
@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple, cast
 from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
-logger = logging.getLogger("app.agent.mcp.client")
+logger = logging.getLogger("conductor_core.mcp.client")
 
 
 @dataclass

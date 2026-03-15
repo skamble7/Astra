@@ -11,11 +11,11 @@ from typing_extensions import Literal
 from langgraph.types import Command
 from jsonschema import Draft202012Validator, ValidationError
 
-from app.db.run_repository import RunRepository
-from app.llm.base import AgentLLM
-from app.models.run_models import StepAudit, ToolCallAudit
+from conductor_core.protocols.repositories import RunRepositoryProtocol as RunRepository
+from conductor_core.llm.base import AgentLLM
+from conductor_core.models.run_models import StepAudit, ToolCallAudit
 
-logger = logging.getLogger("app.agent.nodes.mcp_input_resolver")
+logger = logging.getLogger("conductor_core.nodes.mcp_input_resolver")
 
 # ---------- Utilities ----------
 def _cap_io_input_contract(capability: Dict[str, Any]) -> Dict[str, Any]:

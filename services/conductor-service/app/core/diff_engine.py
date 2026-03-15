@@ -5,7 +5,7 @@ import copy
 from typing import Any, Dict, List, Tuple
 
 from app.clients.artifact_service import ArtifactServiceClient
-from app.models.run_models import ArtifactEnvelope, ArtifactsDiffBuckets, RunDeltas
+from conductor_core.models.run_models import ArtifactEnvelope, ArtifactsDiffBuckets, RunDeltas
 
 
 _IGNORE_FIELDS = {"artifact_id", "version", "fingerprint", "diagram_fingerprint", "narrative_fingerprint", "sha", "id", "ids"}

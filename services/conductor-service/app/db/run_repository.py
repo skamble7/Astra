@@ -9,7 +9,7 @@ from uuid import UUID
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorCollection
 from pymongo import ASCENDING, DESCENDING, ReturnDocument
 
-from app.models.run_models import (
+from conductor_core.models.run_models import (
     PlaybookRun,
     RunStatus,
     StepStatus,

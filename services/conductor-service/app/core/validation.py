@@ -5,7 +5,7 @@ import logging
 from typing import Any, Dict, List, Tuple
 
 from app.clients.artifact_service import ArtifactServiceClient
-from app.models.run_models import ArtifactEnvelope, ValidationIssue
+from conductor_core.models.run_models import ArtifactEnvelope, ValidationIssue
 
 logger = logging.getLogger("app.core.validation")
 

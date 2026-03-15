@@ -5,9 +5,9 @@ from typing import Optional
 
 from polyllm import LLMClient
 
-from app.llm.execution_base import ExecLLM, ExecResult
+from conductor_core.llm.execution_base import ExecLLM, ExecResult
 
-logger = logging.getLogger("app.llm.polyllm_exec")
+logger = logging.getLogger("conductor_core.llm.polyllm_exec")
 
 
 class PolyllmExecLLM:

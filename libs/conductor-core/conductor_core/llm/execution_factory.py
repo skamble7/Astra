@@ -4,10 +4,10 @@ import logging
 
 from polyllm import RemoteConfigLoader
 
-from app.llm.execution_base import ExecLLM
-from app.llm.polyllm_exec import PolyllmExecLLM
+from conductor_core.llm.execution_base import ExecLLM
+from conductor_core.llm.polyllm_exec import PolyllmExecLLM
 
-logger = logging.getLogger("app.llm.execution_factory")
+logger = logging.getLogger("conductor_core.llm.execution_factory")
 
 
 async def build_exec_llm_from_ref(llm_config_ref: str) -> ExecLLM:

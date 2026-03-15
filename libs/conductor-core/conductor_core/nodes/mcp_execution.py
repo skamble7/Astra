@@ -1,4 +1,3 @@
-# services/conductor-service/app/agent/nodes/mcp_execution.py
 from __future__ import annotations
 
 import asyncio
@@ -13,12 +12,12 @@ from uuid import UUID
 from typing_extensions import Literal
 from langgraph.types import Command
 
-from app.db.run_repository import RunRepository
-from app.models.run_models import StepAudit, ToolCallAudit
-from app.agent.mcp.mcp_client import MCPConnection, MCPTransportConfig
-from app.agent.mcp.json_utils import try_parse_json, get_by_dotted_path, coerce_list
+from conductor_core.protocols.repositories import RunRepositoryProtocol as RunRepository
+from conductor_core.models.run_models import StepAudit, ToolCallAudit
+from conductor_core.mcp.mcp_client import MCPConnection, MCPTransportConfig
+from conductor_core.mcp.json_utils import try_parse_json, get_by_dotted_path, coerce_list
 
-logger = logging.getLogger("app.agent.nodes.mcp_execution")
+logger = logging.getLogger("conductor_core.nodes.mcp_execution")
 
 _ASYNC_STATUS_SUFFIXES = (".status", ".check", ".poll", ".progress")
 _JOB_ID_KEYS = ("job_id", "operation_id", "task_id", "id")
@@ -143,7 +142,6 @@ def _output_contract(cap: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _artifacts_property(cap: Dict[str, Any]) -> str:
-    # You can set this to "artifacts" everywhere and simplify later.
     return _output_contract(cap).get("artifacts_property", "artifacts")
 
 

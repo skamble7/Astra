@@ -13,7 +13,7 @@ from pydantic import UUID4
 from app.config import settings
 from app.db.mongodb import get_client
 from app.db.run_repository import RunRepository
-from app.models.run_models import (
+from conductor_core.models.run_models import (
     PlaybookRun,
     RunStatus,
     StartRunRequest,
