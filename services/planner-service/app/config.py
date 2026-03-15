@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     # LLM: planner agent LLM config ref (ConfigForge)
     planner_llm_config_ref: str = os.getenv("PLANNER_LLM_CONFIG_REF", "")
 
+    # Diagram MCP server — platform-level enrichment, always available independently of capability registry
+    diagram_mcp_base_url: str = os.getenv("DIAGRAM_MCP_BASE_URL", "http://host.docker.internal:8001")
+    diagram_mcp_path: str = os.getenv("DIAGRAM_MCP_PATH", "/mcp")
+    diagram_mcp_timeout_sec: int = int(os.getenv("DIAGRAM_MCP_TIMEOUT_SEC", "120"))
+
     # Capability cache
     manifest_cache_ttl_seconds: int = int(os.getenv("MANIFEST_CACHE_TTL_SECONDS", "300"))
 

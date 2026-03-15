@@ -125,6 +125,28 @@ def plan_init_node(*, session_repo: SessionRepository, run_repo: RunRepository, 
             "playbooks": [{"id": playbook_id, "steps": playbook_steps}],
         }
 
+        # Load diagram MCP agent capability — platform-level service, config-driven.
+        # Build directly from settings so it is always available regardless of whether
+        # cap.diagram.mermaid is registered in the capability registry.
+        mermaid_cap: Dict[str, Any] = {
+            "id": "cap.diagram.mermaid",
+            "name": "Generate Mermaid Diagrams from Artifact JSON",
+            "execution": {
+                "mode": "mcp",
+                "transport": {
+                    "kind": "http",
+                    "base_url": settings.diagram_mcp_base_url,
+                    "headers": {"host": "localhost:8001"},
+                    "protocol_path": settings.diagram_mcp_path,
+                    "verify_tls": False,
+                    "timeout_sec": settings.diagram_mcp_timeout_sec,
+                },
+            },
+        }
+        agent_caps = [mermaid_cap]
+        agent_caps_map: Dict[str, Any] = {"cap.diagram.mermaid": mermaid_cap}
+        logger.info("[plan_init] diagram_mcp base=%s", settings.diagram_mcp_base_url)
+
         # Pre-fetch artifact kind specs so llm_execution can produce structured output
         produces_kinds: List[str] = []
         for cap in capabilities:
@@ -198,8 +220,8 @@ def plan_init_node(*, session_repo: SessionRepository, run_repo: RunRepository, 
             "run": run.model_dump(mode="json"),
             "pack": pack,
             "artifact_kinds": kinds_map,
-            "agent_capabilities": [],
-            "agent_capabilities_map": {},
+            "agent_capabilities": agent_caps,
+            "agent_capabilities_map": agent_caps_map,
             "inputs_valid": True,
             "input_errors": [],
             "input_fingerprint": None,
