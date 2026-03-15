@@ -15,12 +15,14 @@ from app.models.session_models import (
     SendMessageRequest,
     UpdatePlanRequest,
     ApprovePlanRequest,
+    RunRequest,
     SessionStatus,
     ChatMessage,
     MessageRole,
 )
 from app.agent.planner_graph import invoke_planner
 from app.agent.execution_graph import run_execution_plan
+from app.cache.manifest_cache import get_manifest_cache
 from app.events.stream import publish_to_session
 from app.events.rabbit import get_bus
 from libs.astra_common.events import Service
@@ -120,7 +122,6 @@ async def update_plan(session_id: str, request: UpdatePlanRequest) -> Dict[str, 
 
     await repo.update_plan(session_id, request.steps)
 
-    # Publish plan update event to WebSocket stream
     publish_to_session(session_id, {
         "type": "plan.updated",
         "session_id": session_id,
@@ -131,12 +132,15 @@ async def update_plan(session_id: str, request: UpdatePlanRequest) -> Dict[str, 
     return {"session_id": session_id, "status": "updated", "step_count": len(request.steps)}
 
 
-@router.post("/{session_id}/plan/approve", summary="Approve plan and trigger execution")
+@router.post("/{session_id}/plan/approve", summary="Lock plan and return input form metadata")
 async def approve_plan(
     session_id: str,
     request: ApprovePlanRequest,
-    background_tasks: BackgroundTasks,
 ) -> Dict[str, Any]:
+    """
+    ADR-006: Locks the plan and returns the input form type + prefilled values.
+    Does NOT start execution — the client must call /run after the user confirms inputs.
+    """
     repo = _get_session_repo()
     session = await repo.get(session_id)
     if not session:
@@ -148,6 +152,64 @@ async def approve_plan(
     if not session.plan:
         raise HTTPException(status_code=422, detail="No plan to approve")
 
+    await repo.set_status(session_id, SessionStatus.READY_TO_EXECUTE)
+
+    # ADR-006: determine input form type from first enabled step's execution mode
+    first_step = next((s for s in session.plan if s.enabled), None)
+    input_form_type = "freetext"
+    input_contract: Dict[str, Any] = {}
+    prefilled_inputs: Dict[str, Any] = {}
+
+    if first_step:
+        cache = get_manifest_cache()
+        cap = await cache.get_capability(first_step.capability_id)
+        if cap:
+            mode = (cap.get("execution") or {}).get("mode")
+            if mode == "mcp":
+                input_form_type = "structured"
+                input_contract = (((cap.get("execution") or {}).get("io") or {}).get("input_contract") or {})
+                prefilled_inputs = first_step.run_inputs  # ADR-009: LLM-prefilled values
+
+    publish_to_session(session_id, {
+        "type": "plan.approved",
+        "session_id": session_id,
+        "input_form_type": input_form_type,
+        "at": datetime.now(timezone.utc).isoformat(),
+    })
+
+    return {
+        "session_id": session_id,
+        "status": SessionStatus.READY_TO_EXECUTE.value,
+        "input_form_type": input_form_type,
+        "prefilled_inputs": prefilled_inputs,
+        "input_contract": input_contract,
+    }
+
+
+@router.post("/{session_id}/run", summary="Submit user inputs and start execution")
+async def run_plan(
+    session_id: str,
+    request: RunRequest,
+    background_tasks: BackgroundTasks,
+) -> Dict[str, Any]:
+    """
+    ADR-006: Accepts user-confirmed inputs and triggers execution.
+    Must be called after /plan/approve.
+    """
+    repo = _get_session_repo()
+    session = await repo.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail=f"Session '{session_id}' not found")
+
+    if session.status == SessionStatus.EXECUTING:
+        raise HTTPException(status_code=409, detail="Already executing")
+
+    if session.status != SessionStatus.READY_TO_EXECUTE:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Session must be in ready_to_execute state before running (current={session.status.value}). Call /plan/approve first.",
+        )
+
     await repo.set_status(session_id, SessionStatus.EXECUTING)
 
     publish_to_session(session_id, {
@@ -156,12 +218,7 @@ async def approve_plan(
         "at": datetime.now(timezone.utc).isoformat(),
     })
 
-    background_tasks.add_task(
-        _run_execution_bg,
-        session_id,
-        request.strategy,
-        request.workspace_id or session.workspace_id,
-    )
+    background_tasks.add_task(_run_execution_bg, session_id, request)
 
     return {"session_id": session_id, "status": SessionStatus.EXECUTING.value}
 
@@ -180,13 +237,11 @@ async def get_run_status(session_id: str, run_id: str) -> Dict[str, Any]:
 async def _run_planner_bg(session_id: str, message: str) -> None:
     try:
         response = await invoke_planner(session_id=session_id, user_message=message)
-        # draft_plan is the correct state key — PlannerState uses "draft_plan", not "plan"
         plan_steps = response.get("draft_plan", [])
         status = response.get("status", "planning")
         response_message = response.get("response_message", "")
         at = datetime.now(timezone.utc).isoformat()
 
-        # 1) Push to direct WebSocket subscribers (PlannerStream in extension)
         publish_to_session(session_id, {
             "type": "planner.response",
             "session_id": session_id,
@@ -196,7 +251,6 @@ async def _run_planner_bg(session_id: str, message: str) -> None:
             "at": at,
         })
 
-        # 2) Publish to RabbitMQ so the notification service broadcasts to output window
         try:
             bus = get_bus()
             await bus.publish(
@@ -239,14 +293,18 @@ async def _run_planner_bg(session_id: str, message: str) -> None:
             logger.warning("RabbitMQ publish failed for planner.error session=%s", session_id, exc_info=True)
 
 
-async def _run_execution_bg(session_id: str, strategy: str, workspace_id: str) -> None:
+async def _run_execution_bg(session_id: str, run_request: RunRequest) -> None:
     session_repo = _get_session_repo()
     run_repo = _get_run_repo()
     try:
+        session = await session_repo.get(session_id)
+        workspace_id = run_request.workspace_id or (session.workspace_id if session else "")
+
         run_id = await run_execution_plan(
             session_id=session_id,
-            strategy=strategy,
+            strategy=run_request.strategy,
             workspace_id=workspace_id,
+            run_inputs=run_request.run_inputs,
             session_repo=session_repo,
             run_repo=run_repo,
         )

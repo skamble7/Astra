@@ -60,7 +60,8 @@ def plan_builder_node(*, llm: AgentLLM, cache: ManifestCache):
                 "title": cap.get("title") or cap.get("name"),
                 "description": cap.get("description", ""),
                 "produces_kinds": cap.get("produces_kinds", []),
-                "input_contract": (cap.get("execution") or {}).get("input_contract"),
+                "execution_mode": (cap.get("execution") or {}).get("mode"),
+                "input_contract": (((cap.get("execution") or {}).get("io") or {}).get("input_contract") or {}),
             })
 
         # Recent conversation context
@@ -68,12 +69,24 @@ def plan_builder_node(*, llm: AgentLLM, cache: ManifestCache):
         for m in messages[-8:]:
             context_msgs.append(f"{m.get('role', 'user')}: {m.get('content', '')}")
 
+        # ADR-009: if step 1 is MCP mode, append explicit input prefill instruction
+        first_cap = caps_for_prompt[0] if caps_for_prompt else {}
+        step1_mcp_block = ""
+        if first_cap.get("execution_mode") == "mcp" and first_cap.get("input_contract"):
+            step1_mcp_block = (
+                "\n\nIMPORTANT — Step 1 input prefill (ADR-009):\n"
+                "Step 1 is an MCP capability with an input_contract form. "
+                "Extract any values the user mentioned in the conversation (URLs, repo names, branch names, file paths, etc.) "
+                "and pre-fill the 'inputs' dict for step 1 using the input_contract field names exactly. "
+                "Pre-filled values will be shown to the user for review before execution — if uncertain, make a best-effort guess."
+            )
+
         prompt = (
             f"{_SYSTEM_PROMPT}\n\n"
             f"User intent: {json.dumps(intent, indent=2)}\n\n"
             f"Selected capabilities:\n{json.dumps(caps_for_prompt, indent=2)}\n\n"
             f"Conversation context:\n{''.join(context_msgs)}\n\n"
-            "Build the execution plan with pre-filled inputs."
+            f"Build the execution plan with pre-filled inputs.{step1_mcp_block}"
         )
 
         try:
@@ -101,7 +114,7 @@ def plan_builder_node(*, llm: AgentLLM, cache: ManifestCache):
                 "plan_summary": "Plan assembled from selected capabilities",
             }
 
-        # Add step IDs
+        # Add step IDs — LLM-generated prefills go into run_inputs (ADR-009); inputs stays empty
         steps = []
         for step in plan_response.get("steps") or []:
             steps.append({
@@ -109,7 +122,8 @@ def plan_builder_node(*, llm: AgentLLM, cache: ManifestCache):
                 "capability_id": step.get("capability_id"),
                 "title": step.get("title", ""),
                 "description": step.get("description", ""),
-                "inputs": step.get("inputs") or {},
+                "inputs": {},
+                "run_inputs": step.get("inputs") or {},
                 "order": step.get("order", len(steps) + 1),
                 "enabled": True,
             })

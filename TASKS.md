@@ -125,12 +125,12 @@
 - `GET /planner/sessions/{id}` — return full session document
 - `GET /planner/sessions/{id}/plan` — return current Plan
 - `POST /planner/sessions/{id}/plan/steps` — add/remove/reorder steps
-- `POST /planner/sessions/{id}/approve` — lock plan, return `{ run_id, requires_inputs, input_contract, prefilled_inputs }`
-- `POST /planner/sessions/{id}/run` — accept `run_inputs`, validate against `input_contract`, trigger execution agent
+- `POST /planner/sessions/{id}/approve` — lock plan; return `{ run_id, input_form_type, input_contract?, prefilled_inputs? }`
+- `POST /planner/sessions/{id}/run` — accept user inputs; validate; trigger execution agent
 
-**Validation:**
-- `/run` body must validate against `input_contract` JSON Schema before triggering execution
-- Return 422 with field-level errors if validation fails (frontend shows inline form errors)
+**`/run` payload validation:**
+- `input_form_type: "structured"` → validate `run_inputs` dict against `input_contract` JSON Schema; return 422 with field-level errors on failure
+- `input_form_type: "freetext"` → validate `run_text` is non-empty string; `attachments` list is optional
 
 **Done when:** All endpoints return correct responses in integration tests. `/approve` correctly branches on step 1 execution mode.
 
@@ -174,8 +174,8 @@
 - `step.started`, `step.discovery_completed`, `step.enrichment_started`, `step.enrichment_completed`, `step.completed`, `step.failed`, `run.completed`, `run.failed`
 
 **Key implementation notes:**
-- `plan_input_resolver` for LLM path: build prompt from `session.messages` + uploaded file content
-- `plan_input_resolver` for MCP path: pass `run_inputs` directly to `mcp_input_resolver` from conductor-core
+- `plan_input_resolver` for LLM path: receive `run_text` + `attachments` from `/run` payload; build LLM prompt from text + decoded file content; pass to `llm_execution`
+- `plan_input_resolver` for MCP path: receive `run_inputs` dict from `/run` payload; pass to `mcp_input_resolver` from conductor-core; validated against `input_contract` before this point
 - On discovery failure: publish `step.failed` + `run.failed`, call `persist_run` with failed status
 - Enrichment failures are non-fatal (same as existing conductor) — log, continue
 
@@ -244,28 +244,41 @@
 
 ---
 
-### TASK-012 — MCP input form modal
+### TASK-012 — Input form modal (both modes)
 
-**What:** Implement the schema-driven input form modal shown when step 1 is MCP mode.
+**What:** Implement the input form modal shown after "Approve & run" for both MCP and LLM first-step modes.
 
-**Trigger:** `/approve` response has `requires_inputs: true`
+**Trigger:** Always shown after `/approve` response is received. Form type determined by `input_form_type` in response.
 
-**Components:**
-- `InputFormModal` — modal overlay on top of blurred plan canvas
-- `SchemaFormField` — renders correct input widget based on JSON Schema field type:
+**Component: `InputFormModal`** — modal overlaying the blurred plan canvas; shared shell for both variants
+
+**Variant A — Structured form (`input_form_type: "structured"`, MCP mode):**
+- Header: "Step 1 requires inputs" / capability_id / "mode: mcp"
+- `SchemaFormField` renders correct widget per JSON Schema field type:
   - `string` → `<input type="text">`
   - `string` + `format: uri` → `<input type="url">`
-  - `enum` → pill radio group (`EnumPillGroup`)
+  - `enum` → `EnumPillGroup` (pill radio buttons)
   - `boolean` → toggle switch
-  - `array` of `file` → drop zone with attached file list
-- Pre-filled values from `prefilled_inputs` response shown with "✦ Pre-filled from your conversation" notice
-- Client-side validation against `input_contract` JSON Schema on submit (use `ajv` or equivalent)
-- Field-level inline error messages on validation failure
-- Footer: "Validated against execution.io.input_contract" label / Back / Start run →
+  - `file` / `file[]` → drop zone + attached file chips
+- Pre-filled values from `prefilled_inputs` shown with "✦ Pre-filled from your conversation" notice
+- Client-side validation against `input_contract` JSON Schema (use `ajv`) before submit
+- Inline field-level error messages on validation failure
+- Footer: "Validated against execution.io.input_contract" / Back / Start run →
+- Submit: `POST /run` with `{ run_inputs: { ...fieldValues } }`
 
-**On submit:** `POST /planner/sessions/{id}/run` with `{ run_inputs }` → transitions to execution view
+**Variant B — Freetext form (`input_form_type: "freetext"`, LLM mode):**
+- Header: "Step 1 requires inputs" / capability_id / "mode: llm"
+- Large textarea: placeholder "Describe what you want this step to process…" (required)
+- File upload drop zone: "Attach documents, diagrams, or source files" (optional, multiple)
+- Attached file chips with remove button
+- No pre-fill — form opens empty
+- Validation: textarea must be non-empty before submit enabled
+- Footer: "Your text and files will be passed directly to the AI capability" / Back / Start run →
+- Submit: `POST /run` with `{ run_text: "...", attachments: [{ filename, content_base64, mime_type }] }`
 
-**Done when:** Modal renders all field types correctly. Pre-fill populates values. Validation prevents submit with missing required fields. Submission triggers execution state transition.
+**On submit (both variants):** transitions to execution view on 200 response; shows field errors on 422.
+
+**Done when:** Both form variants render correctly. Structured form validates and rejects on missing required fields. Freetext form disables submit when textarea empty. Both submit payloads trigger execution state transition on success.
 
 ---
 

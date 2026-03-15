@@ -55,10 +55,12 @@ Three phases per step: `discover → enrich → narrative_enrich`
 
 Every capability declares `execution.mode` as either `"mcp"` or `"llm"`:
 
-- **`llm` mode** — takes natural language as input; no declared input contract; the LLM infers from context
-- **`mcp` mode** — declares `execution.io.input_contract` (JSON Schema); structured inputs required; MCP tool called with exact arguments
+- **`llm` mode** — takes natural language as input. No declared input contract. The user provides free-text intent and/or file uploads via a text/upload form before execution starts. The execution agent builds the LLM prompt from this input.
+- **`mcp` mode** — declares `execution.io.input_contract` (JSON Schema). The user provides structured inputs via a schema-driven form before execution starts. The MCP tool is called with the exact validated arguments from this form.
 
-This distinction drives different UX and execution paths, especially for the **first step** of a plan (see Section 5.3).
+**Critical rule:** Both modes require the user to explicitly supply input via a form before execution begins. The form type differs — structured fields for MCP, free-text + file upload for LLM — but the input gate always exists. Execution never starts automatically from conversation context alone.
+
+This distinction drives the input form type shown after plan approval, specifically for the **first step** of a plan. Steps 2–N always consume upstream artifacts via `depends_on` and never require user input.
 
 ---
 
@@ -106,14 +108,18 @@ WS     /planner/sessions/{id}/stream            Stream: agent tokens, plan mutat
 ```json
 {
   "run_id": "string",
-  "requires_inputs": true,
-  "input_contract": { /* JSON Schema — present only when step 1 is mcp mode */ },
-  "prefilled_inputs": { /* planner's best-effort pre-fill from conversation context */ }
+  "input_form_type": "structured | freetext",
+  "input_contract": { /* JSON Schema — present only when input_form_type = structured (mcp mode) */ },
+  "prefilled_inputs": { /* planner's best-effort pre-fill — present only when input_form_type = structured */ }
 }
 ```
 
-If `requires_inputs = false`: execution starts immediately, `run_id` is live.
-If `requires_inputs = true`: frontend shows input form modal; user submits via `POST /run`.
+**`/approve` always requires a subsequent `/run` call — execution never starts automatically.**
+
+- `input_form_type: "structured"` (step 1 is `mcp` mode) → frontend shows schema-driven form derived from `input_contract`; user fills structured fields; submits via `POST /run` with `{ run_inputs: dict }`
+- `input_form_type: "freetext"` (step 1 is `llm` mode) → frontend shows free-text area + file upload zone; user types natural language and/or attaches files; submits via `POST /run` with `{ run_text: str, attachments: [] }`
+
+The `/run` endpoint validates the payload against mode-appropriate rules and triggers the execution agent.
 
 #### MongoDB collections
 
@@ -139,7 +145,9 @@ PlanStep:
   execution_mode: mcp | llm
   produces_kinds: [str]
   input_contract: dict | null # JSON Schema; present when execution_mode = mcp AND step is first
-  run_inputs: dict | null     # populated after user fills form
+  run_inputs: dict | null     # populated from structured form submit (mcp mode first step)
+  run_text: str | null        # populated from freetext form submit (llm mode first step)
+  attachments: list | null    # populated from file uploads (llm mode first step)
   status: included | optional | skipped | running | done | failed
   phase: discover | enrich | narrative_enrich | null
   artifacts_produced: [str]
@@ -177,10 +185,12 @@ PlanStep:
 
 #### `input_prefill` heuristic (inside `plan_builder`)
 
-When step 1 is `mcp` mode:
+When step 1 is `mcp` mode only:
 - Call planner LLM with `input_contract` JSON Schema + full conversation history
 - Ask it to produce best-effort `run_inputs` JSON matching schema fields to mentioned values
 - Store as `PlanStep.run_inputs`; frontend shows these as pre-filled form values
+
+When step 1 is `llm` mode: no pre-fill is attempted. The freetext form opens empty; the user types their input fresh. (Conversation context is available as reference in the left pane but is not auto-copied into the form.)
 
 ---
 
@@ -205,15 +215,16 @@ When step 1 is `mcp` mode:
 
 ```
 if step_1.execution_mode == "llm":
-    → build LLM context from session messages + uploaded file content
-    → pass as natural language prompt to llm_execution
+    → receive run_text (str) + attachments (file list) from /run payload
+    → build LLM prompt from run_text + decoded attachment content
+    → pass as natural language context to llm_execution
 
 if step_1.execution_mode == "mcp":
-    → receive run_inputs dict (validated against input_contract)
+    → receive run_inputs dict (validated against input_contract) from /run payload
     → pass as structured args to mcp_input_resolver (from conductor-core)
 ```
 
-Steps 2–N always use upstream artifacts via `depends_on` — same as existing conductor.
+In both cases inputs arrive from the `/run` endpoint — never inferred automatically from conversation history. Steps 2–N always use upstream artifacts via `depends_on`, same as the existing conductor.
 
 #### RabbitMQ events published
 
@@ -248,27 +259,44 @@ Split-pane inside the Planner tab:
 | State | Left pane | Right pane | Bottom bar |
 |---|---|---|---|
 | `planning` | Chat thread, active input | Plan canvas with step cards + toggles | Revise / Approve & run / Save as pack |
-| `awaiting_inputs` | Chat thread (read-only) | Plan canvas (read-only) | — (modal is open) |
+| `awaiting_inputs · structured` | Chat thread (read-only) | Plan canvas (read-only) | — (MCP structured form modal is open) |
+| `awaiting_inputs · freetext` | Chat thread (read-only) | Plan canvas (read-only) | — (LLM freetext + upload form modal is open) |
 | `executing · discover` | Run log (live) | Execution steps with phase badges | Artifact count / Pause |
 | `executing · enrich` | Run log (live) | Steps; running step shows purple enrich badge | Artifact count / Pause |
 | `completed` | Run log + planner closing message | Run summary card + all steps done + artifact chips | View artifacts / Re-run |
 | `failed` | Run log + planner recovery message | Steps with failed/skipped states | View partial artifacts / Replan |
 
-### 4.3 MCP input form modal
+### 4.3 Input form modal (shown after Approve & run — always)
 
-Rendered when `/approve` returns `requires_inputs: true`.
+The input form modal is always shown after the user clicks "Approve & run". The form type depends on the first step's `execution_mode`. Both forms open as a modal overlaying the (blurred) plan canvas.
+
+#### Structured form (MCP mode — `input_form_type: "structured"`)
 
 - Title: "Step 1 requires inputs"
 - Sub: capability_id + "mode: mcp"
 - Fields: schema-driven from `input_contract` JSON Schema
   - `string` → text input
-  - `string · uri` → url input
+  - `string · format: uri` → url input
   - `enum` → pill-style radio group
-  - `boolean` → toggle
-  - `file` / `file[]` → drop zone
-- Pre-filled values shown from `prefilled_inputs` with "✦ Some fields were pre-filled from your planning conversation" notice
-- Validation: client-side against JSON Schema before submit
+  - `boolean` → toggle switch
+  - `file` / `file[]` → drop zone with attached file list
+- Pre-filled values shown from `prefilled_inputs` with "✦ Pre-filled from your conversation" notice
+- Validation: client-side against JSON Schema before submit; field-level inline errors
 - Footer: "Validated against execution.io.input_contract" / Back / Start run →
+- Submit: `POST /run` with `{ run_inputs: { ...fieldValues } }`
+
+#### Freetext form (LLM mode — `input_form_type: "freetext"`)
+
+- Title: "Step 1 requires inputs"
+- Sub: capability_id + "mode: llm"
+- Body:
+  - Large textarea: "Describe what you want this step to process…" (required)
+  - File upload drop zone: "Attach documents, diagrams, or source files" (optional, multiple)
+  - Attached file chips with remove button
+- No pre-fill (freetext form opens empty)
+- Validation: textarea must not be empty before submit
+- Footer: "Your text and files will be passed directly to the AI capability" / Back / Start run →
+- Submit: `POST /run` with `{ run_text: "...", attachments: [{ filename, content_base64, mime_type }] }`
 
 ### 4.4 Artifact popover
 
@@ -302,7 +330,7 @@ See `DECISIONS.md` for full rationale. Summary:
 3. **Existing conductor untouched** — continues to serve all pack-driven runs
 4. **LangGraph MongoDB checkpointer** — planner agent is stateful across turns (session_id = thread_id)
 5. **Redis manifest cache** — capability manifest cached; invalidated on capability events
-6. **MCP first-step form modal** — only step 1 can have `input_contract`; steps 2–N use upstream artifacts
+6. **Input form always shown after approval** — MCP first step shows structured schema-driven form; LLM first step shows freetext + file upload form; execution never starts without explicit user input regardless of mode
 7. **`input_prefill` heuristic** — planner LLM pre-fills form fields from conversation context
 8. **Single WebSocket per session** — drives both chat stream and execution progress
 9. **`Save as pack`** — approved plans can be persisted to capability service as new packs (Phase 2)

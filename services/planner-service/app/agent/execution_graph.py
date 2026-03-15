@@ -30,6 +30,7 @@ from conductor_core.nodes.narrative_enrichment import narrative_enrichment_node
 from conductor_core.nodes.persist_run import persist_run_node
 from conductor_core.llm.factory import get_agent_llm
 
+from app.config import settings
 from app.agent.nodes.plan_input_resolver import plan_input_resolver_node
 from app.db.session_repository import SessionRepository
 from app.db.run_repository import RunRepository
@@ -71,6 +72,7 @@ class ExecutionState(TypedDict, total=False):
     persist_summary: Dict[str, Any]
     # Planner-specific
     session_id: Optional[str]
+    run_inputs: Dict[str, Any]
 
 
 # ── Plan-init node ────────────────────────────────────────────────────────────
@@ -124,6 +126,7 @@ def plan_init_node(*, session_repo: SessionRepository, run_repo: RunRepository):
 
         # Create PlaybookRun
         run_id = uuid4()
+        run_inputs = state.get("run_inputs") or {}
         run = PlaybookRun(
             run_id=str(run_id),
             workspace_id=workspace_id or session.workspace_id,
@@ -132,7 +135,7 @@ def plan_init_node(*, session_repo: SessionRepository, run_repo: RunRepository):
             strategy=RunStrategy.BASELINE,
             status=RunStatus.RUNNING,
             steps=[
-                StepState(id=s["id"], capability_id=s["capability_id"], status=StepStatus.PENDING)
+                StepState(step_id=s["id"], capability_id=s["capability_id"], name=s.get("name"))
                 for s in playbook_steps
             ],
             created_at=datetime.now(timezone.utc),
@@ -144,7 +147,7 @@ def plan_init_node(*, session_repo: SessionRepository, run_repo: RunRepository):
 
         request = {
             "playbook_id": playbook_id,
-            "inputs": {},
+            "inputs": run_inputs,  # user-confirmed form values from /run (ADR-006)
             "strategy": strategy,
             "workspace_id": workspace_id or session.workspace_id,
             "llm_config": {},
@@ -200,14 +203,14 @@ async def _build_execution_graph(
     run_repo: RunRepository,
     art_client: ArtifactServiceClient,
 ):
-    llm = await get_agent_llm(None)
+    llm = await get_agent_llm(settings.planner_llm_config_ref or None)
     publisher = EventPublisher(bus=get_bus())
 
     graph = StateGraph(ExecutionState)
 
     graph.add_node("plan_init", plan_init_node(session_repo=session_repo, run_repo=run_repo))
     graph.add_node("capability_executor", capability_executor_node(runs_repo=run_repo, publisher=publisher))
-    graph.add_node("plan_input_resolver", plan_input_resolver_node(runs_repo=run_repo))
+    graph.add_node("mcp_input_resolver", plan_input_resolver_node(runs_repo=run_repo, llm=llm))
     graph.add_node("mcp_execution", mcp_execution_node(runs_repo=run_repo))
     graph.add_node("llm_execution", llm_execution_node(runs_repo=run_repo))
     graph.add_node("diagram_enrichment", diagram_enrichment_node(runs_repo=run_repo))
@@ -216,33 +219,7 @@ async def _build_execution_graph(
 
     graph.set_entry_point("plan_init")
     graph.add_edge("plan_init", "capability_executor")
-
-    def route_from_capability_executor(state: ExecutionState):
-        phase = state.get("phase") or "discover"
-        dispatch = state.get("dispatch") or {}
-        cap = dispatch.get("capability") or {}
-        step = dispatch.get("step") or None
-
-        if phase == "enrich" and state.get("current_step_id"):
-            return "diagram_enrichment"
-        if phase == "narrative_enrich" and state.get("current_step_id"):
-            return "narrative_enrichment"
-        if cap and step:
-            mode = (cap.get("execution") or {}).get("mode")
-            if mode == "mcp":
-                return "plan_input_resolver"
-            elif mode == "llm":
-                return "llm_execution"
-            return "capability_executor"
-        return END
-
-    graph.add_conditional_edges("capability_executor", route_from_capability_executor)
-
-    graph.add_edge("plan_input_resolver", "mcp_execution")
-    graph.add_edge("mcp_execution", "capability_executor")
-    graph.add_edge("llm_execution", "capability_executor")
-    graph.add_edge("diagram_enrichment", "capability_executor")
-    graph.add_edge("narrative_enrichment", "capability_executor")
+    graph.add_edge("mcp_input_resolver", "mcp_execution")
 
     return graph.compile()
 
@@ -254,6 +231,7 @@ async def run_execution_plan(
     session_id: str,
     strategy: str,
     workspace_id: str,
+    run_inputs: Dict[str, Any],
     session_repo: SessionRepository,
     run_repo: RunRepository,
 ) -> str:
@@ -272,6 +250,7 @@ async def run_execution_plan(
         "session_id": session_id,
         "workspace_id": workspace_id,
         "strategy": strategy,
+        "run_inputs": run_inputs,
     }
 
     final_state = await compiled.ainvoke(

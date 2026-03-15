@@ -81,14 +81,27 @@
 
 ---
 
-## ADR-006 — Only step 1 has an input_contract form
+## ADR-006 — Input form always shown after approval; form type determined by step 1 execution mode
 
-**Decision:** The MCP input form modal is only shown for the first step of a plan.
+**Decision:** After the user clicks "Approve & run", an input form modal is always shown before execution begins. The form type is determined by the first step's `execution.mode`:
 
-**Rationale:**
-- The first step is the data ingestion step — it brings external context into the workspace
-- Steps 2–N always consume upstream artifacts via `depends_on` — their inputs are resolved automatically by `mcp_input_resolver` from the artifact store, exactly as in the existing conductor
-- Showing forms mid-execution for later steps would break the fire-and-forget execution UX and is not needed given the `depends_on` resolution pattern
+- **`mcp` mode** → structured form, fields derived from `execution.io.input_contract` JSON Schema
+- **`llm` mode** → freetext form, a large textarea + file upload drop zone
+
+Execution never starts automatically from conversation context. The `/approve` endpoint always requires a subsequent `/run` call with user-supplied input.
+
+**`/approve` response field:** `input_form_type: "structured" | "freetext"` (replaces the earlier `requires_inputs` boolean)
+
+**`/run` payload variants:**
+- Structured: `{ run_inputs: { ...fieldValues } }` — validated server-side against `input_contract`
+- Freetext: `{ run_text: str, attachments: [{ filename, content_base64, mime_type }] }` — validated for non-empty text
+
+**Why this rule exists:**
+- The planner conversation establishes intent but is not a reliable source of execution inputs — users may be vague, change their mind, or upload different files than they discussed
+- Making the input step explicit gives users a clear moment of "this is exactly what I am submitting" — consistent with the existing pack-driven flow where `PackInput` forms serve the same purpose
+- For LLM capabilities the freetext form is the natural language equivalent of the MCP structured form — both collect the raw material the first capability needs to produce its artifacts
+
+**Applies only to step 1.** Steps 2–N always consume upstream artifacts via `depends_on` and never require user input during execution.
 
 ---
 
@@ -114,17 +127,17 @@
 
 ---
 
-## ADR-009 — `input_prefill` heuristic for MCP form pre-population
+## ADR-009 — `input_prefill` heuristic applies to MCP mode only
 
-**Decision:** After assembling the plan, if step 1 is MCP mode, the planner LLM makes a best-effort attempt to pre-fill `run_inputs` from the conversation history.
+**Decision:** After assembling the plan, if step 1 is MCP mode, the planner LLM makes a best-effort attempt to pre-fill `run_inputs` from the conversation history. This does not apply to LLM mode.
 
 **Rationale:**
-- Users often state relevant details (repo URLs, branch names, file paths) in their natural language intent
-- Re-entering this information in a form is friction — pre-filling reduces it
-- The pre-fill is advisory (shown with a notice); the user reviews and corrects before submitting
-- If the LLM produces a wrong pre-fill, it is immediately visible and correctable in the form
+- MCP structured forms have named fields (repo URL, branch, analysis depth etc.) that often correspond to things the user mentioned conversationally — pre-filling reduces friction
+- LLM freetext forms have no fields to pre-fill — the user writes their input fresh in the textarea. The conversation context remains visible in the left pane as reference but is not auto-copied
+- Pre-fill is advisory — shown with a "✦ Pre-filled from your conversation" notice; user reviews and corrects before submitting
+- If the LLM produces a wrong pre-fill it is immediately visible and correctable in the form
 
-**Implementation note:** This runs as part of `plan_builder` node, not as a separate LLM call — it is appended to the `plan_builder` prompt when the first step is MCP mode.
+**Implementation note:** Runs as part of `plan_builder` node, not as a separate LLM call — appended to the `plan_builder` prompt when the first step is MCP mode. Result stored as `PlanStep.run_inputs`.
 
 ---
 

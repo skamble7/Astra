@@ -39,6 +39,7 @@ class PlanStep(BaseModel):
     description: Optional[str] = None
     enabled: bool = True
     inputs: Dict[str, Any] = Field(default_factory=dict)
+    run_inputs: Dict[str, Any] = Field(default_factory=dict)  # ADR-009: prefilled MCP form values
     order: int = 0
 
 
@@ -77,5 +78,12 @@ class UpdatePlanRequest(BaseModel):
 
 
 class ApprovePlanRequest(BaseModel):
+    workspace_id: Optional[str] = None
+
+
+class RunRequest(BaseModel):
     strategy: str = "baseline"
     workspace_id: Optional[str] = None
+    run_inputs: Dict[str, Any] = Field(default_factory=dict)        # MCP structured form values
+    run_text: Optional[str] = None                                   # LLM freetext input
+    attachments: List[Dict[str, Any]] = Field(default_factory=list)  # LLM file uploads
