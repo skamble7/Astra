@@ -11,6 +11,7 @@ Graph:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Annotated, Any, Dict, List, Optional, TypedDict
@@ -77,7 +78,7 @@ class ExecutionState(TypedDict, total=False):
 
 # ── Plan-init node ────────────────────────────────────────────────────────────
 
-def plan_init_node(*, session_repo: SessionRepository, run_repo: RunRepository):
+def plan_init_node(*, session_repo: SessionRepository, run_repo: RunRepository, art_client: ArtifactServiceClient):
     """
     Converts an approved PlannerSession into conductor-service state format.
     Creates a PlaybookRun document and initializes the execution state.
@@ -124,6 +125,34 @@ def plan_init_node(*, session_repo: SessionRepository, run_repo: RunRepository):
             "playbooks": [{"id": playbook_id, "steps": playbook_steps}],
         }
 
+        # Pre-fetch artifact kind specs so llm_execution can produce structured output
+        produces_kinds: List[str] = []
+        for cap in capabilities:
+            for k in (cap.get("produces_kinds") or []):
+                if k not in produces_kinds:
+                    produces_kinds.append(k)
+
+        kinds_map: Dict[str, Any] = {}
+        if produces_kinds:
+            async def _fetch(kind_id: str):
+                data = await art_client.get_kind(kind_id)
+                return kind_id, data
+
+            results = await asyncio.gather(*[_fetch(k) for k in produces_kinds], return_exceptions=True)
+            for res in results:
+                if isinstance(res, Exception):
+                    logger.warning("[plan_init] kind fetch failed: %s", res)
+                else:
+                    kind_id, data = res
+                    if data:
+                        kinds_map[kind_id] = data
+            logger.info("[plan_init] artifact_kinds fetched=%d/%d", len(kinds_map), len(produces_kinds))
+
+        # Resolve strategy: honour the frontend-supplied value (baseline or delta)
+        run_strategy = RunStrategy.BASELINE
+        if strategy and strategy.lower() == RunStrategy.DELTA.value:
+            run_strategy = RunStrategy.DELTA
+
         # Create PlaybookRun
         run_id = uuid4()
         run_inputs = state.get("run_inputs") or {}
@@ -132,7 +161,7 @@ def plan_init_node(*, session_repo: SessionRepository, run_repo: RunRepository):
             workspace_id=workspace_id or session.workspace_id,
             pack_id=session_id,
             playbook_id=playbook_id,
-            strategy=RunStrategy.BASELINE,
+            strategy=run_strategy,
             status=RunStatus.RUNNING,
             steps=[
                 StepState(step_id=s["id"], capability_id=s["capability_id"], name=s.get("name"))
@@ -168,7 +197,7 @@ def plan_init_node(*, session_repo: SessionRepository, run_repo: RunRepository):
             "request": request,
             "run": run.model_dump(mode="json"),
             "pack": pack,
-            "artifact_kinds": {},
+            "artifact_kinds": kinds_map,
             "agent_capabilities": [],
             "agent_capabilities_map": {},
             "inputs_valid": True,
@@ -208,7 +237,7 @@ async def _build_execution_graph(
 
     graph = StateGraph(ExecutionState)
 
-    graph.add_node("plan_init", plan_init_node(session_repo=session_repo, run_repo=run_repo))
+    graph.add_node("plan_init", plan_init_node(session_repo=session_repo, run_repo=run_repo, art_client=art_client))
     graph.add_node("capability_executor", capability_executor_node(runs_repo=run_repo, publisher=publisher))
     graph.add_node("mcp_input_resolver", plan_input_resolver_node(runs_repo=run_repo, llm=llm))
     graph.add_node("mcp_execution", mcp_execution_node(runs_repo=run_repo))

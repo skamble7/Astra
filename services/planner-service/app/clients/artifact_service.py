@@ -23,7 +23,7 @@ class ArtifactServiceClient:
         if correlation_id:
             headers["X-Correlation-Id"] = correlation_id
         async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.get(f"{self._base}/kinds/{kind_id}", headers=headers)
+            resp = await client.get(f"{self._base}/registry/kinds/{kind_id}", headers=headers)
             if resp.status_code == 404:
                 return None
             resp.raise_for_status()
@@ -34,15 +34,16 @@ class ArtifactServiceClient:
         if correlation_id:
             headers["X-Correlation-Id"] = correlation_id
         async with httpx.AsyncClient(timeout=self._timeout) as client:
-            resp = await client.get(f"{self._base}/kinds/{kind_id}/schema/{version}", headers=headers)
+            resp = await client.get(f"{self._base}/registry/kinds/{kind_id}/schema/{version}", headers=headers)
             resp.raise_for_status()
             return resp.json()
 
     async def upsert_batch(self, *, workspace_id: str, items: List[Dict[str, Any]], run_id: str) -> Dict[str, Any]:
         async with httpx.AsyncClient(timeout=max(self._timeout, 120.0)) as client:
             resp = await client.post(
-                f"{self._base}/artifacts/batch",
-                json={"workspace_id": workspace_id, "items": items, "run_id": run_id},
+                f"{self._base}/artifact/{workspace_id}/upsert-batch",
+                headers={"X-Run-Id": run_id},
+                json={"items": items},
             )
             resp.raise_for_status()
             return resp.json()

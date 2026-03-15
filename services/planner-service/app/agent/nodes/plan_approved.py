@@ -31,6 +31,7 @@ def plan_approved_node(*, session_repo: SessionRepository):
                     title=s.get("title", ""),
                     description=s.get("description"),
                     inputs=s.get("inputs") or {},
+                    run_inputs=s.get("run_inputs") or {},
                     order=s.get("order", len(plan_steps) + 1),
                     enabled=s.get("enabled", True),
                 ))

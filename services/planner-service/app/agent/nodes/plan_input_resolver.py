@@ -70,7 +70,7 @@ def plan_input_resolver_node(*, runs_repo: RunRepository, llm: AgentLLM):
                 StepAudit(
                     step_id=step_id,
                     capability_id=cap_id,
-                    mode="plan_input_resolver",
+                    mode="mcp",
                     inputs_preview={"source": "prefill", "tool_name": tool_name, "args_keys": list(args.keys())},
                     calls=[],
                 ),
@@ -171,7 +171,7 @@ def plan_input_resolver_node(*, runs_repo: RunRepository, llm: AgentLLM):
                 StepAudit(
                     step_id=step_id,
                     capability_id=cap_id,
-                    mode="plan_input_resolver",
+                    mode="mcp",
                     inputs_preview={
                         "source": "artifact_llm",
                         "tool_name": tool_name,
