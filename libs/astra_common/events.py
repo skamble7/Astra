@@ -11,7 +11,8 @@ class Service(str, Enum):
     LEARNING = "learning"
     AUDIT = "audit"
     ERROR = "error"
-    CONDUCTOR = "conductor"  # NEW
+    CONDUCTOR = "conductor"
+    PLANNER = "planner"
 
 class Version(str, Enum):
     V1 = "v1"

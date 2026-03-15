@@ -12,6 +12,7 @@ description = "Astra Conductor Service – LangGraph agent + MCP host"
 readme = "README.md"
 
 dependencies = [
+  # conductor-core: installed separately (see Dockerfile / dev setup)
   "fastapi>=0.115",
   "uvicorn[standard]>=0.30",
   "pydantic>=2.8",

@@ -13,18 +13,19 @@ from langgraph.graph.state import END
 from app.clients.artifact_service import ArtifactServiceClient
 from app.clients.capability_service import CapabilityServiceClient
 from app.db.run_repository import RunRepository
-from app.models.run_models import PlaybookRun
+from conductor_core.models.run_models import PlaybookRun
 
 from app.agent.nodes.input_resolver import input_resolver_node
-from app.agent.nodes.capability_executor import capability_executor_node
-from app.agent.nodes.mcp_input_resolver import mcp_input_resolver_node
-from app.agent.nodes.mcp_execution import mcp_execution_node
-from app.agent.nodes.llm_execution import llm_execution_node
-from app.agent.nodes.persist_run import persist_run_node
-from app.agent.nodes.diagram_enrichment import diagram_enrichment_node  # NEW
-from app.agent.nodes.narrative_enrichment import narrative_enrichment_node  # NEW
+from conductor_core.nodes.capability_executor import capability_executor_node
+from conductor_core.nodes.mcp_input_resolver import mcp_input_resolver_node
+from conductor_core.nodes.mcp_execution import mcp_execution_node
+from conductor_core.nodes.llm_execution import llm_execution_node
+from conductor_core.nodes.persist_run import persist_run_node
+from conductor_core.nodes.diagram_enrichment import diagram_enrichment_node
+from conductor_core.nodes.narrative_enrichment import narrative_enrichment_node
 
-from app.llm.factory import get_agent_llm
+from conductor_core.llm.factory import get_agent_llm
+from app.events.rabbit import get_bus, EventPublisher
 
 
 class GraphState(TypedDict, total=False):
@@ -94,6 +95,7 @@ class ConductorGraph:
             "capability_executor",
             capability_executor_node(
                 runs_repo=self.runs_repo,
+                publisher=EventPublisher(bus=get_bus()),
             ),
         )
 
@@ -138,7 +140,8 @@ class ConductorGraph:
             "persist_run",
             persist_run_node(
                 runs_repo=self.runs_repo,
-                art_client=self.art_client,   # <<< NEW: required for baseline promotion
+                art_client=self.art_client,
+                publisher=EventPublisher(bus=get_bus()),
             ),
         )
 

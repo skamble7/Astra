@@ -13,7 +13,7 @@ from jsonschema import Draft202012Validator, ValidationError
 from app.clients.artifact_service import ArtifactServiceClient
 from app.clients.capability_service import CapabilityServiceClient
 from app.db.run_repository import RunRepository
-from app.models.run_models import StepState, StepStatus
+from conductor_core.models.run_models import StepState, StepStatus
 from app.events.rabbit import get_bus, EventPublisher  # NEW
 
 logger = logging.getLogger("app.agent.nodes.input_resolver")

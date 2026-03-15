@@ -1,0 +1,33 @@
+# libs/conductor-core/pyproject.toml
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "conductor-core"
+version = "0.1.0"
+requires-python = ">=3.11"
+description = "Shared execution nodes, LLM adapters, and models for ASTRA conductor agents"
+
+dependencies = [
+  "pydantic>=2.8",
+  "fastjsonschema>=2.20.0",
+  "jsonschema>=4.22",
+  "tenacity>=9.0",
+  # polyllm: provider-agnostic LLM client
+  "polyllm @ git+https://github.com/skamble7/platform-libraries.git@polyllm-v0.1.10#subdirectory=libs/polyllm",
+  "langchain-openai>=0.2",
+  "langchain-google-genai>=2.0",
+  "langchain-aws>=0.2",
+  "langgraph>=0.2",
+  # MCP client (official)
+  "mcp>=1.15,<2",
+  # LangChain MCP adapter
+  "langchain-mcp-adapters>=0.1.0",
+  # Minimal LC core for tool interfaces
+  "langchain-core>=0.3.6",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["conductor_core*"]
