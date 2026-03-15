@@ -69,6 +69,7 @@ def plan_builder_node(*, llm: AgentLLM, cache: ManifestCache):
             context_msgs.append(f"{m.get('role', 'user')}: {m.get('content', '')}")
 
         prompt = (
+            f"{_SYSTEM_PROMPT}\n\n"
             f"User intent: {json.dumps(intent, indent=2)}\n\n"
             f"Selected capabilities:\n{json.dumps(caps_for_prompt, indent=2)}\n\n"
             f"Conversation context:\n{''.join(context_msgs)}\n\n"
@@ -76,7 +77,7 @@ def plan_builder_node(*, llm: AgentLLM, cache: ManifestCache):
         )
 
         try:
-            result = await llm.acomplete(prompt, system_prompt=_SYSTEM_PROMPT)
+            result = await llm.acomplete(prompt)
             text = (result.text or "").strip()
             if text.startswith("```"):
                 parts = text.split("```")

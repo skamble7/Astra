@@ -39,10 +39,10 @@ def intent_resolver_node(*, llm: AgentLLM):
             history_parts.append(f"{role}: {content}")
         context = "\n".join(history_parts)
 
-        prompt = f"Conversation context:\n{context}\n\nLatest user message: {message}\n\nExtract the intent."
+        prompt = f"{_SYSTEM_PROMPT}\n\nConversation context:\n{context}\n\nLatest user message: {message}\n\nExtract the intent."
 
         try:
-            result = await llm.acomplete(prompt, system_prompt=_SYSTEM_PROMPT)
+            result = await llm.acomplete(prompt)
             text = (result.text or "").strip()
             # Strip markdown fences if present
             if text.startswith("```"):

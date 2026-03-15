@@ -61,13 +61,14 @@ def capability_selector_node(*, llm: AgentLLM, cache: ManifestCache):
             })
 
         prompt = (
+            f"{_SYSTEM_PROMPT}\n\n"
             f"Available capabilities:\n{json.dumps(caps_summary, indent=2)}\n\n"
             f"User intent:\n{json.dumps(intent, indent=2)}\n\n"
             "Select the capabilities needed to fulfill this intent."
         )
 
         try:
-            result = await llm.acomplete(prompt, system_prompt=_SYSTEM_PROMPT)
+            result = await llm.acomplete(prompt)
             text = (result.text or "").strip()
             if text.startswith("```"):
                 parts = text.split("```")
