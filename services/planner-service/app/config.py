@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     # MongoDB
     mongo_uri: str = os.getenv("MONGO_URI", "")
-    mongo_db: str = os.getenv("MONGO_DB", "astra_planner")
+    mongo_db: str = os.getenv("MONGO_DB", "astra")
 
     # Redis
     redis_url: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
