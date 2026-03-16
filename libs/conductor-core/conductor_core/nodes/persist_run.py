@@ -115,15 +115,16 @@ def _stable_hash(payload: Any, n: int = 10) -> str:
     return _hl.sha1(s.encode("utf-8")).hexdigest()[:n]
 
 
-def _derive_name(kind: str, data: Dict[str, Any]) -> str:
+def _derive_name(kind: str, data: Dict[str, Any], kind_title: Optional[str] = None) -> str:
     """
     Generalized rules (no kind-specific branches):
     1) data.name
     2) data.source.relpath
-    3) kind + short hash
+    3) kind title from the artifact kind registry
+    4) kind + short hash
     """
     if not isinstance(data, dict):
-        return kind or "artifact"
+        return kind_title or kind or "artifact"
     name = data.get("name")
     if isinstance(name, str) and name.strip():
         return name.strip()
@@ -135,6 +136,8 @@ def _derive_name(kind: str, data: Dict[str, Any]) -> str:
             src_rel = sr.strip()
     if src_rel:
         return src_rel
+    if kind_title and kind_title.strip():
+        return kind_title.strip()
     return f"{(kind or 'artifact')}:{_stable_hash(data)}"
 
 
@@ -191,7 +194,8 @@ def _normalize_to_envelope(
             provenance=provenance,
         )
         data_san_dict = data_san if isinstance(data_san, dict) else {}
-        setattr(env, "_derived_name", _derive_name(kind_id, data_san_dict))
+        kind_title = (kind_specs.get(kind_id) or {}).get("title")
+        setattr(env, "_derived_name", _derive_name(kind_id, data_san_dict, kind_title=kind_title))
         return env
     except Exception as e:
         logger.warning("[persist_run] Could not normalize artifact (kind=%s): %s", kind_id, str(e))
@@ -267,10 +271,8 @@ async def _to_artifact_service_item(
     adapter: ArtifactAdapter,
     correlation_id: Optional[str],
 ) -> Dict[str, Any]:
-    # Prefer derived semantic name (avoids NK collisions when registry has no identity rule)
-    name = getattr(env, "_derived_name", None) or _derive_name(env.kind_id, env.data)
-
     # Sanitize and then adapt to registry schema via dynamic adapter (no hardcoding)
+    # adapt_only() caches the kind spec in schema_registry, so title lookup comes after
     sanitized_data = _json_sanitize(env.data)
     adapted_data = await adapter.adapt_only(
         kind=env.kind_id,
@@ -278,6 +280,10 @@ async def _to_artifact_service_item(
         schema_version=env.schema_version,
         correlation_id=correlation_id,
     )
+
+    # kind spec is now guaranteed cached by adapt_only(); use title as friendly name fallback
+    _kind_title = (adapter._schemas._kind_specs.get(env.kind_id) or {}).get("title")
+    name = getattr(env, "_derived_name", None) or _derive_name(env.kind_id, env.data, kind_title=_kind_title)
 
     item: Dict[str, Any] = {
         "kind": env.kind_id,
