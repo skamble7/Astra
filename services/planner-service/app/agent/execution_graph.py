@@ -260,7 +260,7 @@ async def _build_execution_graph(
     graph = StateGraph(ExecutionState)
 
     graph.add_node("plan_init", plan_init_node(session_repo=session_repo, run_repo=run_repo, art_client=art_client))
-    graph.add_node("capability_executor", capability_executor_node(runs_repo=run_repo, publisher=publisher))
+    graph.add_node("capability_executor", capability_executor_node(runs_repo=run_repo, publisher=publisher, skip_diagram=settings.skip_diagram, skip_narrative=settings.skip_narrative))
     graph.add_node("mcp_input_resolver", plan_input_resolver_node(runs_repo=run_repo, llm=llm))
     graph.add_node("mcp_execution", mcp_execution_node(runs_repo=run_repo))
     graph.add_node("llm_execution", llm_execution_node(runs_repo=run_repo))

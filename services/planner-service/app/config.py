@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     # Consumer queues
     consumer_queue_capability: str = os.getenv("CONSUMER_QUEUE_CAPABILITY", "planner.capability.v1")
 
+    # Skip enrichment nodes (saves time and cost during testing)
+    skip_diagram: bool = bool(int(os.getenv("SKIP_DIAGRAM", "0")))
+    skip_narrative: bool = bool(int(os.getenv("SKIP_NARRATION", "0")))
+
     model_config = SettingsConfigDict(env_file=None, extra="ignore")
 
 
