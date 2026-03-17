@@ -33,6 +33,26 @@ Respond ONLY with a single JSON object:
 }
 """
 
+_QUERY_SYSTEM_PROMPT = """You are the plan-builder component of ASTRA, a general-purpose capability orchestration platform.
+
+The user is asking about ASTRA capabilities — they want to discover what else is available, NOT to change their current plan.
+
+Your job:
+1. Return the existing plan steps UNCHANGED in the "steps" array
+2. In "response_message", write a helpful summary of the available capabilities from the provided list:
+   - Group related capabilities together if useful
+   - For each capability: name, id, and a one-line description of what it does
+   - End with "Let me know if you'd like to add any of these to your plan."
+
+Respond ONLY with a single JSON object:
+{
+  "steps": [/* exact copy of current plan steps — DO NOT modify */],
+  "confidence": 0.95,
+  "plan_summary": "Capability exploration",
+  "response_message": "Here are additional capabilities available in ASTRA:\\n\\n• Cap Title (cap.id): What it does\\n...\\nLet me know if you'd like to add any of these to your plan."
+}
+"""
+
 _MODIFY_SYSTEM_PROMPT = """You are the plan-builder component of ASTRA, a general-purpose capability orchestration platform.
 
 ASTRA capabilities are registered execution units — they can do anything: parse COBOL, discover microservices architectures, modernize legacy code, generate API documentation, run security scans, etc.
@@ -67,6 +87,7 @@ Respond ONLY with a single JSON object:
 def plan_builder_node(*, llm: AgentLLM, cache: ManifestCache):
     async def _node(state: Dict[str, Any]) -> Dict[str, Any]:
         intent = state.get("intent") or {}
+        intent_type = intent.get("intent_type", "")
         candidate_caps = state.get("candidate_capabilities") or []
         messages = state.get("messages") or []
         existing_plan = state.get("existing_plan") or []
@@ -97,6 +118,50 @@ def plan_builder_node(*, llm: AgentLLM, cache: ManifestCache):
             else:
                 result["draft_plan"] = []
             return result
+
+        # ── Query mode: describe available capabilities without modifying the plan ──────
+        if intent_type == "query_capabilities" and existing_plan:
+            caps_for_query = [
+                {"id": c.get("id"), "title": c.get("title") or c.get("name"), "description": c.get("description", "")}
+                for c in candidate_caps
+            ]
+            query_prompt = (
+                f"{_QUERY_SYSTEM_PROMPT}\n\n"
+                f"Current plan ({len(existing_plan)} steps — return unchanged):\n"
+                f"{json.dumps([{'step_id': s.get('step_id'), 'capability_id': s.get('capability_id'), 'title': s.get('title'), 'order': s.get('order')} for s in existing_plan], indent=2)}\n\n"
+                f"Available capabilities to describe ({len(caps_for_query)} capabilities not in the plan):\n"
+                f"{json.dumps(caps_for_query, indent=2)}\n\n"
+                f"User request: {intent.get('description', state.get('current_message', ''))}\n\n"
+                "Describe the relevant capabilities in response_message. Return current plan steps unchanged."
+            )
+            try:
+                result = await llm.acomplete(query_prompt)
+                text = (result.text or "").strip()
+                if text.startswith("```"):
+                    parts = text.split("```")
+                    text = next((p.strip() for p in parts if p.strip().startswith("{")), text)
+                query_response = json.loads(text)
+            except Exception as e:
+                logger.warning("[plan_builder] query_capabilities LLM parse failed: %s", e)
+                query_response = {
+                    "steps": existing_plan,
+                    "confidence": 0.95,
+                    "response_message": (
+                        "Here are additional capabilities available in ASTRA:\n\n"
+                        + "\n".join(f"• {c.get('title') or c.get('id')} ({c.get('id')}): {c.get('description', '')}" for c in caps_for_query[:10])
+                        + "\n\nLet me know if you'd like to add any of these to your plan."
+                    ),
+                }
+
+            response_msg = query_response.get("response_message") or query_response.get("plan_summary") or "Here are the available capabilities."
+            logger.info("[plan_builder] query_capabilities: described %d caps", len(caps_for_query))
+            return {
+                "draft_plan": existing_plan,   # plan unchanged
+                "confidence_score": 0.95,
+                "needs_clarification": False,
+                "clarification_question": None,
+                "response_message": response_msg,
+            }
 
         # Build capability summaries (without full execution config to keep prompt lean)
         caps_for_prompt = []

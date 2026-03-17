@@ -32,14 +32,17 @@ Respond ONLY with a single JSON object (no markdown, no explanation):
 }
 
 intent_type values:
-- discover: user wants to explore, analyse, or understand something (architecture, codebase, data model, etc.)
+- discover: user wants to build a NEW plan to explore, analyse, or understand something (first message or starting fresh)
 - generate: user wants to produce new artifacts (code, diagrams, specs, reports)
 - document: user wants documentation produced
 - review: user wants a review or audit of something
 - refactor: user wants code or system changes
 - test: user wants tests generated or run
 - modify_plan: user wants to change an already-assembled ASTRA capability plan (add/remove/reorder/replace steps)
-- other: anything that doesn't fit the above"""
+- query_capabilities: user wants to know what capabilities are available, discover new ones relevant to their goal, or get descriptions — WITHOUT changing the current plan
+- other: anything that doesn't fit the above
+
+IMPORTANT: if a plan already exists and the user is asking about capabilities (e.g. "what else can ASTRA do", "suggest more capabilities", "describe capability X"), use query_capabilities, NOT discover."""
 
 
 def intent_resolver_node(*, llm: AgentLLM):

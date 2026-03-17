@@ -57,14 +57,27 @@ def capability_selector_node(*, llm: AgentLLM, cache: ManifestCache):
                 "clarification_question": "I couldn't load the available capabilities. Please try again.",
             }
 
+        intent_type = intent.get("intent_type", "")
+
         # For plan modifications, skip LLM selection and pass ALL capabilities to plan_builder.
         # plan_builder's _MODIFY_SYSTEM_PROMPT handles add/remove/reorder itself — it needs the
         # full capability list so it can find new capabilities when the user asks to add a step.
-        intent_type = intent.get("intent_type", "")
         if intent_type == "modify_plan" and existing_plan:
             logger.info("[capability_selector] modify_plan short-circuit: passing all %d caps to plan_builder", len(all_caps))
             return {
                 "candidate_capabilities": all_caps,
+                "needs_clarification": False,
+                "clarification_question": None,
+            }
+
+        # For capability queries ("what else can ASTRA do?"), pass capabilities NOT already in the plan.
+        # plan_builder's _QUERY_SYSTEM_PROMPT will describe them without modifying the plan.
+        if intent_type == "query_capabilities":
+            plan_cap_ids = {s.get("capability_id") for s in existing_plan if s.get("capability_id")}
+            candidate_caps = [c for c in all_caps if c.get("id") not in plan_cap_ids]
+            logger.info("[capability_selector] query_capabilities short-circuit: %d caps outside current plan", len(candidate_caps))
+            return {
+                "candidate_capabilities": candidate_caps,
                 "needs_clarification": False,
                 "clarification_question": None,
             }
