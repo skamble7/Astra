@@ -103,7 +103,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": ("Produce a strict JSON Logical Data Model (entities, attributes, keys, relationships) that conforms exactly to the JSON Schema. Use the provided `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss, plus goals, non-functionals, constraints, assumptions, and context) as the single source of truth. Do not include any keys that are not defined in the schema (AdditionalProperties=false). Prefer entities and attributes that map directly to FSS stories and AVC domain language. Deduplicate entities; choose stable primary keys; mark PII thoughtfully. Emit JSON only."),
+                    "system": ("Produce a strict JSON Logical Data Model (entities, attributes, keys, relationships) that conforms exactly to the JSON Schema. Use the provided `cam.asset.raina_input` artifact (inputs.avc / inputs.fss / inputs.pss, plus goals, non-functionals, constraints, assumptions, and context) as the single source of truth. Do not include any keys that are not defined in the schema (AdditionalProperties=false). Prefer entities and attributes that map directly to FSS stories and AVC domain language. Deduplicate entities; choose stable primary keys; mark PII thoughtfully. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -153,7 +153,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.inputs.raina"],
+                    "hard": ["cam.asset.raina_input"],
                     "soft": ["cam.architecture.pipeline_patterns"],
                     "context_hint": "Ground entities in FSS stories and AVC context.",
                 },
@@ -161,10 +161,10 @@ KIND_DOCS: List[Dict[str, Any]] = [
         ],
     },
     {
-        "_id": "cam.flow.business_flow_catalog",
+        "_id": "cam.workflow.business_flow_catalog",
         "title": "Business Flow Catalog",
         "category": "workflow",
-        "aliases": ["cam.workflow.business_flows"],
+        "aliases": ["cam.flow.business_flow_catalog", "cam.workflow.business_flows"],
         "status": "active",
         "latest_schema_version": LATEST,
         "schema_versions": [
@@ -207,7 +207,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Extract key business flows and emit strict JSON conforming to the schema. Read the appended section '=== RUN INPUTS (authoritative, from inputs) ===' and use AVC/FSS/PSS, FR/NFR as the basis for flows, actors, steps, and datasets_touched. Do not invent properties not in the schema; AdditionalProperties=false. Map steps to datasets using the Logical Data Model when possible. Emit JSON only."),
+                    "system": ("Use ONLY the data from the `cam.asset.raina_input` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Extract key business flows and emit strict JSON conforming to the schema. Read the appended section '=== RUN INPUTS (authoritative, from inputs) ===' and use AVC/FSS/PSS, FR/NFR as the basis for flows, actors, steps, and datasets_touched. Do not invent properties not in the schema; AdditionalProperties=false. Map steps to datasets using the Logical Data Model when possible. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -261,7 +261,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.inputs.raina", "cam.data.model_logical"],
+                    "hard": ["cam.asset.raina_input", "cam.data.model_logical"],
                     "soft": [],
                     "context_hint": "Use FSS stories to enumerate flows.",
                 },
@@ -302,7 +302,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Pick and justify data pipeline patterns strictly per the schema. Use the appended '=== RUN INPUTS (authoritative, from inputs) ===' (AVC/FSS/PSS, FR/NFR) to decide. Be explicit about why selected vs alternatives, aligning to latency, throughput, availability, privacy, and ops constraints. Do not emit properties not defined by the schema. Emit JSON only."),
+                    "system": ("Use ONLY the data from the `cam.asset.raina_input` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Pick and justify data pipeline patterns strictly per the schema. Use the appended '=== RUN INPUTS (authoritative, from inputs) ===' (AVC/FSS/PSS, FR/NFR) to decide. Be explicit about why selected vs alternatives, aligning to latency, throughput, availability, privacy, and ops constraints. Do not emit properties not defined by the schema. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -339,7 +339,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.inputs.raina"],
+                    "hard": ["cam.asset.raina_input"],
                     "soft": [],
                     "context_hint": "Base selection on FR/NFR and PSS style.",
                 },
@@ -488,7 +488,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Generate a strictly-typed Dataset Contract that conforms exactly to the JSON Schema. Read the appended '=== RUN INPUTS (authoritative, from inputs) ===' and base your design on AVC/FSS/PSS, goals, and NFRs. Use the 'schema' array for columns; DO NOT use an 'attributes' key anywhere. Keep key definitions ONLY in the top-level 'keys' object (primary/unique/foreign); DO NOT add 'keys' at the column level. Respect AdditionalProperties=false: do not emit any properties not defined by the schema. Emit JSON only."),
+                    "system": ("Use ONLY the data from the `cam.asset.raina_input` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Generate a strictly-typed Dataset Contract that conforms exactly to the JSON Schema. Read the appended '=== RUN INPUTS (authoritative, from inputs) ===' and base your design on AVC/FSS/PSS, goals, and NFRs. Use the 'schema' array for columns; DO NOT use an 'attributes' key anywhere. Keep key definitions ONLY in the top-level 'keys' object (primary/unique/foreign); DO NOT add 'keys' at the column level. Respect AdditionalProperties=false: do not emit any properties not defined by the schema. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -537,7 +537,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.inputs.raina"],
+                    "hard": ["cam.asset.raina_input"],
                     "soft": [
                         "cam.data.model_logical",
                         "cam.architecture.pipeline_patterns",
@@ -687,7 +687,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.Emit strict JSON pipeline architecture conforming to the schema: patterns, stages, routing, idempotency, SLAs, and ranked tech-stack recommendations. Read and base your design on the appended '=== RUN INPUTS (authoritative, from inputs) ===' (AVC/FSS/PSS, goals, NFRs, constraints). Align stages and routing to latency/freshness/availability requirements; choose stack consistent with constraints. Do not add properties outside the schema. Emit JSON only."),
+                    "system": ("Use ONLY the data from the `cam.asset.raina_input` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.Emit strict JSON pipeline architecture conforming to the schema: patterns, stages, routing, idempotency, SLAs, and ranked tech-stack recommendations. Read and base your design on the appended '=== RUN INPUTS (authoritative, from inputs) ===' (AVC/FSS/PSS, goals, NFRs, constraints). Align stages and routing to latency/freshness/availability requirements; choose stack consistent with constraints. Do not add properties outside the schema. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -789,7 +789,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.inputs.raina", "cam.data.model_logical",
+                    "hard": ["cam.asset.raina_input", "cam.data.model_logical",
                         "cam.data.dataset_contract",
                         "cam.architecture.pipeline_patterns",],
                     "soft": ["cam.deployment.data_platform_topology"],
@@ -857,7 +857,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Create a strict JSON Batch Job Spec from AVC/FSS/PSS, FR/NFR found in the appended '=== RUN INPUTS (authoritative, from inputs) ==='. Map stories to batch steps, set schedules to meet freshness/latency SLAs, and ensure idempotency. Do not include any properties not defined in the schema. Emit JSON only."),
+                    "system": ("Use ONLY the data from the `cam.asset.raina_input` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Create a strict JSON Batch Job Spec from AVC/FSS/PSS, FR/NFR found in the appended '=== RUN INPUTS (authoritative, from inputs) ==='. Map stories to batch steps, set schedules to meet freshness/latency SLAs, and ensure idempotency. Do not include any properties not defined in the schema. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -906,7 +906,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.inputs.raina", "cam.workflow.data_pipeline_architecture"],
+                    "hard": ["cam.asset.raina_input", "cam.workflow.data_pipeline_architecture"],
                     "soft": ["cam.data.dataset_contract"],
                     "context_hint": "Adhere to pipeline SLAs and dataset contracts.",
                 },
@@ -976,7 +976,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Generate a strict JSON Stream Job Spec using the appended '=== RUN INPUTS (authoritative, from inputs) ===' (AVC/FSS/PSS). Define sources, sinks, and a minimal sequence of ops (map/filter/join/aggregate/window) with windowing and exactly-once if NFRs require. Do not add properties outside the schema. Emit JSON only."),
+                    "system": ("Use ONLY the data from the `cam.asset.raina_input` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Generate a strict JSON Stream Job Spec using the appended '=== RUN INPUTS (authoritative, from inputs) ===' (AVC/FSS/PSS). Define sources, sinks, and a minimal sequence of ops (map/filter/join/aggregate/window) with windowing and exactly-once if NFRs require. Do not add properties outside the schema. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -1025,7 +1025,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.inputs.raina", "cam.workflow.data_pipeline_architecture"],
+                    "hard": ["cam.asset.raina_input", "cam.workflow.data_pipeline_architecture"],
                     "soft": ["cam.data.dataset_contract"],
                     "context_hint": "Follow stream SLAs and idempotency requirements.",
                 },
@@ -1070,7 +1070,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Emit strict JSON transformation specs (input→output with logic and DQ checks) using the appended '=== RUN INPUTS (authoritative, from inputs) ===' and derived datasets. Keep only schema-allowed fields; AdditionalProperties=false. Emit JSON only."),
+                    "system": ("Use ONLY the data from the `cam.asset.raina_input` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Emit strict JSON transformation specs (input→output with logic and DQ checks) using the appended '=== RUN INPUTS (authoritative, from inputs) ===' and derived datasets. Keep only schema-allowed fields; AdditionalProperties=false. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -1113,7 +1113,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.inputs.raina", "cam.data.dataset_contract"],
+                    "hard": ["cam.asset.raina_input", "cam.data.dataset_contract"],
                     "soft": ["cam.data.model_logical"],
                     "context_hint": "Use dataset schemas to validate logic.",
                 },
@@ -1177,7 +1177,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Produce strict JSON lineage nodes/edges derived from datasets and jobs. Read the appended '=== RUN INPUTS (authoritative, from inputs) ===' for AVC/FSS/PSS, FR/NFR to ensure coverage of critical flows and compliance datasets. Do not add fields outside the schema. Emit JSON only."),
+                    "system": ("Use ONLY the data from the `cam.asset.raina_input` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Produce strict JSON lineage nodes/edges derived from datasets and jobs. Read the appended '=== RUN INPUTS (authoritative, from inputs) ===' for AVC/FSS/PSS, FR/NFR to ensure coverage of critical flows and compliance datasets. Do not add fields outside the schema. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -1230,7 +1230,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.inputs.raina", "cam.workflow.data_pipeline_architecture",
+                    "hard": ["cam.asset.raina_input", "cam.workflow.data_pipeline_architecture",
                         "cam.data.dataset_contract",],
                     "soft": [
                         "cam.workflow.batch_job_spec",
@@ -1296,7 +1296,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Emit strict JSON governance policies derived from AVC constraints/NFRs in the appended '=== RUN INPUTS (authoritative, from inputs) ==='. Respect the schema only; do not add extra properties. Emit JSON only."),
+                    "system": ("Use ONLY the data from the `cam.asset.raina_input` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Emit strict JSON governance policies derived from AVC constraints/NFRs in the appended '=== RUN INPUTS (authoritative, from inputs) ==='. Respect the schema only; do not add extra properties. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -1323,7 +1323,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.inputs.raina"],
+                    "hard": ["cam.asset.raina_input"],
                     "soft": ["cam.data.dataset_contract"],
                     "context_hint": "Map dataset classifications to policy.",
                 },
@@ -1368,7 +1368,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Derive strict JSON access control policies from dataset classification and privacy constraints in the appended '=== RUN INPUTS (authoritative, from inputs) ==='. Emit only schema-allowed properties. Emit JSON only."),
+                    "system": ("Use ONLY the data from the `cam.asset.raina_input` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Derive strict JSON access control policies from dataset classification and privacy constraints in the appended '=== RUN INPUTS (authoritative, from inputs) ==='. Emit only schema-allowed properties. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -1396,7 +1396,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.inputs.raina", "cam.data.dataset_contract",
+                    "hard": ["cam.asset.raina_input", "cam.data.dataset_contract",
                         "cam.governance.data_governance_policies",],
                     "soft": [],
                     "context_hint": "Join dataset classification with governance policy to decide access.",
@@ -1445,7 +1445,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.From dataset contracts and privacy-related AVC/NFRs in the appended '=== RUN INPUTS (authoritative, from inputs) ===', produce strict JSON field-level masking/anonymization rules. Do not emit extra properties beyond the schema. Emit JSON only."),
+                    "system": ("Use ONLY the data from the `cam.asset.raina_input` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.From dataset contracts and privacy-related AVC/NFRs in the appended '=== RUN INPUTS (authoritative, from inputs) ===', produce strict JSON field-level masking/anonymization rules. Do not emit extra properties beyond the schema. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -1473,7 +1473,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.inputs.raina", "cam.data.dataset_contract"],
+                    "hard": ["cam.asset.raina_input", "cam.data.dataset_contract"],
                     "soft": ["cam.governance.data_governance_policies"],
                     "context_hint": "Map classification/PII flags to masking strategies.",
                 },
@@ -1481,10 +1481,10 @@ KIND_DOCS: List[Dict[str, Any]] = [
         ],
     },
     {
-        "_id": "cam.quality.data_sla",
+        "_id": "cam.qa.data_sla",
         "title": "Data Quality & SLA",
-        "category": "quality",
-        "aliases": [],
+        "category": "qa",
+        "aliases": ["cam.quality.data_sla"],
         "status": "active",
         "latest_schema_version": LATEST,
         "schema_versions": [
@@ -1540,7 +1540,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.Define quality/SLA targets and monitors based on NFRs/AVC goals in the appended '=== RUN INPUTS (authoritative, from inputs) ===' and the pipeline architecture. Only use schema-allowed fields. Emit JSON only."),
+                    "system": ("Use ONLY the data from the `cam.asset.raina_input` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.Define quality/SLA targets and monitors based on NFRs/AVC goals in the appended '=== RUN INPUTS (authoritative, from inputs) ===' and the pipeline architecture. Only use schema-allowed fields. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -1580,7 +1580,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.inputs.raina", "cam.workflow.data_pipeline_architecture"],
+                    "hard": ["cam.asset.raina_input", "cam.workflow.data_pipeline_architecture"],
                     "soft": ["cam.data.dataset_contract"],
                     "context_hint": "Align monitors with SLAs and critical datasets.",
                 },
@@ -1614,7 +1614,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Define data observability signals (metrics/logs/traces) and exporters based on FR/NFR in the appended '=== RUN INPUTS (authoritative, from inputs) ===' and the pipeline architecture. Only emit schema-allowed properties. Emit JSON only."),
+                    "system": ("Use ONLY the data from the `cam.asset.raina_input` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Define data observability signals (metrics/logs/traces) and exporters based on FR/NFR in the appended '=== RUN INPUTS (authoritative, from inputs) ===' and the pipeline architecture. Only emit schema-allowed properties. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -1643,7 +1643,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.inputs.raina", "cam.quality.data_sla"],
+                    "hard": ["cam.asset.raina_input", "cam.qa.data_sla"],
                     "soft": ["cam.workflow.data_pipeline_architecture"],
                     "context_hint": "Observability derived from SLAs and stages.",
                 },
@@ -1691,7 +1691,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Create a strict JSON orchestration spec wiring batch and stream jobs with dependencies aligned to SLAs/NFRs. Choose the orchestrator consistent with PSS and stack rankings. Use the appended '=== RUN INPUTS (authoritative, from inputs) ===' as the basis; emit only schema-allowed properties. Emit JSON only."),
+                    "system": ("Use ONLY the data from the `cam.asset.raina_input` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state. Create a strict JSON orchestration spec wiring batch and stream jobs with dependencies aligned to SLAs/NFRs. Choose the orchestrator consistent with PSS and stack rankings. Use the appended '=== RUN INPUTS (authoritative, from inputs) ===' as the basis; emit only schema-allowed properties. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -1729,9 +1729,9 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.inputs.raina", "cam.workflow.batch_job_spec",
+                    "hard": ["cam.asset.raina_input", "cam.workflow.batch_job_spec",
                         "cam.workflow.stream_job_spec",
-                        "cam.quality.data_sla",],
+                        "cam.qa.data_sla",],
                     "soft": [],
                     "context_hint": "Topologically order jobs to hit freshness/latency targets.",
                 },
@@ -1795,7 +1795,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.Produce ranked tech-stack candidates by category with rationale, strictly following the schema. Base recommendations on AVC/FSS/PSS, FR/NFR in the appended '=== RUN INPUTS (authoritative, from inputs) ==='. No extra properties. Emit JSON only."),
+                    "system": ("Use ONLY the data from the `cam.asset.raina_input` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.Produce ranked tech-stack candidates by category with rationale, strictly following the schema. Base recommendations on AVC/FSS/PSS, FR/NFR in the appended '=== RUN INPUTS (authoritative, from inputs) ==='. No extra properties. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -1833,7 +1833,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.inputs.raina"],
+                    "hard": ["cam.asset.raina_input"],
                     "soft": ["cam.workflow.data_pipeline_architecture"],
                     "context_hint": "Echo/extend pipeline-level stack recommendations.",
                 },
@@ -1861,7 +1861,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.List principal sources and sinks implied by AVC/FSS/PSS and NFRs in the appended '=== RUN INPUTS (authoritative, from inputs) ==='. Emit strict JSON arrays only; no extra properties."),
+                    "system": ("Use ONLY the data from the `cam.asset.raina_input` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.List principal sources and sinks implied by AVC/FSS/PSS and NFRs in the appended '=== RUN INPUTS (authoritative, from inputs) ==='. Emit strict JSON arrays only; no extra properties."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -1884,9 +1884,9 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.inputs.raina"],
+                    "hard": ["cam.asset.raina_input"],
                     "soft": [
-                        "cam.flow.business_flow_catalog",
+                        "cam.workflow.business_flow_catalog",
                         "cam.data.model_logical",
                     ],
                     "context_hint": "Ground in flows and entities.",
@@ -1895,10 +1895,10 @@ KIND_DOCS: List[Dict[str, Any]] = [
         ],
     },
     {
-        "_id": "cam.data_product.catalog",
+        "_id": "cam.catalog.data_products",
         "title": "Data Product Catalog",
-        "category": "data",
-        "aliases": ["cam.data.product"],
+        "category": "catalog",
+        "aliases": ["cam.data_product.catalog", "cam.data.product"],
         "status": "active",
         "latest_schema_version": LATEST,
         "schema_versions": [
@@ -1930,7 +1930,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.Propose Data-as-a-Product entries bundling datasets with ownership and SLO, strictly per the schema. Base on AVC/FSS/PSS, FR/NFR in the appended '=== RUN INPUTS (authoritative, from inputs) ==='. Do not add extra properties. Emit JSON only."),
+                    "system": ("Use ONLY the data from the `cam.asset.raina_input` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.Propose Data-as-a-Product entries bundling datasets with ownership and SLO, strictly per the schema. Base on AVC/FSS/PSS, FR/NFR in the appended '=== RUN INPUTS (authoritative, from inputs) ==='. Do not add extra properties. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -1959,7 +1959,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.inputs.raina", "cam.data.dataset_contract", "cam.quality.data_sla"],
+                    "hard": ["cam.asset.raina_input", "cam.data.dataset_contract", "cam.qa.data_sla"],
                     "soft": [],
                     "context_hint": "Use dataset contracts + SLAs to define products.",
                 },
@@ -2028,7 +2028,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.Output a strict JSON deployment topology covering components and links, derived from PSS stack and NFRs in the appended '=== RUN INPUTS (authoritative, from inputs) ==='. Include target environments. No extra properties. Emit JSON only."),
+                    "system": ("Use ONLY the data from the `cam.asset.raina_input` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.Output a strict JSON deployment topology covering components and links, derived from PSS stack and NFRs in the appended '=== RUN INPUTS (authoritative, from inputs) ==='. Include target environments. No extra properties. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -2082,7 +2082,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.inputs.raina", "cam.workflow.data_pipeline_architecture"],
+                    "hard": ["cam.asset.raina_input", "cam.workflow.data_pipeline_architecture"],
                     "soft": ["cam.observability.data_observability_spec"],
                     "context_hint": "Topology must host the proposed stages and observability.",
                 },
@@ -2112,7 +2112,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.Create a strict JSON deployment plan across environments based on NFRs, topology, and orchestration, reading the appended '=== RUN INPUTS (authoritative, from inputs) ==='. Include phased rollout, migration/backfill, and backout. No extra properties. Emit JSON only."),
+                    "system": ("Use ONLY the data from the `cam.asset.raina_input` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.Create a strict JSON deployment plan across environments based on NFRs, topology, and orchestration, reading the appended '=== RUN INPUTS (authoritative, from inputs) ==='. Include phased rollout, migration/backfill, and backout. No extra properties. Emit JSON only."),
                     "user_template": "{context}",
                     "variants": [],
                     "io_hints": None,
@@ -2154,9 +2154,9 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     }
                 ],
                 "depends_on": {
-                    "hard": ["cam.inputs.raina", "cam.deployment.data_platform_topology",
+                    "hard": ["cam.asset.raina_input", "cam.deployment.data_platform_topology",
                         "cam.workflow.orchestration_spec",],
-                    "soft": ["cam.quality.data_sla"],
+                    "soft": ["cam.qa.data_sla"],
                     "context_hint": "Plan must be feasible on platform and meet SLAs.",
                 },
             }
@@ -2304,7 +2304,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     "strict_json": True,
                 },
                 "depends_on": {
-                    "hard": ["cam.inputs.raina", "cam.cobol.program", "cam.cobol.copybook"],
+                    "hard": ["cam.asset.raina_input", "cam.cobol.program", "cam.cobol.copybook"],
                     "soft": [],
                 },
                 "identity": {
@@ -2370,10 +2370,11 @@ KIND_DOCS: List[Dict[str, Any]] = [
     # NEW: Architecture Guidance Document (prose, grounded on artifacts)
     # ─────────────────────────────────────────────────────────────
     {
-        "_id": "cam.documents.data-pipeline-arch-guidance",
+        "_id": "cam.governance.data_pipeline_arch_guidance",
         "title": "Data Pipeline Architecture Guidance",
-        "category": "documents",
+        "category": "governance",
         "aliases": [
+            "cam.documents.data-pipeline-arch-guidance",
             "cam.doc.data_pipeline_guidance",
             "cam.docs.pipeline_arch_guidance",
         ],
@@ -2511,8 +2512,8 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     "strict_json": True,
                 },
                 "depends_on": {
-                    "hard": ["cam.inputs.raina", "cam.catalog.data_source_inventory",
-                        "cam.flow.business_flow_catalog",
+                    "hard": ["cam.asset.raina_input", "cam.catalog.data_source_inventory",
+                        "cam.workflow.business_flow_catalog",
                         "cam.data.model_logical",
                         "cam.architecture.pipeline_patterns",
                         "cam.data.dataset_contract",
@@ -2524,11 +2525,11 @@ KIND_DOCS: List[Dict[str, Any]] = [
                         "cam.governance.data_governance_policies",
                         "cam.security.data_access_control",
                         "cam.security.data_masking_policy",
-                        "cam.quality.data_sla",
+                        "cam.qa.data_sla",
                         "cam.observability.data_observability_spec",
                         "cam.deployment.data_platform_topology",
                         "cam.catalog.tech_stack_rankings",
-                        "cam.data_product.catalog",
+                        "cam.catalog.data_products",
                         "cam.workflow.data_pipeline_architecture",
                         "cam.deployment.pipeline_deployment_plan",],
                     "soft": [],
@@ -2565,10 +2566,10 @@ KIND_DOCS: List[Dict[str, Any]] = [
         ],
     },
     {
-        "_id": "cam.inputs.raina",
+        "_id": "cam.asset.raina_input",
         "title": "Raina Input (AVC/FSS/PSS)",
-        "category": "inputs",
-        "aliases": ["cam.raina.input", "cam.discovery.raina"],
+        "category": "asset",
+        "aliases": ["cam.inputs.raina", "cam.raina.input", "cam.discovery.raina"],
         "status": "active",
         "latest_schema_version": LATEST,
         "schema_versions": [
@@ -2768,11 +2769,11 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "additional_props_policy": "forbid",
                 "prompt": {
-                    "system": ("Use ONLY the data from the `cam.inputs.raina` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.Validate and store a Raina Input document (AVC/FSS/PSS). Emit JSON strictly conforming to the schema; do not add fields."),
+                    "system": ("Use ONLY the data from the `cam.asset.raina_input` artifact (inputs.avc / inputs.fss / inputs.pss). Do not expect any 'request' or external graph state.Validate and store a Raina Input document (AVC/FSS/PSS). Emit JSON strictly conforming to the schema; do not add fields."),
                     "strict_json": True,
                 },
                 "depends_on": {
-                    "hard": ["cam.inputs.raina"],
+                    "hard": ["cam.asset.raina_input"],
                     "soft": [],
                 },
                 "identity": {
