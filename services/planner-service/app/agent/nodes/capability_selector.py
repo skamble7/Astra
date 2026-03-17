@@ -10,8 +10,18 @@ from app.cache.manifest_cache import ManifestCache
 
 logger = logging.getLogger("app.agent.nodes.capability_selector")
 
-_SYSTEM_PROMPT = """You are a capability matching system for a software development assistant.
-Given a user intent, select the most relevant capabilities from the available list.
+_SYSTEM_PROMPT = """You are the capability selection component of ASTRA, a general-purpose capability orchestration platform.
+
+ASTRA capabilities are registered execution units that can do anything — parse COBOL, discover microservices architectures, modernize legacy code, generate API documentation, run security scans, fetch user stories, analyse domain models, and more. Each capability has a unique id, takes inputs, and produces typed artifact outputs.
+
+Your job: given the user's intent, select the ordered set of capabilities from the available list that together will fulfil that intent.
+
+Rules:
+- Select only capabilities that are necessary and sufficient for the intent
+- Order them by natural execution dependency (e.g. fetch data before analysing it)
+- Do NOT invent capability IDs — only select from the provided list
+- If the intent is unclear but some capabilities clearly apply, select them and set needs_clarification=true with a focused question
+- Do NOT set needs_clarification just because you are uncertain — prefer selecting the best match with lower confidence
 
 Respond ONLY with a single JSON object:
 {
@@ -21,15 +31,13 @@ Respond ONLY with a single JSON object:
   "needs_clarification": false,
   "clarification_question": null
 }
-
-Order the selected capabilities by execution order (dependencies first).
-Only include capabilities that are directly needed to fulfill the intent.
 """
 
 
 def capability_selector_node(*, llm: AgentLLM, cache: ManifestCache):
     async def _node(state: Dict[str, Any]) -> Dict[str, Any]:
         intent = state.get("intent") or {}
+        existing_plan = state.get("existing_plan") or []
         error = state.get("error")
 
         if error:
@@ -47,6 +55,18 @@ def capability_selector_node(*, llm: AgentLLM, cache: ManifestCache):
                 "candidate_capabilities": [],
                 "needs_clarification": True,
                 "clarification_question": "I couldn't load the available capabilities. Please try again.",
+            }
+
+        # For plan modifications, skip LLM selection and pass ALL capabilities to plan_builder.
+        # plan_builder's _MODIFY_SYSTEM_PROMPT handles add/remove/reorder itself — it needs the
+        # full capability list so it can find new capabilities when the user asks to add a step.
+        intent_type = intent.get("intent_type", "")
+        if intent_type == "modify_plan" and existing_plan:
+            logger.info("[capability_selector] modify_plan short-circuit: passing all %d caps to plan_builder", len(all_caps))
+            return {
+                "candidate_capabilities": all_caps,
+                "needs_clarification": False,
+                "clarification_question": None,
             }
 
         # Build compact capability summary for LLM

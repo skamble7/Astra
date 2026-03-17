@@ -9,17 +9,37 @@ from conductor_core.llm.base import AgentLLM
 
 logger = logging.getLogger("app.agent.nodes.intent_resolver")
 
-_SYSTEM_PROMPT = """You are an intent analysis system for a software development assistant.
-Analyze user messages and extract structured intent.
+_SYSTEM_PROMPT = """You are the intent analysis component of ASTRA, a general-purpose capability orchestration platform.
+
+ASTRA allows users to register and execute *capabilities* — discrete execution units that can do anything: parse COBOL, discover microservices architecture, modernize legacy code, generate API documentation, run security scans, analyse user stories, and more. A capability has a unique id, takes structured inputs, and produces typed artifact outputs.
+
+The *planner* (your parent system) helps users assemble an ordered pipeline of capabilities to solve a goal. Through conversation, the user can:
+- Request a new plan from scratch ("discover the architecture of my application")
+- Modify an existing plan ("remove the last step", "add a step for API docs", "move step 3 before step 1")
+- Ask about what capabilities exist or what a capability does
+
+Your job is to classify the user's latest message and extract structured intent.
+
+IMPORTANT: If a plan already exists in the conversation and the user is asking to change it (add/remove/reorder/replace steps, adjust the pipeline), use intent_type "modify_plan".
 
 Respond ONLY with a single JSON object (no markdown, no explanation):
 {
-  "intent_type": "analyze|generate|document|review|refactor|test|other",
+  "intent_type": "discover|generate|document|review|refactor|test|modify_plan|other",
   "description": "concise description of what the user wants",
   "entities": {"files": [], "languages": [], "frameworks": [], "other": []},
   "constraints": [],
   "confidence": 0.0
-}"""
+}
+
+intent_type values:
+- discover: user wants to explore, analyse, or understand something (architecture, codebase, data model, etc.)
+- generate: user wants to produce new artifacts (code, diagrams, specs, reports)
+- document: user wants documentation produced
+- review: user wants a review or audit of something
+- refactor: user wants code or system changes
+- test: user wants tests generated or run
+- modify_plan: user wants to change an already-assembled ASTRA capability plan (add/remove/reorder/replace steps)
+- other: anything that doesn't fit the above"""
 
 
 def intent_resolver_node(*, llm: AgentLLM):

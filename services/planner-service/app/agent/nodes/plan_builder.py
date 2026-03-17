@@ -11,10 +11,11 @@ from app.cache.manifest_cache import ManifestCache
 
 logger = logging.getLogger("app.agent.nodes.plan_builder")
 
-_SYSTEM_PROMPT = """You are a plan builder for a software development assistant.
-Given selected capabilities and user intent, create an ordered execution plan.
+_SYSTEM_PROMPT = """You are the plan-builder component of ASTRA, a general-purpose capability orchestration platform.
 
-For each step, pre-fill any inputs you can infer from the conversation context.
+ASTRA capabilities are registered execution units — they can do anything: parse COBOL, discover microservices architectures, modernize legacy code, generate API documentation, run security scans, fetch user stories, analyse domain models, and more. Each capability has a unique id, takes inputs, and produces typed artifact outputs.
+
+Your job: given a set of selected capabilities and the user's goal, assemble an ordered execution pipeline. Pre-fill any step inputs you can infer from the conversation.
 
 Respond ONLY with a single JSON object:
 {
@@ -32,8 +33,17 @@ Respond ONLY with a single JSON object:
 }
 """
 
-_MODIFY_SYSTEM_PROMPT = """You are a plan builder for a software development assistant.
-An execution plan already exists. The user wants to modify it.
+_MODIFY_SYSTEM_PROMPT = """You are the plan-builder component of ASTRA, a general-purpose capability orchestration platform.
+
+ASTRA capabilities are registered execution units — they can do anything: parse COBOL, discover microservices architectures, modernize legacy code, generate API documentation, run security scans, etc.
+
+An execution pipeline (plan) already exists. The user wants to modify it.
+
+CRITICAL: You are the orchestrator — step removal, reordering, and addition are YOUR decisions, not something a capability does.
+- "Remove the last step" → return the plan without the last step
+- "Move step N to the front" → change the order values
+- "Add a step for X" → insert a new step using the most suitable capability from the available list
+- You do NOT need a capability that "edits plans" — YOU make the edit and return the updated JSON
 
 Apply ONLY the changes the user requested. Preserve all other steps unchanged (same capability_id, title, description, inputs, order).
 
@@ -64,6 +74,15 @@ def plan_builder_node(*, llm: AgentLLM, cache: ManifestCache):
         needs_clarification = state.get("needs_clarification", False)
 
         if error or needs_clarification:
+            # If we have an existing plan, preserve it in state so the canvas doesn't go blank
+            if existing_plan:
+                return {
+                    "draft_plan": existing_plan,
+                    "confidence_score": 0.0,
+                    "needs_clarification": True,
+                    "clarification_question": state.get("clarification_question") or "Could you clarify your request?",
+                    "response_message": state.get("clarification_question") or "Could you clarify your request?",
+                }
             return {}
 
         if not candidate_caps:
