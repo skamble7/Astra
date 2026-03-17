@@ -235,12 +235,41 @@ async def get_run_status(session_id: str, run_id: str) -> Dict[str, Any]:
 # ── Background tasks ─────────────────────────────────────────────────────────
 
 async def _run_planner_bg(session_id: str, message: str) -> None:
+    session_repo = _get_session_repo()
+    run_repo = _get_run_repo()
+
+    # Ensure a planner_runs document exists for this session (created on first message)
+    try:
+        session = await session_repo.get(session_id)
+        if session and not session.active_run_id:
+            run_id = await run_repo.create_planning_run(
+                session_id=session_id,
+                workspace_id=str(session.workspace_id) if session.workspace_id else "",
+            )
+            await session_repo.set_active_run(session_id, run_id)
+        # Append the user message to planner_runs conversation
+        await run_repo.append_conversation_message(
+            session_id,
+            {"role": "user", "content": message, "at": datetime.now(timezone.utc).isoformat()},
+        )
+    except Exception:
+        logger.warning("Failed to init/update planner_runs for session=%s", session_id, exc_info=True)
+
     try:
         response = await invoke_planner(session_id=session_id, user_message=message)
         plan_steps = response.get("draft_plan", [])
         status = response.get("status", "planning")
         response_message = response.get("response_message", "")
         at = datetime.now(timezone.utc).isoformat()
+
+        # Append assistant response to planner_runs conversation
+        try:
+            await run_repo.append_conversation_message(
+                session_id,
+                {"role": "assistant", "content": response_message, "at": at},
+            )
+        except Exception:
+            logger.warning("Failed to append assistant message to planner_runs session=%s", session_id, exc_info=True)
 
         # planner.response is session-scoped — direct WS only, not RabbitMQ broadcast
         publish_to_session(session_id, {

@@ -25,6 +25,7 @@ def session_init_node(*, session_repo: SessionRepository):
                 "org_id": session.org_id,
                 "workspace_id": session.workspace_id,
                 "messages": [m.model_dump(mode="json") for m in session.messages],
+                "existing_plan": [s.model_dump(mode="json") for s in (session.plan or [])],
                 "status": session.status.value,
             }
         except Exception as e:

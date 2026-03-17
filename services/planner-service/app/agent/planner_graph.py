@@ -41,6 +41,7 @@ class PlannerState(TypedDict, total=False):
     workspace_id: str
     messages: List[Dict[str, Any]]          # full chat history
     current_message: str                     # latest user message
+    existing_plan: List[Dict[str, Any]]      # current plan loaded from session (empty on first turn)
     intent: Dict[str, Any]                   # extracted intent
     candidate_capabilities: List[Dict[str, Any]]  # from manifest cache
     draft_plan: List[Dict[str, Any]]         # assembled plan steps
@@ -105,6 +106,7 @@ async def invoke_planner(*, session_id: str, user_message: str) -> Dict[str, Any
             {
                 "session_id": session_id,
                 "current_message": user_message,
+                "existing_plan": [],
                 "confidence_score": 0.0,
                 "needs_clarification": False,
             },

@@ -175,42 +175,65 @@ def plan_init_node(*, session_repo: SessionRepository, run_repo: RunRepository, 
         if strategy and strategy.lower() == RunStrategy.DELTA.value:
             run_strategy = RunStrategy.DELTA
 
-        # Create PlaybookRun
-        run_id = uuid4()
+        # Transition the existing planner_runs document (created at planning time) to execution state
         run_inputs = state.get("run_inputs") or {}
+        execution_steps = [
+            StepState(step_id=s["id"], capability_id=s["capability_id"], name=s.get("name"))
+            for s in playbook_steps
+        ]
+        effective_workspace = workspace_id or str(session.workspace_id)
+
+        run_id_str = await run_repo.init_execution(
+            session_id,
+            steps=execution_steps,
+            strategy=run_strategy,
+            workspace_id=effective_workspace,
+        )
+
+        # Fallback: if no planning-phase doc exists, create a full PlaybookRun
+        if not run_id_str:
+            run_id_str = str(uuid4())
+            run = PlaybookRun(
+                run_id=run_id_str,
+                workspace_id=effective_workspace,
+                session_id=session_id,
+                strategy=run_strategy,
+                status=RunStatus.RUNNING,
+                steps=execution_steps,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+            await run_repo.create_run(run)
+
+        await session_repo.set_active_run(session_id, run_id_str)
+
+        # Build a PlaybookRun object for downstream nodes
         run = PlaybookRun(
-            run_id=str(run_id),
-            workspace_id=workspace_id or session.workspace_id,
-            pack_id=session_id,
-            playbook_id=playbook_id,
+            run_id=run_id_str,
+            workspace_id=effective_workspace,
+            session_id=session_id,
             strategy=run_strategy,
             status=RunStatus.RUNNING,
-            steps=[
-                StepState(step_id=s["id"], capability_id=s["capability_id"], name=s.get("name"))
-                for s in playbook_steps
-            ],
+            steps=execution_steps,
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc),
         )
-
-        await run_repo.create_run(run)
-        await session_repo.set_active_run(session_id, str(run_id))
 
         request = {
             "playbook_id": playbook_id,
             "inputs": run_inputs,  # user-confirmed form values from /run (ADR-006)
             "strategy": strategy,
-            "workspace_id": workspace_id or session.workspace_id,
+            "workspace_id": effective_workspace,
             "llm_config": {},
         }
 
-        logger.info("[plan_init] initialized run_id=%s steps=%d", run_id, len(playbook_steps))
+        logger.info("[plan_init] initialized run_id=%s steps=%d", run_id_str, len(playbook_steps))
 
         # Notify WebSocket
         publish_to_session(session_id, {
             "type": "execution.run_created",
             "session_id": session_id,
-            "run_id": str(run_id),
+            "run_id": run_id_str,
             "step_count": len(playbook_steps),
             "at": datetime.now(timezone.utc).isoformat(),
         })

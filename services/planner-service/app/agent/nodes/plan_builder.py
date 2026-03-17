@@ -32,12 +32,34 @@ Respond ONLY with a single JSON object:
 }
 """
 
+_MODIFY_SYSTEM_PROMPT = """You are a plan builder for a software development assistant.
+An execution plan already exists. The user wants to modify it.
+
+Apply ONLY the changes the user requested. Preserve all other steps unchanged (same capability_id, title, description, inputs, order).
+
+Respond ONLY with a single JSON object:
+{
+  "steps": [
+    {
+      "capability_id": "cap.xxx",
+      "title": "Step title",
+      "description": "What this step does",
+      "inputs": {"key": "value"},
+      "order": 1
+    }
+  ],
+  "confidence": 0.90,
+  "plan_summary": "Brief description of what changed"
+}
+"""
+
 
 def plan_builder_node(*, llm: AgentLLM, cache: ManifestCache):
     async def _node(state: Dict[str, Any]) -> Dict[str, Any]:
         intent = state.get("intent") or {}
         candidate_caps = state.get("candidate_capabilities") or []
         messages = state.get("messages") or []
+        existing_plan = state.get("existing_plan") or []
         error = state.get("error")
         needs_clarification = state.get("needs_clarification", False)
 
@@ -45,12 +67,17 @@ def plan_builder_node(*, llm: AgentLLM, cache: ManifestCache):
             return {}
 
         if not candidate_caps:
-            return {
-                "draft_plan": [],
+            # If we have an existing plan, preserve it and ask for clarification
+            result: Dict[str, Any] = {
                 "confidence_score": 0.0,
                 "needs_clarification": True,
                 "clarification_question": "I couldn't identify the right capabilities for your request. Could you be more specific?",
             }
+            if existing_plan:
+                result["draft_plan"] = existing_plan
+            else:
+                result["draft_plan"] = []
+            return result
 
         # Build capability summaries (without full execution config to keep prompt lean)
         caps_for_prompt = []
@@ -81,13 +108,36 @@ def plan_builder_node(*, llm: AgentLLM, cache: ManifestCache):
                 "Pre-filled values will be shown to the user for review before execution — if uncertain, make a best-effort guess."
             )
 
-        prompt = (
-            f"{_SYSTEM_PROMPT}\n\n"
-            f"User intent: {json.dumps(intent, indent=2)}\n\n"
-            f"Selected capabilities:\n{json.dumps(caps_for_prompt, indent=2)}\n\n"
-            f"Conversation context:\n{''.join(context_msgs)}\n\n"
-            f"Build the execution plan with pre-filled inputs.{step1_mcp_block}"
-        )
+        if existing_plan:
+            # Modification mode: user is refining an existing plan
+            existing_steps_for_prompt = [
+                {
+                    "step_id": s.get("step_id"),
+                    "capability_id": s.get("capability_id"),
+                    "title": s.get("title"),
+                    "description": s.get("description"),
+                    "inputs": s.get("inputs") or {},
+                    "order": s.get("order"),
+                }
+                for s in existing_plan
+            ]
+            prompt = (
+                f"{_MODIFY_SYSTEM_PROMPT}\n\n"
+                f"Current plan ({len(existing_plan)} steps):\n{json.dumps(existing_steps_for_prompt, indent=2)}\n\n"
+                f"Available capabilities:\n{json.dumps(caps_for_prompt, indent=2)}\n\n"
+                f"User request: {intent.get('description', state.get('current_message', ''))}\n\n"
+                f"Conversation context:\n{''.join(context_msgs)}\n\n"
+                f"Apply the user's requested modifications to the plan.{step1_mcp_block}"
+            )
+        else:
+            # Fresh build: first message for this session
+            prompt = (
+                f"{_SYSTEM_PROMPT}\n\n"
+                f"User intent: {json.dumps(intent, indent=2)}\n\n"
+                f"Selected capabilities:\n{json.dumps(caps_for_prompt, indent=2)}\n\n"
+                f"Conversation context:\n{''.join(context_msgs)}\n\n"
+                f"Build the execution plan with pre-filled inputs.{step1_mcp_block}"
+            )
 
         try:
             result = await llm.acomplete(prompt)
@@ -137,6 +187,9 @@ def plan_builder_node(*, llm: AgentLLM, cache: ManifestCache):
         clarification_q = None
         if needs_clarification:
             clarification_q = f"I've assembled a plan but I'm not very confident (score={confidence:.0%}). Could you confirm or clarify the details?"
+            # Preserve the existing plan if available so the canvas doesn't go blank
+            if existing_plan and not steps:
+                steps = existing_plan  # type: ignore[assignment]
 
         return {
             "draft_plan": steps,
