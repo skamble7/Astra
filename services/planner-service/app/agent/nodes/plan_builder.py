@@ -17,6 +17,11 @@ ASTRA capabilities are registered execution units — they can do anything: pars
 
 Your job: given a set of selected capabilities and the user's goal, assemble an ordered execution pipeline. Pre-fill any step inputs you can infer from the conversation.
 
+Formatting rules for response_message:
+- Use Markdown: **bold** for step names and key terms, numbered lists for steps, ## headings if helpful
+- Write in complete sentences with proper punctuation
+- Keep it concise but informative — introduce the plan, summarise each step, note pre-filled inputs
+
 Respond ONLY with a single JSON object:
 {
   "steps": [
@@ -29,7 +34,8 @@ Respond ONLY with a single JSON object:
     }
   ],
   "confidence": 0.85,
-  "plan_summary": "Brief description of the overall plan"
+  "plan_summary": "Brief description of the overall plan",
+  "response_message": "## Plan Ready\\n\\nHere is the assembled plan for your goal:\\n\\n1. **Step Title** — What this step does.\\n2. **Step Title** — What this step does.\\n\\nPlease review the pre-filled inputs and click **Approve** when ready."
 }
 """
 
@@ -39,17 +45,19 @@ The user is asking about ASTRA capabilities — they want to discover what else 
 
 Your job:
 1. Return the existing plan steps UNCHANGED in the "steps" array
-2. In "response_message", write a helpful summary of the available capabilities from the provided list:
-   - Group related capabilities together if useful
-   - For each capability: name, id, and a one-line description of what it does
-   - End with "Let me know if you'd like to add any of these to your plan."
+2. In "response_message", write a well-formatted Markdown summary of the available capabilities:
+   - Use a ## heading such as "## Additional Capabilities"
+   - Group related capabilities under ### sub-headings if there are natural groupings
+   - For each capability use a bullet point: **Cap Title** (`cap.id`) — one-line description
+   - Use proper punctuation and complete sentences
+   - End with a paragraph: "Let me know if you'd like to add any of these to your plan."
 
 Respond ONLY with a single JSON object:
 {
   "steps": [/* exact copy of current plan steps — DO NOT modify */],
   "confidence": 0.95,
   "plan_summary": "Capability exploration",
-  "response_message": "Here are additional capabilities available in ASTRA:\\n\\n• Cap Title (cap.id): What it does\\n...\\nLet me know if you'd like to add any of these to your plan."
+  "response_message": "## Additional Capabilities\\n\\n### Group Name\\n\\n- **Cap Title** (`cap.id`): What it does.\\n\\nLet me know if you'd like to add any of these to your plan."
 }
 """
 
@@ -58,6 +66,11 @@ _MODIFY_SYSTEM_PROMPT = """You are the plan-builder component of ASTRA, a genera
 ASTRA capabilities are registered execution units — they can do anything: parse COBOL, discover microservices architectures, modernize legacy code, generate API documentation, run security scans, etc.
 
 An execution pipeline (plan) already exists. The user wants to modify it.
+
+Formatting rules for response_message:
+- Use Markdown: **bold** for step names, bullet points if listing multiple changes
+- Write in complete sentences with proper punctuation
+- Be concise — one or two sentences confirming what changed is enough
 
 CRITICAL: You are the orchestrator — step removal, reordering, and addition are YOUR decisions, not something a capability does.
 - "Remove the last step" → return the plan without the last step
@@ -79,7 +92,8 @@ Respond ONLY with a single JSON object:
     }
   ],
   "confidence": 0.90,
-  "plan_summary": "Brief description of what changed"
+  "plan_summary": "Brief description of what changed",
+  "response_message": "I've updated the plan. **Step Title** has been removed — the plan now has N steps. Let me know if you'd like any further changes."
 }
 """
 
@@ -147,8 +161,8 @@ def plan_builder_node(*, llm: AgentLLM, cache: ManifestCache):
                     "steps": existing_plan,
                     "confidence": 0.95,
                     "response_message": (
-                        "Here are additional capabilities available in ASTRA:\n\n"
-                        + "\n".join(f"• {c.get('title') or c.get('id')} ({c.get('id')}): {c.get('description', '')}" for c in caps_for_query[:10])
+                        "## Additional Capabilities\n\n"
+                        + "\n".join(f"- **{c.get('title') or c.get('id')}** (`{c.get('id')}`): {c.get('description', '')}" for c in caps_for_query[:10])
                         + "\n\nLet me know if you'd like to add any of these to your plan."
                     ),
                 }
@@ -264,6 +278,7 @@ def plan_builder_node(*, llm: AgentLLM, cache: ManifestCache):
 
         confidence = float(plan_response.get("confidence", 0.5))
         plan_summary = plan_response.get("plan_summary", "")
+        llm_response_message = plan_response.get("response_message", "")
 
         logger.info("[plan_builder] built %d steps confidence=%.2f", len(steps), confidence)
 
@@ -275,12 +290,15 @@ def plan_builder_node(*, llm: AgentLLM, cache: ManifestCache):
             if existing_plan and not steps:
                 steps = existing_plan  # type: ignore[assignment]
 
+        # Use the LLM's formatted response_message when available; fall back to a plain summary
+        response_msg = llm_response_message or f"**Plan assembled** — {plan_summary}\n\n{len(steps)} step(s) ready for review."
+
         return {
             "draft_plan": steps,
             "confidence_score": confidence,
             "needs_clarification": needs_clarification,
             "clarification_question": clarification_q,
-            "response_message": f"Plan assembled: {plan_summary}\n{len(steps)} step(s) ready.",
+            "response_message": response_msg,
         }
 
     return _node
