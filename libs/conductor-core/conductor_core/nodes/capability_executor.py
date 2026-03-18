@@ -17,7 +17,7 @@ from conductor_core.protocols.repositories import (
 logger = logging.getLogger("conductor_core.nodes.capability_executor")
 
 
-def capability_executor_node(*, runs_repo: RunRepository, publisher: EventPublisher):
+def capability_executor_node(*, runs_repo: RunRepository, publisher: EventPublisher, skip_diagram: bool = False, skip_narrative: bool = False):
 
     def _log_terminal_state(state: Dict[str, Any], update: Dict[str, Any], reason: str) -> None:
         try:
@@ -149,6 +149,64 @@ def capability_executor_node(*, runs_repo: RunRepository, publisher: EventPublis
                 correlation_id=correlation_id,
             )
 
+            if skip_diagram and skip_narrative:
+                # Skip both enrichment phases: emit step.completed and advance immediately
+                logger.info("[capability_executor] skip_diagram+skip_narrative step_id=%s", current_step_id)
+                await publisher.publish_once(
+                    runs_repo=runs_repo,
+                    run_id=run_uuid,
+                    event="step.completed",
+                    payload={
+                        "run_id": str(run_uuid),
+                        "workspace_id": workspace_id,
+                        "playbook_id": playbook_id,
+                        "step": {
+                            "id": current_step_id,
+                            "name": current_step.get("name") if current_step else None,
+                            "description": current_step.get("description") if current_step else None,
+                        },
+                        "ended_at": datetime.now(timezone.utc).isoformat(),
+                        "status": "completed",
+                    },
+                    workspace_id=workspace_id,
+                    playbook_id=playbook_id,
+                    step_id=current_step_id,
+                    strategy=strategy,
+                    emitter="capability_executor",
+                    correlation_id=correlation_id,
+                )
+                return Command(
+                    goto="capability_executor",
+                    update={
+                        "step_idx": step_idx + 1,
+                        "current_step_id": None,
+                        "phase": "discover",
+                        "last_mcp_summary": {},
+                        "last_mcp_error": None,
+                        "last_enrichment_summary": {},
+                        "last_enrichment_error": None,
+                        "last_narrative_summary": {},
+                        "last_narrative_error": None,
+                    },
+                )
+            elif skip_diagram:
+                # Skip diagram only: jump straight to narrative_enrich phase
+                logger.info("[capability_executor] skip_diagram->narrative_enrich step_id=%s", current_step_id)
+                return Command(
+                    goto="narrative_enrichment",
+                    update={
+                        "step_idx": step_idx,
+                        "current_step_id": current_step_id,
+                        "phase": "narrative_enrich",
+                        "last_mcp_summary": {},
+                        "last_mcp_error": None,
+                        "last_enrichment_summary": {},
+                        "last_enrichment_error": None,
+                        "last_narrative_summary": {},
+                        "last_narrative_error": None,
+                    },
+                )
+
             logger.info("[capability_executor] phase_transition discover->enrich step_id=%s", current_step_id)
             phase = "enrich"
             await publisher.publish_once(
@@ -219,6 +277,49 @@ def capability_executor_node(*, runs_repo: RunRepository, publisher: EventPublis
                 emitter="capability_executor",
                 correlation_id=correlation_id,
             )
+            if skip_narrative:
+                # Skip narrative enrichment: emit step.completed and advance immediately
+                logger.info("[capability_executor] skip_narrative step_id=%s", current_step_id)
+                pb2 = next((p for p in (pack.get("playbooks") or []) if p.get("id") == playbook_id), None)
+                cs2 = None
+                if pb2:
+                    cs2 = next((s for s in pb2.get("steps", []) if s.get("id") == current_step_id), None)
+                await publisher.publish_once(
+                    runs_repo=runs_repo,
+                    run_id=run_uuid,
+                    event="step.completed",
+                    payload={
+                        "run_id": str(run_uuid),
+                        "workspace_id": workspace_id,
+                        "playbook_id": playbook_id,
+                        "step": {
+                            "id": current_step_id,
+                            "name": cs2.get("name") if cs2 else None,
+                            "description": cs2.get("description") if cs2 else None,
+                        },
+                        "ended_at": datetime.now(timezone.utc).isoformat(),
+                        "status": "completed",
+                    },
+                    workspace_id=workspace_id,
+                    playbook_id=playbook_id,
+                    step_id=current_step_id,
+                    strategy=strategy,
+                    emitter="capability_executor",
+                    correlation_id=correlation_id,
+                )
+                return Command(
+                    goto="capability_executor",
+                    update={
+                        "step_idx": step_idx + 1,
+                        "current_step_id": None,
+                        "phase": "discover",
+                        "last_enrichment_summary": {},
+                        "last_enrichment_error": None,
+                        "last_narrative_summary": {},
+                        "last_narrative_error": None,
+                    },
+                )
+
             logger.info("[capability_executor] phase_transition enrich->narrative_enrich step_id=%s", current_step_id)
             return Command(
                 goto="narrative_enrichment",

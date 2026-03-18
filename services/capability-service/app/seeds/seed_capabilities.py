@@ -643,15 +643,15 @@ async def seed_capabilities() -> None:
         ),
 
         # ---------------------------------------------------------------------
-        # NEW: cap.data-eng.generate-arch-diagram (HTTP MCP, blocking tool)
+        # cap.diagram.generate_arch (HTTP MCP, blocking tool)
         # ---------------------------------------------------------------------
         GlobalCapabilityCreate(
-            id="cap.data-eng.generate-arch-diagram",
+            id="cap.diagram.generate_arch",
             name="Generate Data Pipeline Architecture Guidance Document",
-            description="Calls the MCP server to produce a Markdown architecture guidance document grounded on discovered data-engineering artifacts and RUN INPUTS; emits cam.documents.data-pipeline-arch-guidance with standard file metadata (and optional pre-signed download info).",
-            tags=["data-eng", "docs", "guidance", "mcp"],
+            description="Calls the MCP server to produce a Markdown architecture guidance document grounded on discovered data-engineering artifacts and RUN INPUTS; emits cam.governance.data_pipeline_arch_guidance with standard file metadata (and optional pre-signed download info).",
+            tags=["data", "diagram", "docs", "guidance", "mcp"],
             parameters_schema=None,
-            produces_kinds=["cam.documents.data-pipeline-arch-guidance"],
+            produces_kinds=["cam.governance.data_pipeline_arch_guidance"],
             agent=None,
             execution=McpExecution(
                 mode="mcp",

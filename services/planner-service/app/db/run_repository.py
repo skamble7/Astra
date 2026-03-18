@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from motor.motor_asyncio import AsyncIOMotorCollection
 from pymongo import ASCENDING, ReturnDocument
@@ -33,6 +33,66 @@ class RunRepository:
         if doc:
             doc.pop("_id", None)
         return doc
+
+    async def create_planning_run(self, session_id: str, workspace_id: str) -> str:
+        """Create a lightweight planner_runs document at the start of a planning session."""
+        run_id = str(uuid4())
+        now = datetime.now(timezone.utc)
+        doc = {
+            "run_id": run_id,
+            "session_id": session_id,
+            "workspace_id": workspace_id,
+            "status": "planning",
+            "conversation": [],
+            "steps": [],
+            "run_artifacts": [],
+            "created_at": now,
+            "updated_at": now,
+        }
+        await self._col.insert_one(doc)
+        return run_id
+
+    async def append_conversation_message(self, session_id: str, message: Dict[str, Any]) -> None:
+        """Append a chat message to the conversation history in the planner_runs document."""
+        await self._col.update_one(
+            {"session_id": session_id},
+            {
+                "$push": {"conversation": message},
+                "$set": {"updated_at": datetime.now(timezone.utc)},
+            },
+        )
+
+    async def get_run_by_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Find the planner_runs document for a session (created during planning)."""
+        doc = await self._col.find_one({"session_id": session_id})
+        if doc:
+            doc.pop("_id", None)
+        return doc
+
+    async def init_execution(
+        self,
+        session_id: str,
+        *,
+        steps: List[StepState],
+        strategy: RunStrategy,
+        workspace_id: str,
+    ) -> str:
+        """Transition an existing planning run document to execution state."""
+        now = datetime.now(timezone.utc)
+        await self._col.update_one(
+            {"session_id": session_id},
+            {
+                "$set": {
+                    "status": RunStatus.RUNNING.value,
+                    "strategy": strategy.value,
+                    "workspace_id": workspace_id,
+                    "steps": [s.model_dump(mode="json") for s in steps],
+                    "updated_at": now,
+                }
+            },
+        )
+        doc = await self._col.find_one({"session_id": session_id}, {"run_id": 1})
+        return str(doc["run_id"]) if doc else ""
 
     async def create_run(self, run: PlaybookRun) -> PlaybookRun:
         doc = run.model_dump(mode="json")

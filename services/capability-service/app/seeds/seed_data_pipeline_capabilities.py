@@ -64,18 +64,18 @@ def _llm_cap(
 def _mcp_cap_raina_fetch_input() -> GlobalCapabilityCreate:
     """
     Builds MCP capability that calls the raina-input-fetcher MCP server to fetch and validate
-    a Raina input JSON, emitting a cam.inputs.raina artifact.
+    a Raina input JSON, emitting a cam.asset.raina_input artifact.
     """
     return GlobalCapabilityCreate(
-        id="cap.raina.fetch_input",
+        id="cap.asset.fetch_raina_input",
         name="Fetch Raina Input (AVC/FSS/PSS)",
         description=(
             "Fetches a Raina input JSON (AVC/FSS/PSS) from a URL via the MCP raina-input-fetcher "
-            "and emits a validated cam.inputs.raina artifact."
+            "and emits a validated cam.asset.raina_input artifact."
         ),
         tags=["inputs", "raina", "discovery", "mcp"],
         parameters_schema=None,
-        produces_kinds=["cam.inputs.raina"],
+        produces_kinds=["cam.asset.raina_input"],
         agent=None,
         execution=McpExecution(
             mode="mcp",
@@ -126,7 +126,7 @@ def _mcp_cap_raina_fetch_input() -> GlobalCapabilityCreate:
                             },
                         },
                     },
-                    "output_kinds": ["cam.inputs.raina"],
+                    "output_kinds": ["cam.asset.raina_input"],
                     "result_schema": None,
                     "timeout_sec": 600,
                     "retries": 1,
@@ -174,11 +174,11 @@ def _mcp_cap_raina_fetch_input() -> GlobalCapabilityCreate:
                 },
                 "output_contract": {
                     "artifact_type": "cam",
-                    "kinds": ["cam.inputs.raina"],
+                    "kinds": ["cam.asset.raina_input"],
                     "artifacts_property":"result.artifacts",
                     "result_schema": None,
                     "schema_guide": (
-                        "Emits a single artifact of kind `cam.inputs.raina` with `data.inputs = { avc, fss, pss }` "
+                        "Emits a single artifact of kind `cam.asset.raina_input` with `data.inputs = { avc, fss, pss }` "
                         "validated against the registry schema."
                     ),
                     "extra_schema": {
@@ -230,119 +230,119 @@ async def seed_capabilities() -> None:
 
         # ---- Existing LLM capabilities ----
         _llm_cap(
-            "cap.discover.logical_data_model",
+            "cap.data.discover_logical_model",
             "Discover Logical Data Model",
             "Derives entities, attributes, keys, and relationships from AVC/FSS/PSS and goals/NFRs.",
             ["cam.data.model_logical"],
             tags=["astra", "data", "modeling"],
         ),
         _llm_cap(
-            "cap.discover.business_flows",
+            "cap.workflow.discover_business_flows",
             "Discover Business Flows",
             "Extracts actor-centric flows mapped to datasets from AVC/FSS and architectural context.",
-            ["cam.flow.business_flow_catalog"],
+            ["cam.workflow.business_flow_catalog"],
             tags=["astra", "workflow", "discovery"],
         ),
         _llm_cap(
-            "cap.select.pipeline_patterns",
+            "cap.architecture.select_pipeline_patterns",
             "Select Pipeline Architecture Patterns",
             "Evaluates Batch/Stream/Lambda/Microservices/Event-driven patterns against FR/NFRs and constraints.",
             ["cam.architecture.pipeline_patterns"],
             tags=["astra", "architecture", "patterns"],
         ),
         _llm_cap(
-            "cap.define.dataset_contracts",
+            "cap.contract.define_dataset",
             "Define Dataset Contracts",
             "Produces implementation-grade dataset contracts with schema, keys, PII flags, stewardship, quality rules, and retention.",
             ["cam.data.dataset_contract"],
             tags=["astra", "data", "contracts"],
         ),
         _llm_cap(
-            "cap.assemble.pipeline_architecture",
+            "cap.architecture.assemble_pipeline",
             "Assemble Data Pipeline Architecture",
             "Synthesizes stages, routing, idempotency strategy, SLAs, and ranked tech stack recommendations.",
             ["cam.workflow.data_pipeline_architecture"],
             tags=["astra", "workflow", "architecture"],
         ),
         _llm_cap(
-            "cap.spec.batch_job",
+            "cap.workflow.spec_batch_job",
             "Generate Batch Job Spec",
             "Creates batch job schedules and steps (ETL/ELT/validate) aligned to pipeline SLAs and idempotency.",
             ["cam.workflow.batch_job_spec"],
             tags=["astra", "workflow", "batch"],
         ),
         _llm_cap(
-            "cap.spec.stream_job",
+            "cap.workflow.spec_stream_job",
             "Generate Stream Job Spec",
             "Defines streaming jobs with sources, sinks, windowing, processing ops, and consistency settings.",
             ["cam.workflow.stream_job_spec"],
             tags=["astra", "workflow", "streaming"],
         ),
         _llm_cap(
-            "cap.spec.transforms",
+            "cap.data.spec_transforms",
             "Define Data Transformations",
             "Specifies dataset-to-dataset transforms with logic and associated data quality checks.",
             ["cam.workflow.transform_spec"],
             tags=["astra", "data", "transform"],
         ),
         _llm_cap(
-            "cap.map.lineage",
+            "cap.data.map_lineage",
             "Map Data Lineage",
             "Builds dataset/job/source lineage graph (reads/writes/derives/publishes) from specs and contracts.",
             ["cam.data.lineage_map"],
             tags=["astra", "data", "lineage"],
         ),
         _llm_cap(
-            "cap.policy.governance",
+            "cap.governance.derive_policies",
             "Derive Data Governance Policies",
             "Outputs classification, access/retention, and lineage requirements from AVC/NFR and contracts.",
             ["cam.governance.data_governance_policies"],
             tags=["astra", "governance", "policy"],
         ),
         _llm_cap(
-            "cap.policy.access_control",
+            "cap.security.define_access_control",
             "Derive Data Access Control",
             "Generates dataset-role access rules (read/write/admin/mask) from classifications and governance policy.",
             ["cam.security.data_access_control"],
             tags=["astra", "security", "policy"],
         ),
         _llm_cap(
-            "cap.policy.masking",
+            "cap.security.define_masking",
             "Define Masking & Anonymization",
             "Emits field-level masking/tokenization/generalization policies for PII and sensitive data.",
             ["cam.security.data_masking_policy"],
             tags=["astra", "security", "privacy"],
         ),
         _llm_cap(
-            "cap.sla.quality",
+            "cap.qa.define_data_sla",
             "Define Data Quality & SLA",
             "Sets SLA targets and monitoring plan (freshness, latency, availability, DQ pass rate).",
-            ["cam.quality.data_sla"],
+            ["cam.qa.data_sla"],
             tags=["astra", "quality", "sla"],
         ),
         _llm_cap(
-            "cap.observability.define",
+            "cap.observability.define_spec",
             "Define Data Observability Spec",
             "Declares required metrics, logs, traces, and exporters to enforce SLAs and diagnose issues.",
             ["cam.observability.data_observability_spec"],
             tags=["astra", "observability", "otel"],
         ),
         _llm_cap(
-            "cap.orchestration.define",
+            "cap.workflow.define_orchestration",
             "Define Data Orchestration",
             "Wires batch/stream jobs into a dependency graph with failure policy, consistent with selected orchestrator.",
             ["cam.workflow.orchestration_spec"],
             tags=["astra", "workflow", "orchestration"],
         ),
         _llm_cap(
-            "cap.rank.tech_stack",
+            "cap.catalog.rank_tech_stack",
             "Rank Tech Stack",
             "Produces category-wise ranked tooling (streaming, batch compute, storage, orchestration, DQ, catalog, observability) with rationale.",
             ["cam.catalog.tech_stack_rankings"],
             tags=["astra", "architecture", "stack"],
         ),
         _llm_cap(
-            "cap.inventory.sources_sinks",
+            "cap.catalog.inventory_sources",
             "Inventory Sources & Sinks",
             "Enumerates principal data sources and sinks implied by flows, entities, and constraints.",
             ["cam.catalog.data_source_inventory"],
@@ -352,7 +352,7 @@ async def seed_capabilities() -> None:
             "cap.catalog.data_products",
             "Compose Data Products",
             "Bundles datasets into Data-as-a-Product entries with ownership and SLO commitment.",
-            ["cam.data_product.catalog"],
+            ["cam.catalog.data_products"],
             tags=["astra", "data", "product"],
         ),
         _llm_cap(
@@ -363,7 +363,7 @@ async def seed_capabilities() -> None:
             tags=["astra", "deployment", "topology"],
         ),
         _llm_cap(
-            "cap.plan.deployment",
+            "cap.deployment.plan_pipeline",
             "Plan Pipeline Deployment",
             "Creates deployment plan with phased rollout, backfill/migration, and backout across environments.",
             ["cam.deployment.pipeline_deployment_plan"],

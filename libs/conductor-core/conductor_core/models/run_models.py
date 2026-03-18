@@ -247,8 +247,9 @@ class PlaybookRun(BaseModel):
 
     # identity & intent
     workspace_id: UUID4
-    pack_id: str
-    playbook_id: str
+    pack_id: Optional[str] = None
+    playbook_id: Optional[str] = None
+    session_id: Optional[str] = None
     strategy: RunStrategy = RunStrategy.DELTA
 
     # inputs
@@ -264,6 +265,9 @@ class PlaybookRun(BaseModel):
     run_artifacts: List[ArtifactEnvelope] = Field(default_factory=list)           # DELTA artifacts owned by conductor
     diffs_by_kind: Dict[str, ArtifactsDiffBuckets] = Field(default_factory=dict)  # optional, if computed here
     deltas: Optional[RunDeltas] = None
+
+    # planning conversation (planner-service only; empty for conductor-service runs)
+    conversation: List[Dict[str, Any]] = Field(default_factory=list)
 
     # audit trail
     notes_md: Optional[str] = None

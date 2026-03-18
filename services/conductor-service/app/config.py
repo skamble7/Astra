@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     # LLM Override: When true, all capabilities use conductor_llm_config_ref
     override_capability_llm: bool = bool(int(os.getenv("OVERRIDE_CAPABILITY_LLM", "0")))
 
+    # Skip enrichment nodes (saves time and cost during testing)
+    skip_diagram: bool = bool(int(os.getenv("SKIP_DIAGRAM", "0")))
+    skip_narrative: bool = bool(int(os.getenv("SKIP_NARRATION", "0")))
+
     model_config = SettingsConfigDict(env_file=None, extra="ignore")
 
 

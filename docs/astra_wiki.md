@@ -391,40 +391,129 @@ The capability service manages capabilities, pack inputs and packs.  Key respons
 
 Internally, the capability service uses a data access layer to store documents in MongoDB and publishes events on creation or update.  The `CapabilityService`, `PackService` and `PackInputService` implement business logic, such as validating semver versions and ensuring referenced capabilities exist in a pack.  Packs can include **agent capabilities** (e.g., diagram generators) that are not part of any playbook step but are available to the conductor for enrichment.
 
+### conductor-core (Shared Execution Library)
+
+`libs/conductor-core` is a shared Python library that contains all of the core execution logic used by both the conductor-service and the planner-service.  Extracting this logic into a library ensures that the two services stay in lockstep on execution behaviour without duplicating code.
+
+The library is structured into four top-level packages:
+
+- **`conductor_core.models`** — shared Pydantic models: `PlaybookRun`, `StepState`, `RunStrategy`, `RunStatus`, `StepStatus`, `StepAudit`, `ToolCallAudit`, `ArtifactEnvelope`, `ArtifactProvenance`, `StartRunRequest`, `LLMConfig` and supporting types.
+
+- **`conductor_core.nodes`** — the six reusable LangGraph execution nodes (see below).  Each node is a factory function that closes over its dependencies (repository, LLM, artifact client) and returns an async callable.
+
+- **`conductor_core.llm`** — LLM abstraction layer: `AgentLLM` protocol, `ExecLLM` protocol, polyllm-backed implementations (`PolyllmAgentLLM`, `PolyllmExecLLM`), and factory functions `get_agent_llm()` and `build_exec_llm()` that resolve a ConfigForge ref to an LLM client.
+
+- **`conductor_core.mcp`** — MCP transport client (`MCPConnection`, `MCPTransportConfig`) and JSON utilities.
+
+- **`conductor_core.protocols`** — structural `Protocol` definitions for `RunRepositoryProtocol`, `ArtifactServiceClientProtocol`, and `EventPublisherProtocol`.  Any object whose async methods structurally match these protocols can be injected into a node factory — this is what allows both conductor-service and planner-service to supply their own repository and client implementations without inheriting from a base class.
+
+- **`conductor_core.artifacts`** — `ArtifactAdapter` utilities for normalising staged artifacts into `ArtifactEnvelope` instances before persistence.
+
+#### Shared Execution Nodes
+
+All six nodes follow the same pattern: a factory function accepts dependencies (typed via `Protocol`) and returns an async LangGraph node.  Each node returns a `Command(goto=..., update={...})` that drives the graph to the next node.
+
+| Node | Description |
+|---|---|
+| `capability_executor_node` | Central routing coordinator.  Manages step index, three-phase transitions (`discover → enrich → narrative_enrich`), publishes step lifecycle events via `EventPublisher`, and drives the graph to `persist_run` on completion or error. |
+| `mcp_input_resolver_node` | Builds MCP tool arguments.  Step 0 uses pack inputs from `request["inputs"]`; steps 1+ use LLM + upstream artifact context.  Validates against JSON Schema with one LLM repair attempt. |
+| `mcp_execution_node` | Connects to an MCP server (HTTP or STDIO transport), invokes the declared tool(s), handles retries, polling, and pagination.  Stages produced artifacts with provenance metadata. |
+| `llm_execution_node` | Executes LLM-based capabilities.  Resolves `llm_config_ref` from ConfigForge per capability, builds a prompt from the kind schema + prompt contract + upstream artifacts, calls the LLM, validates JSON output against the artifact kind schema, stages the result. |
+| `diagram_enrichment_node` | Post-processing: connects to the diagram MCP server, calls `diagram.mermaid.generate` for each artifact produced in the current step, attaches the resulting Mermaid diagrams.  Reads transport config from `agent_capabilities_map["cap.diagram.mermaid"]`.  Failures are non-fatal. |
+| `narrative_enrichment_node` | Post-processing: for each artifact produced in the current step, reads the kind’s `narratives_spec` and calls the agent LLM to generate a Markdown narrative (`id: "auto:overview"`, `audience: "developer"`).  Failures are non-fatal. |
+| `persist_run_node` | Finalises the run.  Normalises `staged_artifacts` into `ArtifactEnvelope`s, calls `artifact-service /artifact/{workspace_id}/upsert-batch` (baseline strategy) or stores in `run_artifacts` (delta strategy), records run summary and final status. |
+
+#### Three-Phase Step Execution
+
+Each playbook step is executed across three phases, all coordinated by `capability_executor_node`:
+
+```
+discover  →  enrich (diagram)  →  narrative_enrich  →  (advance to next step)
+```
+
+- **discover:** MCP or LLM execution.  Produces and stages raw artifacts.
+- **enrich:** `diagram_enrichment_node` attaches diagrams to each artifact produced in this step.
+- **narrative_enrich:** `narrative_enrichment_node` attaches human-readable narratives.
+
+Enrichment failures in either phase are non-fatal — the run continues.  A discovery failure terminates the run immediately and routes to `persist_run`.
+
+#### Protocol-Based Dependency Injection
+
+Nodes depend on `RunRepositoryProtocol`, `ArtifactServiceClientProtocol`, and `EventPublisherProtocol` rather than concrete classes.  The conductor-service and planner-service each supply their own implementations.  This means conductor-core has no import-time dependency on either service’s codebase.
+
+---
+
 ### Conductor Service (Agent Runtime)
 
-The conductor service orchestrates **runs** of a pack’s playbook.  It exposes an API to start a run and reports progress via events.  Its key components are:
+The conductor service orchestrates **runs** of a capability pack’s playbook.  It exposes an API to start a run and reports progress via events.  Its execution nodes are all provided by `libs/conductor-core`.
 
 - **Run API:** The `/runs/start` endpoint accepts a `StartRunRequest` containing the workspace id, pack id, playbook id, inputs and optional title/description.  It immediately records a `PlaybookRun` with status `created` and schedules the run as a background task.  The response includes the run id and current status.
 
-- **Run repository:** Abstracts database operations for runs and step states.  It updates step statuses (pending, running, completed, failed) and persists audits, logs and summaries.
+- **Run repository:** Abstracts database operations for runs and step states.  It updates step statuses (pending, running, completed, failed) and persists audits, logs and summaries.  Implements `RunRepositoryProtocol` so it can be injected directly into conductor-core nodes.
 
-- **Clients:** The conductor uses clients for the capability and artifact services to fetch packs and store produced artifacts.
+- **Clients:** The conductor uses clients for the capability and artifact services to fetch packs and store produced artifacts.  The artifact client implements `ArtifactServiceClientProtocol`.
 
-- **LLM Architecture:** The conductor uses **polyllm** — a unified LLM abstraction layer — to decouple the runtime from any specific LLM provider. All LLM configuration is stored externally in **ConfigForge** and referenced by a canonical string (e.g., `"dev.llm.bedrock.explicit-creds"`). The conductor maintains two distinct LLM roles:
+- **LLM Architecture:** The conductor uses **polyllm** — a unified LLM abstraction layer from `conductor_core.llm` — to decouple the runtime from any specific LLM provider. All LLM configuration is stored externally in **ConfigForge** and referenced by a canonical string (e.g., `"dev.llm.bedrock.explicit-creds"`). The conductor maintains two distinct LLM roles:
 
   - **Agent LLM** (`CONDUCTOR_LLM_CONFIG_REF`) — used by `mcp_input_resolver` (to semantically map inputs to MCP tool arguments) and `narrative_enrichment` (to generate artifact narratives). Configured via the `CONDUCTOR_LLM_CONFIG_REF` environment variable.
 
-  - **Execution LLM** — used by `llm_execution` when a capability declares `execution.mode = "llm"`. Each such capability specifies its own `llm_config_ref`; the conductor fetches the corresponding LLM client from ConfigForge at execution time. If the `OVERRIDE_CAPABILITY_LLM=1` flag is set, all capabilities fall back to the conductor's own agent LLM regardless of their declared `llm_config_ref`.
+  - **Execution LLM** — used by `llm_execution` when a capability declares `execution.mode = "llm"`. Each such capability specifies its own `llm_config_ref`; the conductor fetches the corresponding LLM client from ConfigForge at execution time. If the `OVERRIDE_CAPABILITY_LLM=1` flag is set, all capabilities fall back to the conductor’s own agent LLM regardless of their declared `llm_config_ref`.
 
   polyllm supports `openai`, `google_genai`, `bedrock`, and `google_vertexai` as providers. Provider selection, API keys, and sampling parameters are all stored in ConfigForge profiles — never hardcoded in capability definitions or service configuration.
 
-- **LangGraph‑based agent:** The heart of the conductor is an asynchronous state machine built with **LangGraph**.  The graph defines a state dictionary, nodes (executors) and directed edges representing the run’s workflow.  Each node returns a `Command` indicating the next node to run and an update to the state.  The conductor graph contains the following nodes:
-
-  1. **input_resolver** – resolves the pack and playbook, fetches agent capabilities, validates user inputs against the PackInput JSON Schema and initialises step state.  It emits a `started` event immediately.
-
-  2. **capability_executor** (router) – central coordinator that maintains the step index and phase (`discover`, `enrich`, or `narrative_enrich`).  It decides whether to dispatch to MCP or LLM execution based on the capability mode, whether to perform diagram or narrative enrichment, or whether to finalise the run.  It publishes events for `step.discovery_completed`, `step.enrichment_started`, `step.enrichment_completed`, `step.completed` and handles errors or invalid inputs.
-
-  3. **mcp_input_resolver** – builds arguments for MCP tool calls.  For the first step, it synthesises arguments from the PackInput values and the capability’s execution input schema; for later steps, it also leverages upstream artifacts (filtered by `depends_on`).  The resolver uses an LLM to map input fields semantically and validates the result against JSON Schema.
-
-  4. **mcp_execution** – executes the MCP tool(s) defined in the capability.  It constructs a transport configuration (HTTP/STDIO), handles retries, asynchronous polling, pagination and streaming.  It collects output artifacts using the declared artifacts property (e.g., `artifacts`) and stores them in `state.staged_artifacts` with provenance metadata.
-
-  5. **llm_execution** – executes LLM‑based capabilities.  For each artifact kind declared in `produces_kinds`, it loads the capability's `llm_config_ref` from ConfigForge (or falls back to the conductor's own LLM if `OVERRIDE_CAPABILITY_LLM` is set), builds a prompt from the kind's schema and prompt contract together with upstream artifact dependencies and run inputs, calls the LLM, validates the JSON response against the kind's schema, and stages the produced artifact.  Retries once on failure.
-
-  6. **diagram_enrichment** – first post‑processing stage (`enrich` phase).  After each successful discovery step, if the agent pack includes `cap.diagram.mermaid`, this node calls the diagram generator on each artifact produced in the current step.  It determines the appropriate `view` (e.g., flowchart, sequence) based on the artifact kind’s `diagram_recipes` metadata and attaches returned diagrams.  If no diagram capability is available or no artifacts were produced, enrichment is skipped with a summary.
-
-  7. **narrative_enrichment** – second post‑processing stage (`narrative_enrich` phase), running after diagram enrichment for each step.  For every artifact produced in the current step, it reads the artifact kind’s `narratives_spec` (format, max length, locale) and the kind’s prompt context, then calls the conductor’s agent LLM to generate a human‑readable Markdown explanation.  The result is attached to the artifact as a narrative entry with `id: "auto:overview"` and `audience: "developer"`.  If `narratives_spec` is absent for a kind the artifact is skipped.  Enrichment failures are non‑fatal; the run continues with partial narratives.
-
-  8. **persist_run** – finalises the run.  It normalises staged artifacts into `ArtifactEnvelope`s by deriving identity, schema version and provenance and persists them to the artifact service.  It computes counts of added/changed/unchanged artifacts, writes a run summary and sets the final status (`completed` or `failed`).  This node is idempotent and uses ETags when replacing baseline artifacts.
+- **LangGraph‑based agent:** The conductor builds a `StateGraph` using LangGraph and populates it with nodes from `conductor_core.nodes`.  The graph starts at `input_resolver` (conductor-service–specific) and then delegates to the shared nodes.  Each node returns a `Command` indicating the next node and a state update.  For the full description of each execution node, see the **conductor-core** section above.
 
 The conductor advances through three phases for each step: `discover` (MCP or LLM execution gathers raw artifacts), `enrich` (diagram_enrichment generates Mermaid diagrams), and `narrative_enrich` (narrative_enrichment generates Markdown explanations via the agent LLM).  Errors in either enrichment phase are non‑fatal and the run continues; errors during discovery immediately trigger `persist_run` with a failed status.  When all steps complete or inputs are invalid, the conductor calls `persist_run` and publishes final events.
+
+---
+
+### Planner Service (Intent-Driven Planning and Execution)
+
+The planner-service is the entry point for intent-driven capability runs.  Unlike the conductor-service — which requires a pre-configured capability pack and explicit inputs — the planner-service accepts a natural-language user intent, autonomously selects the right capabilities, assembles an ordered plan, presents it for user review, and then executes it using the same `conductor_core` execution nodes.
+
+For a detailed implementation reference, see [docs/planner_service.md](planner_service.md).
+
+#### Two Agents, One Service
+
+The planner-service runs two distinct LangGraph agents:
+
+1. **Planner Agent** (`planner_graph.py`) — a conversational, multi-turn graph that processes each user message.  It extracts intent, selects capabilities from the registry, and builds a plan with LLM-prefilled inputs.  Runs on demand for each user message; not checkpointed.
+
+2. **Execution Agent** (`execution_graph.py`) — a single-pass execution graph triggered by `POST /run`.  It converts the approved session plan into a conductor-core–compatible pack/playbook structure and runs it through the shared execution nodes (`capability_executor`, `mcp_execution`, `llm_execution`, `diagram_enrichment`, `narrative_enrichment`, `persist_run`).
+
+#### Intent-to-Plan Flow
+
+```
+User message
+    ↓ session_init (load session + history)
+    ↓ intent_resolver (LLM: extract structured intent)
+    ↓ capability_selector (LLM: match capabilities from registry)
+    ↓ plan_builder (LLM: build ordered steps + prefill run_inputs)
+    ↓
+  confidence ≥ 0.65?
+    yes → plan_approved (save plan to MongoDB) → return plan to user
+    no  → clarification (ask user a question) → wait for next message
+```
+
+#### Plan-Approve-Run Flow (ADR-006)
+
+ASTRA uses a deliberate two-step flow to ensure users review and confirm inputs before execution begins:
+
+1. **`POST /plan/approve`** — locks the plan, inspects the first enabled step’s capability to determine whether the input form should be `"structured"` (MCP with JSON Schema form) or `"freetext"` (LLM with free-text textarea).  Returns `prefilled_inputs` (LLM-guessed values from planning time) and the `input_contract` schema.  Does **not** start execution.
+
+2. **`POST /run`** — accepts the user-confirmed `run_inputs`, sets status to `executing`, and schedules the execution agent as a background task.
+
+#### Capability Manifest Cache
+
+The planner-service maintains its own capability manifest cache (Redis-backed with in-memory fallback) that is separate from the conductor-service’s copy.  It is warmed up at startup and kept current via a RabbitMQ consumer that reacts to `capability.updated` / `capability.created` events.  The cache serves both the planner graph (for capability selection) and the execution graph (for step resolution).
+
+#### Event Channels
+
+The planner-service uses two complementary channels for real-time events:
+
+| Channel | Scope | Events |
+|---|---|---|
+| Direct WebSocket `/ws/sessions/{id}` | Per-session, session-private | Planner chat responses, plan updates, high-level execution lifecycle (`execution.started`, `execution.completed`, `execution.run_created`) |
+| RabbitMQ → notification-service → WebSocket `/ws` | Workspace-broadcast | Step-level progress events (`step.started`, `step.completed`, etc.) published by `capability_executor_node` |
+
+Session-private chat events (`planner.response`, `planner.error`) are delivered exclusively on the direct WebSocket and are never published to RabbitMQ, preventing duplicate delivery to frontend clients that subscribe to both channels.

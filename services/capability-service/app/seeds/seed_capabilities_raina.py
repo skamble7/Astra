@@ -57,7 +57,7 @@ async def seed_capabilities_raina() -> None:
     # ─────────────────────────────────────────────────────────────
     targets = [
         GlobalCapabilityCreate(
-            id="cap.discover.context_map",
+            id="cap.domain.discover_context_map",
             name="Discover Context Map",
             description="Identify bounded contexts and their relationships within the domain.",
             tags=["raina", "discovery", "context-map"],
@@ -85,7 +85,7 @@ async def seed_capabilities_raina() -> None:
             execution=LLM_DEFAULT,
         ),
         GlobalCapabilityCreate(
-            id="cap.generate.class_diagram",
+            id="cap.diagram.generate_class",
             name="Generate Class/ER Diagram",
             description="Generate logical class or entity-relationship diagrams for key domain entities.",
             tags=["raina", "diagram", "class"],
@@ -103,7 +103,7 @@ async def seed_capabilities_raina() -> None:
             execution=LLM_DEFAULT,
         ),
         GlobalCapabilityCreate(
-            id="cap.contracts.event",
+            id="cap.contract.define_event",
             name="Event Contracts",
             description="Define event-driven interfaces, topics, and message schemas for asynchronous communication.",
             tags=["raina", "contracts", "event"],
@@ -112,7 +112,7 @@ async def seed_capabilities_raina() -> None:
             execution=LLM_DEFAULT,
         ),
         GlobalCapabilityCreate(
-            id="cap.contracts.api",
+            id="cap.contract.define_api",
             name="API Contracts",
             description="Generate service API contracts including endpoints, operations, and payloads.",
             tags=["raina", "contracts", "api"],

@@ -67,12 +67,12 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 "additional_props_policy": "forbid",
                 "prompt": {
                     "system": (
-                        "Derive a concise ubiquitous language from `cam.inputs.raina` "
+                        "Derive a concise ubiquitous language from `cam.asset.raina_input` "
                         "(AVC/FSS/PSS). Output JSON strictly matching the schema."
                     ),
                     "strict_json": True,
                 },
-                "depends_on": {"hard": ["cam.inputs.raina"], "soft": []},
+                "depends_on": {"hard": ["cam.asset.raina_input"], "soft": []},
                 "identity": {"natural_key": ["domain"]},
                 "examples": [
                     {
@@ -170,13 +170,13 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 "additional_props_policy": "forbid",
                 "prompt": {
                     "system": (
-                        "Discover bounded contexts based on `cam.inputs.raina` and the "
+                        "Discover bounded contexts based on `cam.asset.raina_input` and the "
                         "domain terms in `cam.domain.ubiquitous_language`. Output strict JSON."
                     ),
                     "strict_json": True,
                 },
                 "depends_on": {
-                    "hard": ["cam.inputs.raina", "cam.domain.ubiquitous_language"],
+                    "hard": ["cam.asset.raina_input", "cam.domain.ubiquitous_language"],
                     "soft": [],
                 },
                 "identity": {"natural_key": ["domain"]},
@@ -311,7 +311,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "depends_on": {
                     "hard": ["cam.domain.bounded_context_map"],
-                    "soft": ["cam.inputs.raina"],
+                    "soft": ["cam.asset.raina_input"],
                 },
                 "identity": {"natural_key": ["domain"]},
                 "examples": [
@@ -401,15 +401,15 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 "additional_props_policy": "forbid",
                 "prompt": {
                     "system": (
-                        "Map interactions based on service APIs (`cam.api.service_api_contract`) "
-                        "and events (`cam.events.event_catalog`). Output strict JSON."
+                        "Map interactions based on service APIs (`cam.contract.service_api`) "
+                        "and events (`cam.catalog.events`). Output strict JSON."
                     ),
                     "strict_json": True,
                 },
                 "depends_on": {
                     "hard": [
-                        "cam.api.service_api_contract",
-                        "cam.events.event_catalog",
+                        "cam.contract.service_api",
+                        "cam.catalog.events",
                     ],
                     "soft": [],
                 },
@@ -455,10 +455,10 @@ KIND_DOCS: List[Dict[str, Any]] = [
     # Contracts
     # ---------------------------------------------------------------------
     {
-        "_id": "cam.api.service_api_contract",
+        "_id": "cam.contract.service_api",
         "title": "Service API Contracts",
-        "category": "api",
-        "aliases": ["cam.api.contracts", "cam.api.service_contracts"],
+        "category": "contract",
+        "aliases": ["cam.api.service_api_contract", "cam.api.contracts", "cam.api.service_contracts"],
         "status": "active",
         "latest_schema_version": LATEST,
         "schema_versions": [
@@ -530,12 +530,12 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 "prompt": {
                     "system": (
                         "Define APIs per service using `cam.catalog.microservice_inventory` and "
-                        "`cam.inputs.raina` stories. Output strict JSON."
+                        "`cam.asset.raina_input` stories. Output strict JSON."
                     ),
                     "strict_json": True,
                 },
                 "depends_on": {
-                    "hard": ["cam.catalog.microservice_inventory", "cam.inputs.raina"],
+                    "hard": ["cam.catalog.microservice_inventory", "cam.asset.raina_input"],
                     "soft": [],
                 },
                 "identity": {"natural_key": ["domain"]},
@@ -573,10 +573,10 @@ KIND_DOCS: List[Dict[str, Any]] = [
         ],
     },
     {
-        "_id": "cam.events.event_catalog",
+        "_id": "cam.catalog.events",
         "title": "Event Catalog",
-        "category": "events",
-        "aliases": ["cam.events.catalog"],
+        "category": "catalog",
+        "aliases": ["cam.events.event_catalog", "cam.events.catalog"],
         "status": "active",
         "latest_schema_version": LATEST,
         "schema_versions": [
@@ -627,7 +627,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                         "cam.catalog.microservice_inventory",
                         "cam.domain.ubiquitous_language",
                     ],
-                    "soft": ["cam.inputs.raina"],
+                    "soft": ["cam.asset.raina_input"],
                 },
                 "identity": {"natural_key": ["domain"]},
                 "examples": [
@@ -713,12 +713,12 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 "prompt": {
                     "system": (
                         "Assign data ownership per service using `cam.catalog.microservice_inventory` "
-                        "and `cam.inputs.raina`. Prefer database-per-service. Output strict JSON."
+                        "and `cam.asset.raina_input`. Prefer database-per-service. Output strict JSON."
                     ),
                     "strict_json": True,
                 },
                 "depends_on": {
-                    "hard": ["cam.catalog.microservice_inventory", "cam.inputs.raina"],
+                    "hard": ["cam.catalog.microservice_inventory", "cam.asset.raina_input"],
                     "soft": [],
                 },
                 "identity": {"natural_key": ["domain"]},
@@ -927,7 +927,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 "prompt": {
                     "system": (
                         "Define security architecture using `cam.catalog.microservice_inventory`, "
-                        "`cam.api.service_api_contract`, and `cam.inputs.raina` non-functionals/constraints. "
+                        "`cam.contract.service_api`, and `cam.asset.raina_input` non-functionals/constraints. "
                         "Output strict JSON."
                     ),
                     "strict_json": True,
@@ -935,8 +935,8 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 "depends_on": {
                     "hard": [
                         "cam.catalog.microservice_inventory",
-                        "cam.api.service_api_contract",
-                        "cam.inputs.raina",
+                        "cam.contract.service_api",
+                        "cam.asset.raina_input",
                     ],
                     "soft": [],
                 },
@@ -1336,7 +1336,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 "additional_props_policy": "forbid",
                 "prompt": {
                     "system": (
-                        "Rank tech choices based on integration patterns, deployment topology, and `cam.inputs.raina` "
+                        "Rank tech choices based on integration patterns, deployment topology, and `cam.asset.raina_input` "
                         "constraints/tech_stack hints. Output strict JSON."
                     ),
                     "strict_json": True,
@@ -1345,7 +1345,7 @@ KIND_DOCS: List[Dict[str, Any]] = [
                     "hard": [
                         "cam.architecture.integration_patterns",
                         "cam.deployment.microservices_topology",
-                        "cam.inputs.raina",
+                        "cam.asset.raina_input",
                     ],
                     "soft": ["cam.observability.microservices_observability_spec"],
                 },
@@ -1511,8 +1511,8 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 "depends_on": {
                     "hard": [
                         "cam.catalog.microservice_inventory",
-                        "cam.api.service_api_contract",
-                        "cam.events.event_catalog",
+                        "cam.contract.service_api",
+                        "cam.catalog.events",
                         "cam.data.service_data_ownership",
                         "cam.architecture.integration_patterns",
                         "cam.security.microservices_security_architecture",
@@ -1536,8 +1536,8 @@ KIND_DOCS: List[Dict[str, Any]] = [
                             "data_ownership_ref": "artifact:cam.data.service_data_ownership:latest",
                         },
                         "contracts": {
-                            "api_contract_ref": "artifact:cam.api.service_api_contract:latest",
-                            "event_catalog_ref": "artifact:cam.events.event_catalog:latest",
+                            "api_contract_ref": "artifact:cam.contract.service_api:latest",
+                            "event_catalog_ref": "artifact:cam.catalog.events:latest",
                         },
                         "cross_cutting": {
                             "integration_patterns_ref": "artifact:cam.architecture.integration_patterns:latest",
@@ -1583,10 +1583,11 @@ KIND_DOCS: List[Dict[str, Any]] = [
         ],
     },
     {
-        "_id": "cam.documents.microservices-arch-guidance",
+        "_id": "cam.governance.microservices_arch_guidance",
         "title": "Microservices Architecture Guidance",
-        "category": "documents",
+        "category": "governance",
         "aliases": [
+            "cam.documents.microservices-arch-guidance",
             "cam.doc.microservices_guidance",
             "cam.docs.microservices_arch_guidance",
             "cam.docs.microservices_architecture_guidance",
@@ -1726,12 +1727,12 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 },
                 "depends_on": {
                     "hard": [
-                        "cam.inputs.raina",
+                        "cam.asset.raina_input",
                         "cam.domain.ubiquitous_language",
                         "cam.domain.bounded_context_map",
                         "cam.catalog.microservice_inventory",
-                        "cam.api.service_api_contract",
-                        "cam.events.event_catalog",
+                        "cam.contract.service_api",
+                        "cam.catalog.events",
                         "cam.architecture.service_interaction_matrix",
                         "cam.data.service_data_ownership",
                         "cam.architecture.integration_patterns",
@@ -1849,14 +1850,14 @@ KIND_DOCS: List[Dict[str, Any]] = [
                 "prompt": {
                     "system": (
                         "Create a phased migration plan using `cam.architecture.microservices_architecture` "
-                        "and `cam.inputs.raina` constraints. Output strict JSON."
+                        "and `cam.asset.raina_input` constraints. Output strict JSON."
                     ),
                     "strict_json": True,
                 },
                 "depends_on": {
                     "hard": [
                         "cam.architecture.microservices_architecture",
-                        "cam.inputs.raina",
+                        "cam.asset.raina_input",
                     ],
                     "soft": [],
                 },

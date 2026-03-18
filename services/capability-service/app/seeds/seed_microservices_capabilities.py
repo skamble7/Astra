@@ -66,7 +66,7 @@ def _llm_cap(
 
 def _mcp_cap_microservices_guidance() -> GlobalCapabilityCreate:
     """
-    MCP-based capability to generate cam.documents.microservices-arch-guidance.
+    MCP-based capability to generate cam.governance.microservices_arch_guidance.
 
     NOTE: We use GlobalCapabilityCreate.model_validate(...) so we do not need to import
     MCP-specific Pydantic models in seed code; this matches the shape already stored
@@ -74,16 +74,16 @@ def _mcp_cap_microservices_guidance() -> GlobalCapabilityCreate:
     """
     return GlobalCapabilityCreate.model_validate(
         {
-            "id": "cap.microservices.generate-arch-guidance",
+            "id": "cap.architecture.generate_guidance",
             "name": "Generate Microservices Architecture Guidance Document",
             "description": (
                 "Calls the MCP server to produce a Markdown microservices architecture guidance document grounded on "
-                "discovered microservices artifacts and RUN INPUTS; emits cam.documents.microservices-arch-guidance "
+                "discovered microservices artifacts and RUN INPUTS; emits cam.governance.microservices_arch_guidance "
                 "with standard file metadata (and optional pre-signed download info)."
             ),
             "tags": ["microservices", "docs", "guidance", "mcp", "raina", "astra"],
             "parameters_schema": None,
-            "produces_kinds": ["cam.documents.microservices-arch-guidance"],
+            "produces_kinds": ["cam.governance.microservices_arch_guidance"],
             "agent": None,
             "execution": {
                 "mode": "mcp",
@@ -119,12 +119,12 @@ def _mcp_cap_microservices_guidance() -> GlobalCapabilityCreate:
                                 },
                                 "kind_id": {
                                     "type": "string",
-                                    "const": "cam.documents.microservices-arch-guidance",
+                                    "const": "cam.governance.microservices_arch_guidance",
                                     "description": "Driver kind for the document generation.",
                                 },
                             },
                         },
-                        "output_kinds": ["cam.documents.microservices-arch-guidance"],
+                        "output_kinds": ["cam.governance.microservices_arch_guidance"],
                         "result_schema": None,
                         "timeout_sec": 3600,
                         "retries": 1,
@@ -157,7 +157,7 @@ def _mcp_cap_microservices_guidance() -> GlobalCapabilityCreate:
                                 },
                                 "kind_id": {
                                     "type": "string",
-                                    "const": "cam.documents.microservices-arch-guidance",
+                                    "const": "cam.governance.microservices_arch_guidance",
                                     "description": "Fixed to the microservices architecture guidance document kind.",
                                 },
                             },
@@ -166,15 +166,15 @@ def _mcp_cap_microservices_guidance() -> GlobalCapabilityCreate:
                             "Call the MCP server to generate a single Markdown microservices architecture guidance "
                             "document grounded on the workspace's discovered artifacts and RUN INPUTS.\n"
                             "- **workspace_id** (required): The workspace to analyze.\n"
-                            "- **kind_id** (fixed): `cam.documents.microservices-arch-guidance`."
+                            "- **kind_id** (fixed): `cam.governance.microservices_arch_guidance`."
                         ),
                     },
                     "output_contract": {
                         "artifact_type": "cam",
-                        "kinds": ["cam.documents.microservices-arch-guidance"],
+                        "kinds": ["cam.governance.microservices_arch_guidance"],
                         "result_schema": None,
                         "schema_guide": (
-                            "The MCP server returns one artifact of kind `cam.documents.microservices-arch-guidance` "
+                            "The MCP server returns one artifact of kind `cam.governance.microservices_arch_guidance` "
                             "with file metadata and links:\n"
                             "- `storage_uri` and `download_url` (may be pre-signed).\n"
                             "- If pre-signed, `download_expires_at` may be present.\n"
@@ -193,7 +193,7 @@ async def seed_microservices_capabilities() -> None:
     Seeds microservices-architecture discovery capabilities.
 
     Notes:
-    - cap.raina.fetch_input is reused and is seeded elsewhere (do not duplicate here).
+    - cap.asset.fetch_raina_input is reused and is seeded elsewhere (do not duplicate here).
     - This file seeds both LLM-based capabilities and the MCP-based guidance document capability.
     """
     log.info("[capability.seeds.microservices] Begin")
@@ -208,21 +208,21 @@ async def seed_microservices_capabilities() -> None:
     targets: list[GlobalCapabilityCreate] = [
         # ---- Domain decomposition ----
         _llm_cap(
-            "cap.discover.ubiquitous_language",
+            "cap.domain.discover_ubiquitous_language",
             "Discover Ubiquitous Language",
-            "Derives a concise ubiquitous language from cam.inputs.raina (AVC/FSS/PSS).",
+            "Derives a concise ubiquitous language from cam.asset.raina_input (AVC/FSS/PSS).",
             ["cam.domain.ubiquitous_language"],
             tags=["astra", "raina", "microservices", "domain"],
         ),
         _llm_cap(
-            "cap.discover.bounded_contexts",
+            "cap.domain.discover_bounded_contexts",
             "Discover Bounded Contexts",
-            "Discovers bounded contexts and relationships using cam.inputs.raina and cam.domain.ubiquitous_language.",
+            "Discovers bounded contexts and relationships using cam.asset.raina_input and cam.domain.ubiquitous_language.",
             ["cam.domain.bounded_context_map"],
             tags=["astra", "raina", "microservices", "domain", "ddd"],
         ),
         _llm_cap(
-            "cap.discover.microservices",
+            "cap.architecture.discover_microservices",
             "Discover Candidate Microservices",
             "Derives candidate microservices aligned to bounded contexts from cam.domain.bounded_context_map.",
             ["cam.catalog.microservice_inventory"],
@@ -230,28 +230,28 @@ async def seed_microservices_capabilities() -> None:
         ),
         # ---- Contracts & interactions ----
         _llm_cap(
-            "cap.define.service_apis",
+            "cap.contract.define_service_apis",
             "Define Service API Contracts",
-            "Defines APIs per service using cam.catalog.microservice_inventory and cam.inputs.raina user stories and constraints.",
-            ["cam.api.service_api_contract"],
+            "Defines APIs per service using cam.catalog.microservice_inventory and cam.asset.raina_input user stories and constraints.",
+            ["cam.contract.service_api"],
             tags=["astra", "raina", "microservices", "contracts", "api"],
         ),
         _llm_cap(
-            "cap.define.event_catalog",
+            "cap.contract.define_event_catalog",
             "Define Event Catalog",
             "Defines domain events for services using cam.catalog.microservice_inventory and cam.domain.ubiquitous_language.",
-            ["cam.events.event_catalog"],
+            ["cam.catalog.events"],
             tags=["astra", "raina", "microservices", "events"],
         ),
         _llm_cap(
-            "cap.define.data_ownership",
+            "cap.data.define_ownership",
             "Define Service Data Ownership",
-            "Assigns data ownership boundaries and persistence strategy per service using cam.catalog.microservice_inventory and cam.inputs.raina.",
+            "Assigns data ownership boundaries and persistence strategy per service using cam.catalog.microservice_inventory and cam.asset.raina_input.",
             ["cam.data.service_data_ownership"],
             tags=["astra", "raina", "microservices", "data"],
         ),
         _llm_cap(
-            "cap.map.service_interactions",
+            "cap.architecture.map_service_interactions",
             "Map Service Interactions",
             "Maps service interactions based on service APIs and events (sync/async, direction, contracts).",
             ["cam.architecture.service_interaction_matrix"],
@@ -259,42 +259,42 @@ async def seed_microservices_capabilities() -> None:
         ),
         # ---- Cross-cutting & synthesis ----
         _llm_cap(
-            "cap.select.integration_patterns",
+            "cap.architecture.select_integration_patterns",
             "Select Integration Patterns",
             "Selects integration patterns (sync/async, saga, outbox, retries, idempotency) using interactions and data ownership.",
             ["cam.architecture.integration_patterns"],
             tags=["astra", "raina", "microservices", "integration"],
         ),
         _llm_cap(
-            "cap.define.security_architecture",
+            "cap.security.define_architecture",
             "Define Microservices Security Architecture",
             "Defines identity, edge security, service-to-service trust, data protection, and mitigations using service inventory, API contracts, and inputs.",
             ["cam.security.microservices_security_architecture"],
             tags=["astra", "raina", "microservices", "security"],
         ),
         _llm_cap(
-            "cap.define.observability_spec",
+            "cap.observability.define_spec",
             "Define Microservices Observability Spec",
             "Defines logs/metrics/traces, SLOs, and alerting using service inventory and interaction matrix.",
             ["cam.observability.microservices_observability_spec"],
             tags=["astra", "raina", "microservices", "observability"],
         ),
         _llm_cap(
-            "cap.define.deployment_topology",
+            "cap.deployment.define_topology",
             "Define Microservices Deployment Topology",
             "Defines runtime topology, networking, environments, and dependencies using service inventory and security architecture.",
             ["cam.deployment.microservices_topology"],
             tags=["astra", "raina", "microservices", "deployment"],
         ),
         _llm_cap(
-            "cap.rank.tech_stack",
+            "cap.catalog.rank_tech_stack",
             "Rank Tech Stack (Microservices)",
-            "Ranks tech choices aligned to integration patterns, deployment topology, and cam.inputs.raina constraints/tech hints.",
+            "Ranks tech choices aligned to integration patterns, deployment topology, and cam.asset.raina_input constraints/tech hints.",
             ["cam.catalog.tech_stack_rankings"],
             tags=["astra", "raina", "microservices", "tech-stack"],
         ),
         _llm_cap(
-            "cap.assemble.microservices_architecture",
+            "cap.architecture.assemble_microservices",
             "Assemble Microservices Architecture",
             "Synthesizes the end-to-end microservices architecture from all preceding artifacts into the primary deliverable.",
             ["cam.architecture.microservices_architecture"],
@@ -302,9 +302,9 @@ async def seed_microservices_capabilities() -> None:
         ),
         # ---- Delivery plan ----
         _llm_cap(
-            "cap.plan.migration_rollout",
+            "cap.deployment.plan_migration",
             "Plan Microservices Migration / Rollout",
-            "Creates a phased migration and rollout plan using the final architecture and cam.inputs.raina constraints.",
+            "Creates a phased migration and rollout plan using the final architecture and cam.asset.raina_input constraints.",
             ["cam.deployment.microservices_migration_plan"],
             tags=["astra", "raina", "microservices", "migration"],
         ),

@@ -17,6 +17,8 @@ from app.seeds.seed_data_pipeline_packs import seed_data_pipeline_packs
 from app.seeds.seed_microservices_capabilities import seed_microservices_capabilities
 from app.seeds.seed_microservices_packs import seed_microservices_packs  # ✅ NEW (now enabled)
 
+from app.seeds.seed_agile_capabilities import seed_agile_capabilities
+
 log = logging.getLogger("app.seeds")
 
 
@@ -29,6 +31,7 @@ async def run_all_seeds() -> None:
       SEED_CAPABILITIES_RAINA=1             -> enable RainaV2 LLM capabilities seeding (default: disabled)
       SEED_CAPABILITIES_DATA_PIPELINE=1     -> enable Data Pipeline capabilities seeding (default: 1)
       SEED_CAPABILITIES_MICROSERVICES=1     -> enable Microservices pack capabilities seeding (default: 1)
+      SEED_CAPABILITIES_AGILE=1             -> enable Agile capabilities seeding (default: 1)
 
       SEED_PACK_INPUTS=1                    -> enable pack inputs seeding (default: 1)
       SEED_PACKS=1                          -> enable core packs seeding (default: 1)
@@ -41,6 +44,7 @@ async def run_all_seeds() -> None:
     # do_capabilities_raina = os.getenv("SEED_CAPABILITIES_RAINA", "0") in ("1", "true", "True")
     do_capabilities_data_pipeline = os.getenv("SEED_CAPABILITIES_DATA_PIPELINE", "1") in ("1", "true", "True")
     do_capabilities_microservices = os.getenv("SEED_CAPABILITIES_MICROSERVICES", "1") in ("1", "true", "True")
+    do_capabilities_agile = os.getenv("SEED_CAPABILITIES_AGILE", "1") in ("1", "true", "True")
 
     do_pack_inputs = os.getenv("SEED_PACK_INPUTS", "1") in ("1", "true", "True")
     do_packs = os.getenv("SEED_PACKS", "1") in ("1", "true", "True")
@@ -70,6 +74,11 @@ async def run_all_seeds() -> None:
         await seed_microservices_capabilities()
     else:
         log.info("[capability.seeds.microservices_capabilities] Skipped via env")
+
+    if do_capabilities_agile:
+        await seed_agile_capabilities()
+    else:
+        log.info("[capability.seeds.agile_capabilities] Skipped via env")
 
     # ---- Pack inputs ----
     if do_pack_inputs:

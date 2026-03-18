@@ -142,7 +142,7 @@ services:
       - ../services/planner-service/.env.example
     environment:
       MONGO_URI: ${MONGO_URI:-mongodb://host.docker.internal:27017/}
-      MONGO_DB: ${PLANNER_MONGO_DB:-astra_planner}
+      MONGO_DB: ${MONGO_DB:-astra}
       RABBITMQ_URI: ${RABBITMQ_URI:-amqp://raina:raina@host.docker.internal:5672/}
       RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-raina.events}
       EVENTS_ORG: ${EVENTS_ORG:-astra}

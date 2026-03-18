@@ -7,7 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     # MongoDB
     mongo_uri: str = os.getenv("MONGO_URI", "")
-    mongo_db: str = os.getenv("MONGO_DB", "astra_planner")
+    mongo_db: str = os.getenv("MONGO_DB", "astra")
 
     # Redis
     redis_url: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -43,6 +43,10 @@ class Settings(BaseSettings):
 
     # Consumer queues
     consumer_queue_capability: str = os.getenv("CONSUMER_QUEUE_CAPABILITY", "planner.capability.v1")
+
+    # Skip enrichment nodes (saves time and cost during testing)
+    skip_diagram: bool = bool(int(os.getenv("SKIP_DIAGRAM", "0")))
+    skip_narrative: bool = bool(int(os.getenv("SKIP_NARRATION", "0")))
 
     model_config = SettingsConfigDict(env_file=None, extra="ignore")
 

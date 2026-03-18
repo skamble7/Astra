@@ -26,6 +26,7 @@ from conductor_core.nodes.narrative_enrichment import narrative_enrichment_node
 
 from conductor_core.llm.factory import get_agent_llm
 from app.events.rabbit import get_bus, EventPublisher
+from app.config import settings
 
 
 class GraphState(TypedDict, total=False):
@@ -96,6 +97,8 @@ class ConductorGraph:
             capability_executor_node(
                 runs_repo=self.runs_repo,
                 publisher=EventPublisher(bus=get_bus()),
+                skip_diagram=settings.skip_diagram,
+                skip_narrative=settings.skip_narrative,
             ),
         )
 
