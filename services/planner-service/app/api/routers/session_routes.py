@@ -5,6 +5,8 @@ import logging
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 
+logger = logging.getLogger("app.api.routers.sessions")
+
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 
 from app.db.session_repository import SessionRepository
@@ -23,6 +25,7 @@ from app.models.session_models import (
 from app.agent.planner_graph import invoke_planner
 from app.agent.execution_graph import run_execution_plan
 from app.cache.manifest_cache import get_manifest_cache
+from conductor_core.mcp.mcp_client import MCPConnection, MCPTransportConfig
 from app.events.stream import publish_to_session
 from app.events.rabbit import get_bus
 from libs.astra_common.events import Service
@@ -167,8 +170,52 @@ async def approve_plan(
             mode = (cap.get("execution") or {}).get("mode")
             if mode == "mcp":
                 input_form_type = "structured"
-                input_contract = (((cap.get("execution") or {}).get("io") or {}).get("input_contract") or {})
                 prefilled_inputs = first_step.run_inputs  # ADR-009: LLM-prefilled values
+                # Discover input schema live from the MCP server's tools/list
+                exec_cfg = cap.get("execution") or {}
+                tool_name = exec_cfg.get("tool_name") or ""
+                t = (exec_cfg.get("transport") or {})
+                transport_cfg = MCPTransportConfig(
+                    kind=(t.get("kind") or "http"),
+                    base_url=t.get("base_url"),
+                    headers=(t.get("headers") or {}),
+                    protocol_path=(t.get("protocol_path") or "/mcp"),
+                    verify_tls=t.get("verify_tls"),
+                    timeout_sec=(t.get("timeout_sec") or 30),
+                )
+                try:
+                    conn = await MCPConnection.connect(transport_cfg)
+                    try:
+                        pairs = await conn.list_tools()
+                        tools = {name: schema for name, schema in pairs}
+                        logger.info("[approve_plan] tools/list ok cap=%s tools=%s", first_step.capability_id, list(tools.keys()))
+                        # Pick the target tool (named or first available)
+                        target = tool_name if (tool_name and tool_name in tools) else (next(iter(tools), None))
+                        raw_schema = tools.get(target) if target else None
+                        # Grab description from tool object while connection still open
+                        tool_obj = conn._tools.get(target) if target else None
+                        schema_guide = (getattr(tool_obj, "description", None) or "") if tool_obj else ""
+                    finally:
+                        await conn.aclose()
+                    if raw_schema:
+                        input_contract = {"json_schema": raw_schema, "schema_guide": schema_guide}
+                        logger.info("[approve_plan] input_contract built cap=%s props=%s", first_step.capability_id, list((raw_schema.get("properties") or {}).keys()))
+                except Exception as exc:
+                    logger.warning("[approve_plan] tools/list failed cap=%s err=%s — falling back to prefill schema", first_step.capability_id, exc, exc_info=True)
+
+                # Fallback: derive schema from prefilled_inputs when MCP is unreachable
+                if not input_contract and prefilled_inputs:
+                    props = {}
+                    for k, v in prefilled_inputs.items():
+                        if isinstance(v, bool):
+                            props[k] = {"type": "boolean", "title": k.replace("_", " ").title()}
+                        else:
+                            props[k] = {"type": "string", "title": k.replace("_", " ").title()}
+                    input_contract = {
+                        "json_schema": {"type": "object", "properties": props, "required": list(prefilled_inputs.keys())},
+                        "schema_guide": "",
+                    }
+                    logger.info("[approve_plan] fallback schema from prefill cap=%s keys=%s", first_step.capability_id, list(props.keys()))
 
     publish_to_session(session_id, {
         "type": "plan.approved",

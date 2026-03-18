@@ -145,28 +145,27 @@ def _artifacts_property(cap: Dict[str, Any]) -> str:
     return _output_contract(cap).get("artifacts_property", "artifacts")
 
 
-def _tool_calls(cap: Dict[str, Any]) -> List[Dict[str, Any]]:
-    return (_exec_block(cap).get("tool_calls") or [])
-
-
-def _find_status_tool(cap: Dict[str, Any]) -> Optional[Tuple[str, Dict[str, Any]]]:
+def _find_status_tool_from_discovered(discovered: Dict[str, Any]) -> Optional[Tuple[str, Dict[str, Any]]]:
     """
-    Finds a status/poll tool for async jobs.
-    Prefers tools that look like "*.status|check|poll|progress" AND require a job id.
+    Finds a status/poll tool for async jobs from the discovered tools cache.
+    discovered: {tool_name: json_schema_dict}  (from state["discovered_tools"][cap_id])
+
+    Prefers tools whose name ends with a status suffix AND whose schema requires a job-id arg.
+    Falls back to any tool requiring a job-id arg.
     """
-    def _requires_id(tc: Dict[str, Any]) -> bool:
-        args_schema = tc.get("args_schema") or {}
-        props = (args_schema.get("properties") or {})
-        required = set(args_schema.get("required") or [])
+    def _requires_id(schema: Dict[str, Any]) -> bool:
+        props = (schema.get("properties") or {})
+        required = set(schema.get("required") or [])
         return any(k in props and k in required for k in _JOB_ID_KEYS)
 
-    for tc in _tool_calls(cap):
-        name = (tc.get("tool") or "").lower()
-        if name.endswith(_ASYNC_STATUS_SUFFIXES) and _requires_id(tc):
-            return tc.get("tool"), tc
-    for tc in _tool_calls(cap):
-        if _requires_id(tc):
-            return tc.get("tool"), tc
+    # First pass: name-suffix + id requirement
+    for name, schema in discovered.items():
+        if name.lower().endswith(_ASYNC_STATUS_SUFFIXES) and _requires_id(schema):
+            return name, schema
+    # Second pass: just id requirement
+    for name, schema in discovered.items():
+        if _requires_id(schema):
+            return name, schema
     return None
 
 
@@ -258,10 +257,10 @@ def _json_sample(val: Any, limit: int = 800) -> str:
     return s[:limit] + ("…" if len(s) > limit else "")
 
 
-def _pick_id_arg_key_for_status_tool(status_tool_spec: Dict[str, Any]) -> Optional[str]:
-    args_schema = status_tool_spec.get("args_schema") or {}
-    props = (args_schema.get("properties") or {})
-    required = set(args_schema.get("required") or [])
+def _pick_id_arg_key_for_status_tool(schema: Dict[str, Any]) -> Optional[str]:
+    """schema is the tool's JSON Schema dict (plain, not wrapped in args_schema)."""
+    props = (schema.get("properties") or {})
+    required = set(schema.get("required") or [])
     for k in _JOB_ID_KEYS:
         if k in props and k in required:
             return k
@@ -421,12 +420,13 @@ def mcp_execution_node(*, runs_repo: RunRepository):
 
             # 2) Async polling (contract-based)
             job_id, status = _detect_async_job(payload)
-            status_tool = _find_status_tool(capability)
+            cap_discovered = (state.get("discovered_tools") or {}).get(cap_id) or {}
+            status_tool = _find_status_tool_from_discovered(cap_discovered)
             attempts = 0
 
             if job_id and status and status_tool:
-                status_tool_name, status_tool_spec = status_tool
-                id_arg_key = _pick_id_arg_key_for_status_tool(status_tool_spec) or "job_id"
+                status_tool_name, status_schema = status_tool
+                id_arg_key = _pick_id_arg_key_for_status_tool(status_schema) or "job_id"
                 logger.info("[mcp] async_detected job_id=%s status=%s status_tool=%s", job_id, status, status_tool_name)
 
                 while status in _RUNNING_STATES:

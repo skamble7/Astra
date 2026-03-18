@@ -5,7 +5,7 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from .capability_models import ToolCallSpec, GlobalCapability
+from .capability_models import GlobalCapability
 from .pack_input_models import PackInput  # registered input definition (id, name, json_schema, ...)
 
 ExecutionMode = Literal["mcp", "llm"]
@@ -13,7 +13,7 @@ ExecutionMode = Literal["mcp", "llm"]
 
 class ResolvedPlaybookStep(BaseModel):
     """
-    A step annotated with execution mode, produced kinds, and (for MCP) tool_calls.
+    A step annotated with execution mode, produced kinds, and (for MCP) the tool name.
     """
     id: str
     name: str
@@ -22,7 +22,7 @@ class ResolvedPlaybookStep(BaseModel):
     execution_mode: ExecutionMode
     produces_kinds: List[str] = Field(default_factory=list)
     required_kinds: List[str] = Field(default_factory=list)  # reserved for learning-service enrichment
-    tool_calls: Optional[List[ToolCallSpec]] = None          # only for MCP
+    tool_name: Optional[str] = None  # only for MCP
 
 
 class ResolvedPlaybook(BaseModel):

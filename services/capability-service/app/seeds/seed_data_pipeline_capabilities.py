@@ -8,7 +8,8 @@ from datetime import datetime
 from app.models import (
     GlobalCapabilityCreate,
     LlmExecution,
-    McpExecution,  # <-- NEW: MCP execution model
+    McpExecution,
+    HTTPTransport,
 )
 from app.services import CapabilityService
 
@@ -79,134 +80,15 @@ def _mcp_cap_raina_fetch_input() -> GlobalCapabilityCreate:
         agent=None,
         execution=McpExecution(
             mode="mcp",
-            transport={
-                "kind": "http",
-                "base_url": "http://host.docker.internal:8003",  # matches compose (RAINA_INPUT_PORT=8003)
-                "headers": {
-                    "host":"localhost:8003"
-                },
-                "auth": {
-                    "method": "none",
-                    "alias_token": None,
-                    "alias_user": None,
-                    "alias_password": None,
-                    "alias_key": None,
-                },
-                "timeout_sec": 180,
-                "verify_tls": False,
-                "retry": {
-                    "max_attempts": 2,
-                    "backoff_ms": 250,
-                    "jitter_ms": 50,
-                },
-                "health_path": "/health",
-                "protocol_path": "/mcp",
-            },
-            tool_calls=[
-                {
-                    "tool": "raina.input.fetch",
-                    "args_schema": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "required": ["url"],
-                        "properties": {
-                            "url": {
-                                "type": "string",
-                                "format": "uri",
-                                "minLength": 1,
-                                "description": "HTTP(S) endpoint returning the Raina input JSON.",
-                            },
-                            "name": {
-                                "type": ["string", "null"],
-                                "description": "Optional human-friendly title for the artifact.",
-                            },
-                            "auth_bearer": {
-                                "type": ["string", "null"],
-                                "description": "Optional Bearer token if the endpoint requires authentication.",
-                            },
-                        },
-                    },
-                    "output_kinds": ["cam.asset.raina_input"],
-                    "result_schema": None,
-                    "timeout_sec": 600,
-                    "retries": 1,
-                    "expects_stream": False,
-                    "cancellable": True,
-                }
-            ],
-            discovery={
-                "validate_tools": True,
-                "validate_resources": False,
-                "validate_prompts": False,
-                "fail_fast": True,
-            },
-            connection={
-                "singleton": True,
-                "share_across_steps": True,
-            },
-            io={
-                "input_contract": {
-                    "json_schema": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "required": ["url"],
-                        "properties": {
-                            "url": {
-                                "type": "string",
-                                "format": "uri",
-                                "minLength": 1,
-                                "description": "HTTP(S) endpoint for the Raina input JSON.",
-                            },
-                            "name": {
-                                "type": ["string", "null"],
-                                "description": "Optional title applied to the emitted artifact.",
-                            },
-                            "auth_bearer": {
-                                "type": ["string", "null"],
-                                "description": "Optional Bearer token if the endpoint is protected.",
-                            },
-                        },
-                    },
-                    "schema_guide": (
-                        "Provide the URL that serves a Raina input JSON (AVC/FSS/PSS). "
-                        "Optionally include a display name and a Bearer token when the endpoint requires authentication."
-                    ),
-                },
-                "output_contract": {
-                    "artifact_type": "cam",
-                    "kinds": ["cam.asset.raina_input"],
-                    "artifacts_property":"result.artifacts",
-                    "result_schema": None,
-                    "schema_guide": (
-                        "Emits a single artifact of kind `cam.asset.raina_input` with `data.inputs = { avc, fss, pss }` "
-                        "validated against the registry schema."
-                    ),
-                    "extra_schema": {
-                        "type": "object",
-                        "additionalProperties": True,
-                        "properties": {
-                            "kind_id": {"type": "string"},
-                            "name": {"type": ["string", "null"]},
-                            "data": {
-                                "type": "object",
-                                "additionalProperties": True,
-                                "properties": {
-                                    "inputs": {"type": "object"}
-                                },
-                            },
-                            "mime_type": {"type": ["string", "null"]},
-                            "encoding": {"type": ["string", "null"]},
-                            "tags": {
-                                "type": ["array", "null"],
-                                "items": {"type": "string"},
-                            },
-                            "created_at": {"type": ["string", "null"], "format": "date-time"},
-                            "updated_at": {"type": ["string", "null"], "format": "date-time"},
-                            "preview": {"type": ["object", "null"], "additionalProperties": True},
-                        },
-                    },
-                },
-            },
+            transport=HTTPTransport(
+                kind="http",
+                base_url="http://host.docker.internal:8003",  # matches compose (RAINA_INPUT_PORT=8003)
+                headers={"host": "localhost:8003"},
+                timeout_sec=180,
+                verify_tls=False,
+                protocol_path="/mcp",
+            ),
+            tool_name="raina.input.fetch",
         ),
     )
 

@@ -10,19 +10,6 @@ from pydantic import BaseModel, Field, AnyUrl, model_validator  # AnyUrl used by
 # Common supporting specs
 # ─────────────────────────────────────────────────────────────
 
-class RetryPolicy(BaseModel):
-    max_attempts: int = Field(default=2, ge=0)
-    backoff_ms: int = Field(default=250, ge=0)
-    jitter_ms: int = Field(default=50, ge=0)
-
-
-class DiscoveryPolicy(BaseModel):
-    validate_tools: bool = True
-    validate_resources: bool = False
-    validate_prompts: bool = False
-    fail_fast: bool = True
-
-
 class AuthAlias(BaseModel):
     """
     Alias-based auth references (no secrets stored).
@@ -41,13 +28,11 @@ class AuthAlias(BaseModel):
 class HTTPTransport(BaseModel):
     kind: Literal["http"]
     base_url: Union[AnyUrl, str]
-    headers: Dict[str, str] = Field(default_factory=dict)  # non-secret only
+    headers: Dict[str, str] = Field(default_factory=dict)  # non-secret only; used for docker host routing
     auth: Optional[AuthAlias] = None
     timeout_sec: int = Field(default=60, ge=1)
     verify_tls: bool = True
-    retry: Optional[RetryPolicy] = None
-    health_path: str = "/health"
-    protocol_path: str = "/sse"  # protocol endpoint path (e.g., SSE stream or /mcp)
+    protocol_path: str = "/mcp"  # determines SSE vs streamable_http transport
 
 
 class StdioTransport(BaseModel):
@@ -66,12 +51,12 @@ Transport = Annotated[Union[HTTPTransport, StdioTransport], Field(discriminator=
 
 
 # ─────────────────────────────────────────────────────────────
-# Execution-level I/O contracts
+# Execution-level I/O contracts (used by LlmExecution)
 # ─────────────────────────────────────────────────────────────
 
 class ExecutionOutputContract(BaseModel):
     """
-    Declares how an execution returns results.
+    Declares how an LLM execution returns results.
 
     Discriminator:
       - artifact_type: "cam" | "freeform"
@@ -79,16 +64,9 @@ class ExecutionOutputContract(BaseModel):
     When artifact_type = "cam":
       - kinds: REQUIRED non-empty list of registered CAM kinds.
       - result_schema: MUST be omitted (None).
-      - schema_guide: MAY be provided but is usually unnecessary.
-    
     When artifact_type = "freeform":
       - result_schema: REQUIRED JSON Schema describing the result shape.
       - kinds: MUST be omitted or empty.
-      - schema_guide: Optional natural-language guidance to help LLMs produce the shape.
-
-    Common optional toggles (apply to both):
-      - stream: whether output is streamed.
-      - many: whether multiple items are produced (array semantics / item stream).
     """
     artifact_type: Literal["cam", "freeform"] = Field(default="cam")
     kinds: List[str] = Field(default_factory=list, description="CAM kinds when artifact_type='cam'.")
@@ -105,13 +83,11 @@ class ExecutionOutputContract(BaseModel):
     @model_validator(mode="after")
     def _validate_contract(self) -> "ExecutionOutputContract":
         if self.artifact_type == "cam":
-            # kinds required, non-empty; result_schema should be None
             if not self.kinds:
                 raise ValueError("ExecutionOutputContract: 'kinds' must be a non-empty list when artifact_type='cam'.")
             if self.result_schema is not None:
                 raise ValueError("ExecutionOutputContract: 'result_schema' must be omitted/None when artifact_type='cam'.")
         elif self.artifact_type == "freeform":
-            # result_schema required; kinds must be empty
             if self.result_schema is None:
                 raise ValueError("ExecutionOutputContract: 'result_schema' is required when artifact_type='freeform'.")
             if self.kinds:
@@ -121,12 +97,7 @@ class ExecutionOutputContract(BaseModel):
 
 class ExecutionInput(BaseModel):
     """
-    Envelope for execution input specification.
-
-    - json_schema: JSON Schema describing the expected input object.
-    - schema_guide: Natural-language, field-by-field guidance that helps LLMs/UIs
-      construct a valid object (required/optional, allowed values, examples, rules).
-      Markdown is allowed.
+    Envelope for LLM execution input specification.
     """
     json_schema: Dict[str, Any] = Field(
         default_factory=dict,
@@ -140,28 +111,10 @@ class ExecutionInput(BaseModel):
 
 class ExecutionIO(BaseModel):
     """
-    Execution-level I/O declaration:
-    - input_contract: Envelope containing input schema and human-readable guide
-    - output_contract: Declares how outputs are shaped (CAM vs freeform), with optional guide
+    Execution-level I/O declaration for LLM capabilities.
     """
     input_contract: Optional[ExecutionInput] = None
     output_contract: Optional[ExecutionOutputContract] = None
-
-
-# ─────────────────────────────────────────────────────────────
-# MCP ToolCall spec
-# ─────────────────────────────────────────────────────────────
-
-class ToolCallSpec(BaseModel):
-    tool: str
-    args_schema: Optional[Dict[str, Any]] = None
-    output_kinds: List[str] = Field(default_factory=list)
-    # Optional per-tool non-artifact result envelope (e.g., {job_id, status})
-    result_schema: Optional[Dict[str, Any]] = None
-    timeout_sec: int = Field(default=60, ge=1)
-    retries: int = Field(default=1, ge=0)
-    expects_stream: bool = False
-    cancellable: bool = True
 
 
 # ─────────────────────────────────────────────────────────────
@@ -169,15 +122,27 @@ class ToolCallSpec(BaseModel):
 # ─────────────────────────────────────────────────────────────
 
 class McpExecution(BaseModel):
+    """
+    Slim MCP execution declaration. Schema is discovered live from the MCP server
+    via tools/list — only connectivity and identity are stored here.
+    """
     mode: Literal["mcp"]
     transport: Transport
-    tool_calls: List[ToolCallSpec] = Field(default_factory=list)
-    discovery: Optional[DiscoveryPolicy] = None
-    connection: Optional[Dict[str, bool]] = Field(
-        default_factory=lambda: {"singleton": True, "share_across_steps": True}
-    )
-    # Execution-level input/output contract (envelope with schema + guide)
-    io: Optional[ExecutionIO] = None
+    tool_name: str  # the single MCP tool this capability maps to
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_verbose_format(cls, data: Any) -> Any:
+        """Backward-compat: old docs stored tool_calls list instead of tool_name."""
+        if not isinstance(data, dict):
+            return data
+        if "tool_name" not in data and "tool_calls" in data:
+            tool_calls = data.get("tool_calls") or []
+            if tool_calls:
+                first = tool_calls[0]
+                data = dict(data)
+                data["tool_name"] = first.get("tool", "") if isinstance(first, dict) else ""
+        return data
 
 
 class LlmExecution(BaseModel):

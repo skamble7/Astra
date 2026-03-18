@@ -114,13 +114,16 @@ class MCPConnection:
         for t in tools:
             schema: Dict[str, Any] = {}
             try:
-                if hasattr(t, "args_schema") and t.args_schema is not None:
-                    schema = (
-                        t.args_schema.schema()
-                        if hasattr(t.args_schema, "schema")
-                        else t.args_schema.model_json_schema()  # type: ignore[attr-defined]
-                    )
-                elif hasattr(t, "args") and isinstance(t.args, dict):
+                raw = getattr(t, "args_schema", None)
+                if isinstance(raw, dict):
+                    # langchain-mcp-adapters 0.2+ passes inputSchema dict directly
+                    schema = raw
+                elif raw is not None:
+                    if hasattr(raw, "model_json_schema"):
+                        schema = raw.model_json_schema()  # Pydantic v2 class
+                    elif hasattr(raw, "schema"):
+                        schema = raw.schema()  # Pydantic v1 class
+                if not schema and hasattr(t, "args") and isinstance(t.args, dict):
                     schema = t.args
             except Exception:
                 schema = {}
@@ -128,7 +131,7 @@ class MCPConnection:
 
         # Small preview of first few schemas for debugging
         preview = [{ "name": n, "args_schema_keys": list((s or {}).get("properties", {}).keys())[:6] } for n, s in out[:5]]
-        logger.debug("[MCP] Tool schema preview (first 5): %s", _safe_preview(preview, 600))
+        logger.info("[MCP] Tool schema preview (first 5): %s", _safe_preview(preview, 600))
 
         return out
 
