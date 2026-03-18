@@ -83,12 +83,12 @@ Crucially, a capability is the core mechanism through which new features and beh
 | **`parameters_schema`** | JSON Schema describing top‑level parameters distinct from execution input. | Enables validation and UI scaffolding for dynamic parameters provided by the user. |
 | **`produces_kinds`** | Array of artifact kind ids that may be produced. | Guides the agent on what to expect and informs downstream consumers about resulting artifacts|
 | **`agent`** | Optional agent identifier. | Associates the capability with a specific model or agent for LLM execution. |
-| **`execution`** | Either an `McpExecution` or `LlmExecution` structure. | Declares the mode (`mcp` or `llm`) and contains detailed transport configuration, tool call specifications, I/O contracts and polling settings|
+| **`execution`** | Either an `McpExecution` or `LlmExecution` structure. | Declares the mode (`mcp` or `llm`) and contains transport configuration, the tool name, and (for LLM mode) the LLM config reference.|
 
 Important sub‑models used within `execution` include:
 
 - **Execution modes:**
-  - `McpExecution` defines transport (HTTP/STDIO), a list of tool calls (with argument schema, retries and streaming flags), discovery policies, connection hints and optional input/output contracts.
+  - `McpExecution` declares the transport (HTTP/STDIO) and a single `tool_name` string identifying the MCP tool to invoke. Input schema is **not** stored in the capability — it is discovered live at runtime by calling `tools/list` on the MCP server. This keeps the capability declaration minimal and always in sync with the actual server.
   - `LlmExecution` references an LLM configuration via a `llm_config_ref` — a ConfigForge canonical reference string (e.g., `"dev.llm.openai.fast"`) — and optionally declares structured I/O. The conductor resolves this reference at runtime to obtain the appropriate LLM client, enabling per-capability LLM configuration without embedding provider details or secrets in the capability definition.
 
 #### Naming Convention
@@ -416,8 +416,8 @@ All six nodes follow the same pattern: a factory function accepts dependencies (
 | Node | Description |
 |---|---|
 | `capability_executor_node` | Central routing coordinator.  Manages step index, three-phase transitions (`discover → enrich → narrative_enrich`), publishes step lifecycle events via `EventPublisher`, and drives the graph to `persist_run` on completion or error. |
-| `mcp_input_resolver_node` | Builds MCP tool arguments.  Step 0 uses pack inputs from `request["inputs"]`; steps 1+ use LLM + upstream artifact context.  Validates against JSON Schema with one LLM repair attempt. |
-| `mcp_execution_node` | Connects to an MCP server (HTTP or STDIO transport), invokes the declared tool(s), handles retries, polling, and pagination.  Stages produced artifacts with provenance metadata. |
+| `mcp_input_resolver_node` | Builds MCP tool arguments. Reads `tool_name` from `capability.execution.tool_name`, then calls `tools/list` on the MCP server to discover the live input JSON schema (cached in `state["discovered_tools"]` for the duration of the run). Step 0 maps pack inputs to tool args; steps 1+ use LLM + upstream artifact context. Validates against the discovered schema with one LLM repair attempt. |
+| `mcp_execution_node` | Connects to an MCP server (HTTP or STDIO transport), invokes the tool identified by `tool_name`, handles retries, polling, and pagination. Uses `discovered_tools` from state to detect async status tools without a second `tools/list` call. Stages produced artifacts with provenance metadata. |
 | `llm_execution_node` | Executes LLM-based capabilities.  Resolves `llm_config_ref` from ConfigForge per capability, builds a prompt from the kind schema + prompt contract + upstream artifacts, calls the LLM, validates JSON output against the artifact kind schema, stages the result. |
 | `diagram_enrichment_node` | Post-processing: connects to the diagram MCP server, calls `diagram.mermaid.generate` for each artifact produced in the current step, attaches the resulting Mermaid diagrams.  Reads transport config from `agent_capabilities_map["cap.diagram.mermaid"]`.  Failures are non-fatal. |
 | `narrative_enrichment_node` | Post-processing: for each artifact produced in the current step, reads the kind’s `narratives_spec` and calls the agent LLM to generate a Markdown narrative (`id: "auto:overview"`, `audience: "developer"`).  Failures are non-fatal. |
@@ -461,7 +461,7 @@ The conductor service orchestrates **runs** of a capability pack’s playbook.  
 
   polyllm supports `openai`, `google_genai`, `bedrock`, and `google_vertexai` as providers. Provider selection, API keys, and sampling parameters are all stored in ConfigForge profiles — never hardcoded in capability definitions or service configuration.
 
-- **LangGraph‑based agent:** The conductor builds a `StateGraph` using LangGraph and populates it with nodes from `conductor_core.nodes`.  The graph starts at `input_resolver` (conductor-service–specific) and then delegates to the shared nodes.  Each node returns a `Command` indicating the next node and a state update.  For the full description of each execution node, see the **conductor-core** section above.
+- **LangGraph‑based agent:** The conductor builds a `StateGraph` using LangGraph and populates it with nodes from `conductor_core.nodes`.  The graph starts at `input_resolver` (conductor-service–specific) and then delegates to the shared nodes.  Each node returns a `Command` indicating the next node and a state update.  The graph state includes a `discovered_tools` map (`cap_id → {tool_name: schema}`) that is populated by `mcp_input_resolver` on first use and reused by `mcp_execution` for the same capability within the same run, avoiding redundant `tools/list` calls.  For the full description of each execution node, see the **conductor-core** section above.
 
 The conductor advances through three phases for each step: `discover` (MCP or LLM execution gathers raw artifacts), `enrich` (diagram_enrichment generates Mermaid diagrams), and `narrative_enrich` (narrative_enrichment generates Markdown explanations via the agent LLM).  Errors in either enrichment phase are non‑fatal and the run continues; errors during discovery immediately trigger `persist_run` with a failed status.  When all steps complete or inputs are invalid, the conductor calls `persist_run` and publishes final events.
 
@@ -499,7 +499,7 @@ User message
 
 ASTRA uses a deliberate two-step flow to ensure users review and confirm inputs before execution begins:
 
-1. **`POST /plan/approve`** — locks the plan, inspects the first enabled step’s capability to determine whether the input form should be `"structured"` (MCP with JSON Schema form) or `"freetext"` (LLM with free-text textarea).  Returns `prefilled_inputs` (LLM-guessed values from planning time) and the `input_contract` schema.  Does **not** start execution.
+1. **`POST /plan/approve`** — locks the plan, inspects the first enabled step’s capability to determine whether the input form should be `"structured"` (MCP) or `"freetext"` (LLM). For MCP capabilities, it connects to the MCP server and calls `tools/list` to retrieve the live input JSON schema, returning it as `input_contract: { json_schema, schema_guide }` alongside `prefilled_inputs` (LLM-guessed values from planning time). The frontend renders a schema-driven form directly from this response. Does **not** start execution.
 
 2. **`POST /run`** — accepts the user-confirmed `run_inputs`, sets status to `executing`, and schedules the execution agent as a background task.
 
@@ -517,3 +517,82 @@ The planner-service uses two complementary channels for real-time events:
 | RabbitMQ → notification-service → WebSocket `/ws` | Workspace-broadcast | Step-level progress events (`step.started`, `step.completed`, etc.) published by `capability_executor_node` |
 
 Session-private chat events (`planner.response`, `planner.error`) are delivered exclusively on the direct WebSocket and are never published to RabbitMQ, preventing duplicate delivery to frontend clients that subscribe to both channels.
+
+---
+
+### Capability Onboarding Service
+
+The capability-onboarding-service is a stateless HTTP service (port **9026**) that provides the backend for the **MCP Capability Onboarding Wizard** — a 4-step UI that guides users through connecting an MCP server, selecting a tool, reviewing LLM-inferred metadata, and registering the result as a live ASTRA capability.
+
+Unlike other ASTRA services it has **no database, no message broker, and no persistent state**. The entire wizard state travels as a single progressive JSON document (`CapabilityOnboardingDoc`) passed between the frontend and the two backend endpoints.
+
+#### Why it exists
+
+Registering a new MCP server as an ASTRA capability traditionally required manual construction of `GlobalCapabilityCreate` payloads, deep knowledge of the `cap.<group>.<action>` and `cam.<category>.<name>` naming conventions, and separate API calls to capability-service and artifact-service. The onboarding service automates all of this:
+
+1. Connects to the MCP server and discovers its tools via `tools/list`
+2. Uses an LLM (via polyllm + ConfigForge) to infer a complete capability metadata block from the tool name, description, and input schema
+3. Lets the user review and edit the inferred metadata before committing
+4. Registers the capability (and any new artifact kinds) in the appropriate services
+
+#### UI Flow and API Mapping
+
+```
+Step 1 — Connect Server     →  POST /onboarding/resolve  (no tool_name)
+Step 2 — Select Tool        →  POST /onboarding/resolve  (with tool_name, if multi-tool server)
+Step 3 — Review & Edit      →  client-side only (edit doc.inferred in UI)
+Step 4 — Register           →  POST /onboarding/register
+```
+
+Single-tool servers collapse steps 1 and 2 into one call — the response already has `status="inferred"` with all metadata populated.
+
+#### Progressive Document Model
+
+The `CapabilityOnboardingDoc` is the central data contract:
+
+| Field | Populated by | Purpose |
+|---|---|---|
+| `server` | Step 1 | MCP server connection config (URL, auth, protocol path) |
+| `available_tools` | Step 1 | All tools discovered on the server |
+| `selected_tool` | Step 2 | The specific tool the user chose (or auto-selected if only one) |
+| `inferred` | Step 2 | LLM-inferred `capability_id`, `capability_name`, `tags`, `group`, `produces_kinds` |
+| `status` | Updated by each step | `"discovered"` → `"inferred"` → `"registered"` |
+| `registered_capability_id` | Step 4 | The ID written to capability-service |
+| `registered_kind_ids` | Step 4 | New artifact kind IDs written to artifact-service |
+
+#### Endpoint: `POST /onboarding/resolve`
+
+Accepts a `ResolveRequest` (server config + optional `tool_name`). Internally:
+
+1. Builds `MCPTransportConfig` from the server config; resolves `AuthSpec` aliases (env-var names) into HTTP headers at call time — bearer, API key, or Basic auth.
+2. Handles Docker networking: when `MCP_LOCALHOST_ALIAS` is set (e.g. `host.docker.internal`), rewrites `localhost`/`127.0.0.1` in the MCP URL and injects a `Host` header with the original hostname to prevent 421 responses from MCP servers that validate the `Host` header.
+3. Calls `MCPConnection.connect()` → `list_tools()` → `aclose()` using `conductor_core.mcp`.
+4. If no `tool_name` and multiple tools exist, returns `status="discovered"` for the UI to show a picker.
+5. Otherwise, passes the selected tool's name, description, and full input schema to `LLMInferencer.infer()` and returns `status="inferred"` with all metadata populated.
+
+#### LLM Inference (`LLMInferencer`)
+
+The inferencer uses **polyllm** with the **ConfigForge** pattern (same as conductor-service):
+
+- `CONFIG_FORGE_URL` + `ONBOARDING_LLM_CONFIG_REF` env vars — no raw API keys in service config.
+- A structured system prompt enforces naming conventions (`cap.<group>.<action>`, `cam.<category>.<name>`) and valid group/category values.
+- The user message contains the tool name, description, and full JSON input schema.
+- The LLM must respond with a single JSON object containing `capability_id`, `capability_name`, `description`, `tags`, `group`, and `produces_kinds`.
+- Response parsing falls back to markdown fence-stripping before raising a 502.
+
+#### Endpoint: `POST /onboarding/register`
+
+Accepts a `RegisterRequest` (the full `CapabilityOnboardingDoc` with `status="inferred"`, optionally edited by the user). Internally:
+
+1. **Artifact kinds** — for each kind in `inferred.produces_kinds`:
+   - `GET /registry/kinds/{kind_id}` on artifact-service → if 200, mark `is_new=False` and add to `kind_ids_existing`.
+   - If 404, `POST /registry/kinds` with a minimal open-schema `KindRegistryDoc` (type: object, `additionalProperties: true`). 409 responses are absorbed (kind already exists).
+2. **Capability** — builds a `GlobalCapabilityCreate` with `McpExecution(mode="mcp", transport=HTTPTransport(...), tool_name=selected_tool.name)` and `POST`s to `/capability/` on capability-service. A 409 raises a 409 back to the caller ("Capability already registered").
+3. Returns `RegisterResponse` with `doc.status="registered"`, `registered_capability_id`, `kind_ids_registered`, and `kind_ids_existing`.
+
+#### Key Design Decisions
+
+- **Stateless by design** — no MongoDB, no RabbitMQ. The doc travels entirely in request/response bodies, keeping the service simple and horizontally scalable.
+- **AuthSpec uses env-var aliases, not raw secrets** — `alias_token`, `alias_key`, etc. are environment variable *names*; the service resolves them via `os.getenv` at connection time. Secrets never appear in API payloads.
+- **Minimal kind registration** — new artifact kinds are created with an open schema (`additionalProperties: true`) so they can immediately be used by the capability without requiring a full kind definition upfront. Kind authors can refine the schema later.
+- **ConfigForge for LLM config** — matching conductor-service, all LLM provider details and API keys are stored in ConfigForge and referenced by a canonical string (`ONBOARDING_LLM_CONFIG_REF`). The service never holds raw LLM credentials.
