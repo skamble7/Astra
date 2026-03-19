@@ -22,12 +22,20 @@ async def create_capability(payload: GlobalCapabilityCreate, actor: Optional[str
     return await svc.create(payload, actor=actor)
 
 
-@router.get("/{capability_id}", response_model=GlobalCapability)
-async def get_capability(capability_id: str):
-    cap = await svc.get(capability_id)
-    if not cap:
-        raise HTTPException(status_code=404, detail="Capability not found")
-    return cap
+# IMPORTANT: /search and /by-ids must be defined BEFORE /{capability_id}
+# to prevent the parametric route from shadowing them.
+
+@router.get("/search", response_model=List[GlobalCapability])
+async def search_capabilities(
+    tag: Optional[str] = Query(default=None),
+    produces_kind: Optional[str] = Query(default=None),
+    mode: Optional[str] = Query(default=None, pattern="^(mcp|llm)$"),
+    q: Optional[str] = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+):
+    items, _ = await svc.search(tag=tag, produces_kind=produces_kind, mode=mode, q=q, limit=limit, offset=offset)
+    return items
 
 
 @router.post("/by-ids", response_model=List[GlobalCapability])
@@ -37,6 +45,14 @@ async def get_capabilities_by_ids(body: IdsRequest):
     as provided in `body.ids`. Missing ids are skipped.
     """
     return await svc.get_many(body.ids)
+
+
+@router.get("/{capability_id}", response_model=GlobalCapability)
+async def get_capability(capability_id: str):
+    cap = await svc.get(capability_id)
+    if not cap:
+        raise HTTPException(status_code=404, detail="Capability not found")
+    return cap
 
 
 @router.put("/{capability_id}", response_model=GlobalCapability)
@@ -53,16 +69,3 @@ async def delete_capability(capability_id: str, actor: Optional[str] = None):
     if not ok:
         raise HTTPException(status_code=404, detail="Capability not found")
     return {"deleted": True}
-
-
-@router.get("/search", response_model=List[GlobalCapability])
-async def search_capabilities(
-    tag: Optional[str] = Query(default=None),
-    produces_kind: Optional[str] = Query(default=None),
-    mode: Optional[str] = Query(default=None, pattern="^(mcp|llm)$"),
-    q: Optional[str] = Query(default=None),
-    limit: int = Query(default=50, ge=1, le=200),
-    offset: int = Query(default=0, ge=0),
-):
-    items, _ = await svc.search(tag=tag, produces_kind=produces_kind, mode=mode, q=q, limit=limit, offset=offset)
-    return items

@@ -7,6 +7,7 @@ from typing import Any, Dict
 
 from fastapi import APIRouter
 
+from app.cache.manifest_cache import get_manifest_cache
 from app.config import settings
 from app.events.rabbit import get_bus
 
@@ -54,4 +55,16 @@ def version() -> Dict[str, Any]:
     return {
         "service": settings.service_name,
         "version": settings.service_version,
+    }
+
+
+@router.post("/admin/cache/refresh", summary="Force reload all capabilities from capability-service")
+async def refresh_capability_cache() -> Dict[str, Any]:
+    cache = get_manifest_cache()
+    await cache.refresh()
+    from app.cache.manifest_cache import _memory_cache
+    return {
+        "status": "ok",
+        "capabilities_loaded": len(_memory_cache),
+        "at": datetime.now(timezone.utc).isoformat(),
     }
