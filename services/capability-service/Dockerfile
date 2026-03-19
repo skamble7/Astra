@@ -18,12 +18,16 @@ m = importlib.import_module("libs.astra_common.events")
 print("OK:", m.__file__)
 PY
 
-# 2) Install service deps (from service pyproject)
+# 2) Install astra-models (shared domain models)
+COPY libs/astra-models /tmp/astra-models
+RUN pip install --no-cache-dir /tmp/astra-models
+
+# 3) Install service deps (from service pyproject)
 COPY services/capability-service/pyproject.toml /app/pyproject.toml
 RUN pip install --no-cache-dir .
 
-# 3) Copy the service code
+# 4) Copy the service code
 COPY services/capability-service/app /app/app
 
-# 4) Run (expose internal port 9012 to match docker-compose)
+# 5) Run (expose internal port 9012 to match docker-compose)
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "9021"]

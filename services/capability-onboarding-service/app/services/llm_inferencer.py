@@ -20,37 +20,56 @@ Naming conventions (MUST follow exactly):
 
   Capability IDs: cap.<group>.<action>
     Valid groups: domain, data, diagram, catalog, contract, asset, microservices
-    Examples: cap.domain.discover_context_map, cap.data.dictionary, cap.contract.define_api
+    Examples: cap.domain.discover_context_map, cap.data.parse_dictionary, cap.asset.fetch_raina_input
 
   Artifact Kind IDs: cam.<category>.<name>
     Valid categories: diagram, data, catalog, contract, asset
-    Examples: cam.diagram.context, cam.data.dictionary, cam.contract.api
+    Examples: cam.diagram.context_map, cam.data.dictionary, cam.asset.repo_snapshot
 
-Given an MCP tool name, description, and its JSON input schema, infer the ASTRA
-capability metadata that best represents this tool.
+Given an MCP tool name, description, its JSON input schema, and optionally its output schema,
+infer the ASTRA capability metadata that best represents this tool.
 
 Rules:
-- capability_id must follow cap.<group>.<action> — use snake_case for action
+- id must follow cap.<group>.<action> — use snake_case for action
 - kind_id must follow cam.<category>.<name> — use snake_case for name
-- group and category must be one of the valid values listed above
+- group (embedded in id) and category must be one of the valid values listed above
 - tags should be 3-6 lowercase strings relevant to the tool's domain
 - produces_kinds should list the artifact kinds this capability produces (usually 1-2)
 - description should be 1-2 sentences explaining what the capability does
+- json_schema in each produces_kinds entry MUST accurately reflect the artifact's data structure:
+    * If a Tool Output Schema is provided, derive json_schema directly from its properties
+    * If no output schema is provided, infer a realistic schema from the tool's purpose —
+      do NOT fall back to a trivial { "result": { "type": "string" } } schema
+    * Include the meaningful top-level fields that the artifact would realistically contain
+- Choose category based on the artifact's nature:
+    * Use "diagram" ONLY if the tool genuinely generates visual diagrams (Mermaid, PlantUML, etc.)
+    * Use "data" for structured data, parsed outputs, models, indexes
+    * Use "asset" for files, snapshots, raw fetched content
+    * Use "catalog" for inventories, registries, discovery results
+    * Use "contract" for API specs, interface definitions, schemas
 
 Respond ONLY with a single valid JSON object. No markdown fences, no commentary.
 The JSON must have exactly these keys:
 {
-  "capability_id":   "cap.<group>.<action>",
-  "capability_name": "Human Readable Name",
-  "description":     "1-2 sentence description.",
-  "tags":            ["tag1", "tag2", "tag3"],
-  "group":           "domain",
+  "id":          "cap.<group>.<action>",
+  "name":        "Human Readable Name",
+  "description": "1-2 sentence description.",
+  "tags":        ["tag1", "tag2", "tag3"],
   "produces_kinds": [
     {
       "kind_id":     "cam.<category>.<name>",
       "kind_name":   "Human Readable Kind Name",
-      "category":    "diagram",
-      "description": "One sentence describing this artifact kind."
+      "category":    "data",
+      "description": "One sentence describing this artifact kind.",
+      "json_schema": {
+        "type": "object",
+        "title": "Human Readable Kind Name",
+        "properties": {
+          "field_name": { "type": "string", "description": "What this field contains" }
+        },
+        "required": ["field_name"],
+        "additionalProperties": false
+      }
     }
   ]
 }"""
@@ -75,10 +94,15 @@ class LLMInferencer:
         return self._client
 
     async def infer(self, tool: DiscoveredTool) -> InferredCapabilityMeta:
+        output_section = (
+            f"\nTool Output Schema (JSON):\n{json.dumps(tool.output_schema, indent=2)}\n"
+            if tool.output_schema else ""
+        )
         user_message = (
             f"MCP Tool Name: {tool.name}\n\n"
             f"Tool Description:\n{tool.description or '(no description provided)'}\n\n"
-            f"Tool Input Schema (JSON):\n{json.dumps(tool.input_schema, indent=2)}\n\n"
+            f"Tool Input Schema (JSON):\n{json.dumps(tool.input_schema, indent=2)}\n"
+            f"{output_section}\n"
             "Infer the ASTRA capability metadata for this tool."
         )
 
@@ -100,17 +124,17 @@ class LLMInferencer:
         # Validate and coerce via Pydantic
         try:
             meta = InferredCapabilityMeta(
-                capability_id=parsed["capability_id"],
-                capability_name=parsed["capability_name"],
+                id=parsed["id"],
+                name=parsed["name"],
                 description=parsed["description"],
                 tags=parsed.get("tags", []),
-                group=parsed.get("group", ""),
                 produces_kinds=[
                     InferredArtifactKind(
                         kind_id=k["kind_id"],
                         kind_name=k["kind_name"],
                         category=k["category"],
                         description=k.get("description"),
+                        json_schema=k.get("json_schema"),
                     )
                     for k in parsed.get("produces_kinds", [])
                 ],
@@ -125,7 +149,7 @@ class LLMInferencer:
         logger.info(
             "[LLMInferencer] Inferred capability: %s → %s",
             tool.name,
-            meta.capability_id,
+            meta.id,
         )
         return meta
 

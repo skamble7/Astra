@@ -15,15 +15,19 @@ COPY libs/pyproject.toml /tmp/libs/pyproject.toml
 COPY libs /tmp/libs/libs
 RUN pip install --no-cache-dir -e /tmp/libs
 
-# 2) Install conductor-core (provides MCPConnection + MCPTransportConfig)
+# 2) Install astra-models (shared domain models)
+COPY libs/astra-models /tmp/astra-models
+RUN pip install --no-cache-dir /tmp/astra-models
+
+# 3) Install conductor-core (provides MCPConnection + MCPTransportConfig)
 COPY libs/conductor-core /tmp/conductor-core
 RUN pip install --no-cache-dir /tmp/conductor-core
 
-# 3) Install service dependencies
+# 4) Install service dependencies
 COPY services/capability-onboarding-service/pyproject.toml /app/pyproject.toml
 RUN pip install --no-cache-dir .
 
-# 4) Copy service code
+# 5) Copy service code
 COPY services/capability-onboarding-service/app /app/app
 
 EXPOSE 9026

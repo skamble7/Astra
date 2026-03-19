@@ -137,7 +137,7 @@ class MCPInspector:
 
         conn = await MCPConnection.connect(cfg)
         try:
-            raw_tools = await conn.list_tools()
+            raw_tools = await conn.list_tools_raw()
         finally:
             await conn.aclose()
 
@@ -150,10 +150,11 @@ class MCPInspector:
         available = [
             DiscoveredTool(
                 name=name,
-                description=(schema or {}).get("description"),
-                input_schema=schema or {},
+                description=(input_schema or {}).get("description"),
+                input_schema=input_schema or {},
+                output_schema=output_schema,
             )
-            for name, schema in raw_tools
+            for name, input_schema, output_schema in raw_tools
         ]
 
         logger.info(

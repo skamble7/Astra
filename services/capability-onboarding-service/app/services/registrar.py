@@ -17,7 +17,22 @@ logger = logging.getLogger("app.services.registrar")
 
 
 def _build_kind_payload(kind: InferredArtifactKind) -> Dict[str, Any]:
-    """Build a minimal KindRegistryDoc payload for artifact-service POST /registry/kinds."""
+    """Build a KindRegistryDoc payload for artifact-service POST /registry/kinds.
+    Uses the LLM-inferred json_schema when available; falls back to an open schema."""
+    if kind.json_schema:
+        schema = kind.json_schema
+        props_policy = "forbid"
+        strict_json = True
+    else:
+        schema = {
+            "type": "object",
+            "title": kind.kind_name,
+            "description": kind.description or f"Artifact produced by the {kind.kind_name} capability.",
+            "additionalProperties": True,
+        }
+        props_policy = "allow"
+        strict_json = False
+
     return {
         "_id": kind.kind_id,
         "title": kind.kind_name,
@@ -27,17 +42,11 @@ def _build_kind_payload(kind: InferredArtifactKind) -> Dict[str, Any]:
         "schema_versions": [
             {
                 "version": "1.0.0",
-                "json_schema": {
-                    "type": "object",
-                    "title": kind.kind_name,
-                    "description": kind.description or f"Artifact produced by the {kind.kind_name} capability.",
-                    "properties": {},
-                    "additionalProperties": True,
-                },
-                "additional_props_policy": "allow",
+                "json_schema": schema,
+                "additional_props_policy": props_policy,
                 "prompt": {
                     "system": f"Generate a {kind.kind_name} artifact.",
-                    "strict_json": False,
+                    "strict_json": strict_json,
                     "prompt_rev": 1,
                 },
             }
@@ -73,8 +82,8 @@ def _build_capability_payload(doc: CapabilityOnboardingDoc) -> Dict[str, Any]:
         transport["auth"] = None
 
     return {
-        "id": meta.capability_id,
-        "name": meta.capability_name,
+        "id": meta.id,
+        "name": meta.name,
         "description": meta.description,
         "tags": meta.tags,
         "parameters_schema": None,

@@ -34,6 +34,7 @@ class DiscoveredTool(BaseModel):
     name: str
     description: Optional[str] = None
     input_schema: Dict[str, Any] = Field(default_factory=dict)
+    output_schema: Optional[Dict[str, Any]] = None
 
 
 class InferredArtifactKind(BaseModel):
@@ -43,15 +44,17 @@ class InferredArtifactKind(BaseModel):
     category: str           # e.g. "diagram"
     description: Optional[str] = None
     is_new: bool = True     # Set to False at register time if kind already exists
+    json_schema: Optional[Dict[str, Any]] = None  # LLM-inferred schema used for kind registration
 
 
 class InferredCapabilityMeta(BaseModel):
-    """LLM-inferred capability metadata for the selected MCP tool."""
-    capability_id: str                  # e.g. "cap.domain.discover_context_map"
-    capability_name: str
+    """LLM-inferred capability metadata for the selected MCP tool.
+    Field names match GlobalCapabilityCreate for consistency with the stored model.
+    """
+    id: str                             # e.g. "cap.domain.discover_context_map"
+    name: str
     description: str
     tags: List[str] = Field(default_factory=list)
-    group: str                          # e.g. "domain" — for UI group picker
     produces_kinds: List[InferredArtifactKind] = Field(default_factory=list)
 
 
