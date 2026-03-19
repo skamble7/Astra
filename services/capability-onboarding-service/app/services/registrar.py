@@ -108,7 +108,7 @@ class Registrar:
         self._cap_client = CapabilityServiceClient()
         self._art_client = ArtifactServiceClient()
 
-    async def register(self, doc: CapabilityOnboardingDoc) -> RegisterResponse:
+    async def register(self, doc: CapabilityOnboardingDoc, dry_run: bool = False) -> RegisterResponse:
         if doc.status != "inferred":
             raise HTTPException(
                 status_code=400,
@@ -119,11 +119,25 @@ class Registrar:
         if doc.selected_tool is None:
             raise HTTPException(status_code=400, detail="Doc is missing selected_tool.")
 
+        # Build payloads up front — used for both dry_run preview and actual registration
+        capability_payload = _build_capability_payload(doc)
+        kind_payloads = [_build_kind_payload(k) for k in doc.inferred.produces_kinds]
+
+        if dry_run:
+            return RegisterResponse(
+                capability_id=capability_payload["id"],
+                kind_ids_registered=[],
+                kind_ids_existing=[],
+                doc=doc,
+                capability_payload=capability_payload,
+                kind_payloads=kind_payloads,
+            )
+
         kind_ids_registered: List[str] = []
         kind_ids_existing: List[str] = []
 
         # Step 1 — Register new artifact kinds (best-effort, non-blocking on error)
-        for kind in doc.inferred.produces_kinds:
+        for kind, kpayload in zip(doc.inferred.produces_kinds, kind_payloads):
             try:
                 exists = await self._art_client.kind_exists(kind.kind_id)
                 if exists:
@@ -131,8 +145,7 @@ class Registrar:
                     kind.is_new = False
                     kind_ids_existing.append(kind.kind_id)
                 else:
-                    payload = _build_kind_payload(kind)
-                    result = await self._art_client.create_kind(payload)
+                    result = await self._art_client.create_kind(kpayload)
                     if result is None:
                         # 409 absorbed — treat as existing
                         kind.is_new = False
@@ -148,7 +161,6 @@ class Registrar:
                 )
 
         # Step 2 — Create capability
-        capability_payload = _build_capability_payload(doc)
         logger.info("[Registrar] Creating capability: %s", capability_payload["id"])
 
         try:

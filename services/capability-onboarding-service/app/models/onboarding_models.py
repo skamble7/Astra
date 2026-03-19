@@ -97,6 +97,7 @@ class ResolveRequest(BaseModel):
 class RegisterRequest(BaseModel):
     """Request body for POST /onboarding/register."""
     doc: CapabilityOnboardingDoc
+    dry_run: bool = False  # When True, build payloads and return without persisting
 
 
 class RegisterResponse(BaseModel):
@@ -105,3 +106,6 @@ class RegisterResponse(BaseModel):
     kind_ids_registered: List[str]   # new kinds created in artifact-service
     kind_ids_existing: List[str]     # kinds that already existed
     doc: CapabilityOnboardingDoc     # updated with status="registered"
+    # Populated on dry_run=True — exact payloads that would be sent to the services
+    capability_payload: Optional[Dict[str, Any]] = None
+    kind_payloads: Optional[List[Dict[str, Any]]] = None

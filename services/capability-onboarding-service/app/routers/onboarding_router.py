@@ -48,4 +48,4 @@ async def register(req: RegisterRequest) -> RegisterResponse:
     - Returns `doc` updated to `status="registered"` with the registered IDs.
     """
     reg = Registrar()
-    return await reg.register(req.doc)
+    return await reg.register(req.doc, dry_run=req.dry_run)
