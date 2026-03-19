@@ -129,6 +129,7 @@ class McpExecution(BaseModel):
     mode: Literal["mcp"]
     transport: Transport
     tool_name: str  # the single MCP tool this capability maps to
+    io: Optional[ExecutionIO] = None  # optional I/O contract for text-wrapping etc.
 
     @model_validator(mode="before")
     @classmethod

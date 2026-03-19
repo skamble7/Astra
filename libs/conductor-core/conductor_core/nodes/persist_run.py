@@ -271,17 +271,12 @@ async def _to_artifact_service_item(
     adapter: ArtifactAdapter,
     correlation_id: Optional[str],
 ) -> Dict[str, Any]:
-    # Sanitize and then adapt to registry schema via dynamic adapter (no hardcoding)
-    # adapt_only() caches the kind spec in schema_registry, so title lookup comes after
-    sanitized_data = _json_sanitize(env.data)
-    adapted_data = await adapter.adapt_only(
-        kind=env.kind_id,
-        data=sanitized_data if isinstance(sanitized_data, dict) else {},
-        schema_version=env.schema_version,
-        correlation_id=correlation_id,
-    )
+    # Data has already been adapted + validated by coerce_and_validate during normalization.
+    # Just sanitize for safe serialization.
+    adapted_data = _json_sanitize(env.data) if isinstance(env.data, dict) else {}
 
-    # kind spec is now guaranteed cached by adapt_only(); use title as friendly name fallback
+    # Ensure kind spec is cached for title lookup (no-op if already cached by coerce_and_validate)
+    await adapter._schemas.get_kind_spec(env.kind_id, correlation_id)
     _kind_title = (adapter._schemas._kind_specs.get(env.kind_id) or {}).get("title")
     name = getattr(env, "_derived_name", None) or _derive_name(env.kind_id, env.data, kind_title=_kind_title)
 
@@ -362,9 +357,10 @@ def persist_run_node(*, runs_repo: RunRepository, art_client: ArtifactServiceCli
         schema_registry = KindSchemaRegistry(_client_getter)
         adapter = ArtifactAdapter(schema_registry)
 
-        # Normalize
+        # Normalize + validate against registered kind schema
         envelopes: List[ArtifactEnvelope] = []
         dropped = 0
+        schema_errors: List[str] = []
         for idx, raw in enumerate(staged):
             env = _normalize_to_envelope(
                 run_id=run_id,
@@ -372,11 +368,32 @@ def persist_run_node(*, runs_repo: RunRepository, art_client: ArtifactServiceCli
                 raw=raw,
                 kind_specs=kind_specs,
             )
-            if env is not None:
-                envelopes.append(env)
-            else:
+            if env is None:
                 dropped += 1
                 logger.debug("[persist_run] Dropped non-convertible artifact idx=%d keys=%s", idx, list(raw.keys()))
+                continue
+
+            # Validate data against the registered kind's JSON schema
+            try:
+                adapted_data, errors = await adapter.coerce_and_validate(
+                    kind=env.kind_id,
+                    data=env.data if isinstance(env.data, dict) else {},
+                    schema_version=env.schema_version,
+                    correlation_id=correlation_id,
+                )
+                if errors:
+                    msg = f"kind={env.kind_id}: {'; '.join(errors)}"
+                    schema_errors.append(msg)
+                    logger.warning("[persist_run] schema_validation_failed idx=%d %s", idx, msg)
+                    dropped += 1
+                    continue
+                env.data = adapted_data  # use adapted (transformed) data
+            except Exception as ve:
+                logger.warning("[persist_run] schema_validation_error idx=%d kind=%s err=%s", idx, env.kind_id, ve)
+                # Don't drop on unexpected validator errors — persist as-is
+                pass
+
+            envelopes.append(env)
 
         by_kind = Counter([e.kind_id for e in envelopes])
 
@@ -398,6 +415,10 @@ def persist_run_node(*, runs_repo: RunRepository, art_client: ArtifactServiceCli
         summary_msg = f"persist_run: normalized={persisted_count} kinds={dict(Counter([e.kind_id for e in envelopes]))}"
         if dropped:
             summary_msg += f" dropped={dropped}"
+        if schema_errors:
+            summary_msg += f" schema_validation_failures={len(schema_errors)}"
+            for se in schema_errors[:3]:
+                logs.append(f"  schema_error: {se}")
         if last_mcp_error:
             summary_msg += f" (last_mcp_error={str(last_mcp_error)[:200]})"
         logs.append(summary_msg)

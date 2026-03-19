@@ -15,7 +15,7 @@ from langgraph.types import Command
 from conductor_core.protocols.repositories import RunRepositoryProtocol as RunRepository
 from conductor_core.models.run_models import StepAudit, ToolCallAudit
 from conductor_core.mcp.mcp_client import MCPConnection, MCPTransportConfig
-from conductor_core.mcp.json_utils import try_parse_json, get_by_dotted_path, coerce_list
+from conductor_core.mcp.json_utils import try_parse_json, get_by_dotted_path
 
 logger = logging.getLogger("conductor_core.nodes.mcp_execution")
 
@@ -38,9 +38,10 @@ def _unwrap_payload(raw: Any) -> Any:
 
     Supports FastMCP / streamable-http style:
       raw_result == [ { "type": "text", "text": "{...json...}" }, ... ]
-    In that case, we join all text chunks and parse as JSON.
 
-    If parsing fails, returns try_parse_json(raw) as-is.
+    - If the text content is valid JSON (dict or list), unwrap and return it.
+    - If the text content is plain text (not JSON), return the text string directly
+      so callers can do schema-driven mapping.
     """
     parsed = try_parse_json(raw)
 
@@ -53,59 +54,34 @@ def _unwrap_payload(raw: Any) -> Any:
         joined = "\n".join(text_chunks).strip()
         if joined:
             inner = try_parse_json(joined)
-            if inner is not None:
+            if isinstance(inner, (dict, list)):
                 logger.info(
-                    "[mcp] fastmcp_content_unwrapped items=%d text_len=%d",
+                    "[mcp] fastmcp_json_unwrapped items=%d text_len=%d",
                     len(parsed),
                     len(joined),
                 )
                 return inner
-            logger.warning(
-                "[mcp] fastmcp_content_parse_failed text_sample=%s",
-                joined[:250].replace("\n", " "),
+            # Plain text content — return the text string directly
+            logger.info(
+                "[mcp] fastmcp_text_content items=%d text_len=%d",
+                len(parsed),
+                len(joined),
             )
+            return joined
         return parsed
 
     return parsed
 
 
-# -----------------------------
-# Artifact extraction
-# -----------------------------
-def _extract_artifacts(payload: Any, artifacts_path: str) -> List[Dict[str, Any]]:
-    """
-    Contract: payload (dict) should contain an 'artifacts' collection/array (or artifacts_path).
-    We still keep some tolerant fallbacks for safety.
-    """
-    # If a list of artifact dicts is returned directly, accept it.
-    if isinstance(payload, list):
-        if all(isinstance(x, dict) for x in payload) and payload:
-            if all(any(k in x for k in ("kind_id", "kind", "_kind", "artifact_kind")) for x in payload):
-                return payload
-        return []
-
-    if not isinstance(payload, dict):
-        return []
-
-    candidates: List[Any] = []
-    if artifacts_path:
-        candidates.append(get_by_dotted_path(payload, artifacts_path))
-
-    # Contract primary
-    candidates.append(payload.get("artifacts"))
-
-    # Some tolerant fallbacks (keep, but contract says artifacts exists)
-    for key in ("data.artifacts", "result.artifacts", "items"):
-        candidates.append(get_by_dotted_path(payload, key))
-
-    first_present = next((c for c in candidates if c is not None), [])
-    items = coerce_list(first_present)
-    return [x for x in items if isinstance(x, dict)]
 
 
 # -----------------------------
 # Capability helpers
 # -----------------------------
+def _exec_block(cap: Dict[str, Any]) -> Dict[str, Any]:
+    return (cap.get("execution") or {})
+
+
 def _transport_from_capability(cap: Dict[str, Any]) -> MCPTransportConfig:
     exec_block = (cap.get("execution") or {})
     t = (exec_block.get("transport") or {})
@@ -128,21 +104,6 @@ def _transport_from_capability(cap: Dict[str, Any]) -> MCPTransportConfig:
     )
     return cfg
 
-
-def _exec_block(cap: Dict[str, Any]) -> Dict[str, Any]:
-    return (cap.get("execution") or {})
-
-
-def _io_block(cap: Dict[str, Any]) -> Dict[str, Any]:
-    return _exec_block(cap).get("io", {}) or {}
-
-
-def _output_contract(cap: Dict[str, Any]) -> Dict[str, Any]:
-    return _io_block(cap).get("output_contract", {}) or {}
-
-
-def _artifacts_property(cap: Dict[str, Any]) -> str:
-    return _output_contract(cap).get("artifacts_property", "artifacts")
 
 
 def _find_status_tool_from_discovered(discovered: Dict[str, Any]) -> Optional[Tuple[str, Dict[str, Any]]]:
@@ -283,6 +244,79 @@ def _supports_pagination_by_contract(payload: Any) -> bool:
     return _extract_next_cursor(payload) is not None
 
 
+def _find_text_field(kind_spec: Optional[Dict[str, Any]]) -> Optional[str]:
+    """
+    Find the single required string property in the kind's JSON schema.
+    Used to auto-map plain text MCP responses to the correct schema field.
+    Returns None if the schema has zero or more than one required string property.
+    """
+    schema_versions = (kind_spec or {}).get("schema_versions") or []
+    if not schema_versions:
+        return None
+    json_schema = (schema_versions[0] or {}).get("json_schema") or {}
+    props = json_schema.get("properties") or {}
+    required = set(json_schema.get("required") or [])
+    string_fields = [
+        k for k, v in props.items()
+        if isinstance(v, dict) and v.get("type") == "string" and k in required
+    ]
+    return string_fields[0] if len(string_fields) == 1 else None
+
+
+def _extract_artifacts_for_kind(
+    payload: Any,
+    produces_kind: Optional[str],
+    kind_spec: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    """
+    Wrap MCP tool output as Astra artifacts using the capability's produces_kind.
+
+    The MCP server must return data conforming to the registered kind's JSON schema.
+    Astra's kind_id and artifact terminology must never appear in MCP server responses.
+    Validation against the schema happens downstream in persist_run.
+
+    Supported payload shapes:
+    - dict        → one artifact: {"kind_id": produces_kind, "data": payload}
+    - list[dict]  → one artifact per item (all same kind)
+    - str         → plain text; schema-driven mapping to the single required string field
+    - list[str]   → same text mapping applied to each string item
+    """
+    if not produces_kind:
+        return []
+
+    def _wrap_text(text: str) -> Optional[Dict[str, Any]]:
+        text_field = _find_text_field(kind_spec)
+        if not text_field:
+            logger.warning(
+                "[mcp] plain_text_no_mapping produces_kind=%s; kind schema has no single required string field",
+                produces_kind,
+            )
+            return None
+        return {"kind_id": produces_kind, "data": {text_field: text}}
+
+    if isinstance(payload, str):
+        artifact = _wrap_text(payload)
+        if artifact:
+            logger.info("[mcp] plain_text_mapped produces_kind=%s field=%s text_len=%d", produces_kind, _find_text_field(kind_spec), len(payload))
+        return [artifact] if artifact else []
+
+    if isinstance(payload, list):
+        results: List[Dict[str, Any]] = []
+        for item in payload:
+            if isinstance(item, dict):
+                results.append({"kind_id": produces_kind, "data": item})
+            elif isinstance(item, str):
+                artifact = _wrap_text(item)
+                if artifact:
+                    results.append(artifact)
+        return results
+
+    if isinstance(payload, dict):
+        return [{"kind_id": produces_kind, "data": payload}]
+
+    return []
+
+
 # -----------------------------
 # Node
 # -----------------------------
@@ -303,15 +337,17 @@ def mcp_execution_node(*, runs_repo: RunRepository):
         tool_args: Dict[str, Any] = resolved.get("args") or {}
 
         started = datetime.now(timezone.utc)
-        artifacts_property = _artifacts_property(capability)
+        produces_kinds: List[str] = capability.get("produces_kinds") or []
+        produces_kind: Optional[str] = produces_kinds[0] if produces_kinds else None
+        kind_spec: Optional[Dict[str, Any]] = (state.get("artifact_kinds") or {}).get(produces_kind) if produces_kind else None
 
         logger.info(
-            "[mcp] start step_id=%s cap_id=%s tool=%s args_keys=%d artifacts_prop=%s",
+            "[mcp] start step_id=%s cap_id=%s tool=%s args_keys=%d produces_kind=%s",
             step_id,
             cap_id,
             tool_name or "<missing>",
             len(tool_args.keys()),
-            artifacts_property,
+            produces_kind or "none",
         )
 
         inputs_preview = {"tool_name": tool_name, "args": tool_args}
@@ -409,11 +445,12 @@ def mcp_execution_node(*, runs_repo: RunRepository):
             # Canonical payload
             payload = _unwrap_payload(raw_result)
 
-            # Extract artifacts from payload
-            extracted = _extract_artifacts(payload, artifacts_property)
+            # Extract artifacts: first try structured keys, then fall back to
+            # produces_kind-driven wrapping (the MCP server output IS the artifact data).
+            extracted = _extract_artifacts_for_kind(payload, produces_kind, kind_spec)
             logger.info(
-                "[mcp] extracted_initial step_id=%s cap_id=%s tool=%s count=%d",
-                step_id, cap_id, tool_name, len(extracted)
+                "[mcp] extracted_initial step_id=%s cap_id=%s tool=%s produces_kind=%s count=%d",
+                step_id, cap_id, tool_name, produces_kind or "none", len(extracted)
             )
             if extracted:
                 all_artifacts.extend(extracted)
@@ -463,7 +500,7 @@ def mcp_execution_node(*, runs_repo: RunRepository):
                     if status2:
                         status = status2
 
-                    extracted_poll = _extract_artifacts(poll_payload, artifacts_property)
+                    extracted_poll = _extract_artifacts_for_kind(poll_payload, produces_kind, kind_spec)
                     if extracted_poll:
                         logger.info(
                             "[mcp] extracted_poll step_id=%s cap_id=%s tool=%s count=%d",
@@ -522,7 +559,7 @@ def mcp_execution_node(*, runs_repo: RunRepository):
                 await runs_repo.append_tool_call_audit(run_uuid, step_id, call_audits[-1])
 
                 pg_payload = _unwrap_payload(pg_raw)
-                extracted_page = _extract_artifacts(pg_payload, artifacts_property)
+                extracted_page = _extract_artifacts_for_kind(pg_payload, produces_kind, kind_spec)
 
                 if extracted_page:
                     logger.info(
