@@ -31,6 +31,8 @@ class InferredLLMCapabilityMeta(BaseModel):
     output_schema: Dict[str, Any]       # JSON Schema for the artifact kind
     system_prompt: str                  # prompt.system for the kind's schema_version
     strict_json: bool = True
+    depends_on: Optional[str] = None    # comma-separated kind IDs → DependsOnSpec.soft[]
+    diagram_recipes: List[str] = Field(default_factory=list)  # selected recipe IDs from template list
 
     # ── Provenance ────────────────────────────────────────────────────────────
     schema_inferred: bool = True  # True when ASTRA generated output_schema (drives AI badge in UI)

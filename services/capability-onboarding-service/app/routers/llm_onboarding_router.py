@@ -10,12 +10,19 @@ from app.models.llm_onboarding_models import (
     LLMRegisterRequest,
     LLMRegisterResponse,
 )
+from app.services.diagram_templates import DIAGRAM_RECIPE_TEMPLATES
 from app.services.llm_capability_inferencer import LLMCapabilityInferencer
 from app.services.llm_registrar import LLMRegistrar
 
 logger = logging.getLogger("app.routers.llm_onboarding")
 
 router = APIRouter(prefix="/onboarding/llm", tags=["llm-onboarding"])
+
+
+@router.get("/diagram-recipe-templates")
+async def get_diagram_recipe_templates():
+    """Return the static list of available Mermaid diagram recipe templates."""
+    return DIAGRAM_RECIPE_TEMPLATES
 
 
 @router.post("/infer", response_model=LLMOnboardingDoc)

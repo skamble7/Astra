@@ -12,13 +12,51 @@ from app.models.llm_onboarding_models import (
     LLMOnboardingDoc,
     LLMRegisterResponse,
 )
+from app.services.diagram_templates import DIAGRAM_RECIPE_TEMPLATES_BY_ID
 
 logger = logging.getLogger("app.services.llm_registrar")
+
+_DEFAULT_NARRATIVES_SPEC: Dict[str, Any] = {
+    "allowed_formats": ["markdown", "asciidoc"],
+    "default_format": "markdown",
+    "max_length_chars": 20000,
+    "allowed_locales": ["en-US"],
+}
+
+
+def _resolve_diagram_recipes(meta: InferredLLMCapabilityMeta) -> List[Dict[str, Any]]:
+    """Expand selected recipe IDs to full DiagramRecipeSpec dicts."""
+    return [
+        DIAGRAM_RECIPE_TEMPLATES_BY_ID[rid]
+        for rid in (meta.diagram_recipes or [])
+        if rid in DIAGRAM_RECIPE_TEMPLATES_BY_ID
+    ]
 
 
 def _build_kind_payload(meta: InferredLLMCapabilityMeta) -> Dict[str, Any]:
     """Build a KindRegistryDoc payload for artifact-service POST /registry/kinds."""
     props_policy = "forbid" if meta.strict_json else "allow"
+
+    schema_version: Dict[str, Any] = {
+        "version": "1.0.0",
+        "json_schema": meta.output_schema,
+        "additional_props_policy": props_policy,
+        "prompt": {
+            "system": meta.system_prompt,
+            "strict_json": meta.strict_json,
+            "prompt_rev": 1,
+        },
+        "narratives_spec": _DEFAULT_NARRATIVES_SPEC,
+        "diagram_recipes": _resolve_diagram_recipes(meta),
+    }
+
+    if meta.natural_key:
+        schema_version["identity"] = {"natural_key": meta.natural_key}
+
+    if meta.depends_on:
+        kind_ids = [k.strip() for k in meta.depends_on.split(",") if k.strip()]
+        if kind_ids:
+            schema_version["depends_on"] = {"soft": kind_ids}
 
     kind_payload: Dict[str, Any] = {
         "_id": meta.kind_id,
@@ -26,25 +64,11 @@ def _build_kind_payload(meta: InferredLLMCapabilityMeta) -> Dict[str, Any]:
         "category": meta.kind_category,
         "status": meta.kind_status,
         "latest_schema_version": "1.0.0",
-        "schema_versions": [
-            {
-                "version": "1.0.0",
-                "json_schema": meta.output_schema,
-                "additional_props_policy": props_policy,
-                "prompt": {
-                    "system": meta.system_prompt,
-                    "strict_json": meta.strict_json,
-                    "prompt_rev": 1,
-                },
-            }
-        ],
+        "schema_versions": [schema_version],
     }
 
     if meta.kind_aliases:
         kind_payload["aliases"] = meta.kind_aliases
-
-    if meta.natural_key:
-        kind_payload["schema_versions"][0]["identity"] = {"natural_key": meta.natural_key}
 
     return kind_payload
 
