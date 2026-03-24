@@ -4,7 +4,7 @@ import logging
 
 from fastapi import APIRouter
 
-from app.models.onboarding_models import (
+from app.models.mcp_onboarding_models import (
     CapabilityOnboardingDoc,
     RegisterRequest,
     RegisterResponse,
@@ -13,9 +13,9 @@ from app.models.onboarding_models import (
 from app.services.mcp_inspector import MCPInspector
 from app.services.registrar import Registrar
 
-logger = logging.getLogger("app.routers.onboarding")
+logger = logging.getLogger("app.routers.mcp_onboarding")
 
-router = APIRouter(prefix="/onboarding", tags=["onboarding"])
+router = APIRouter(prefix="/onboarding", tags=["mcp-onboarding"])
 
 
 @router.post("/resolve", response_model=CapabilityOnboardingDoc)

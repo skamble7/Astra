@@ -7,7 +7,7 @@ from fastapi import HTTPException
 
 from app.clients.artifact_client import ArtifactServiceClient
 from app.clients.capability_client import CapabilityServiceClient
-from app.models.onboarding_models import (
+from app.models.mcp_onboarding_models import (
     CapabilityOnboardingDoc,
     InferredArtifactKind,
     RegisterResponse,

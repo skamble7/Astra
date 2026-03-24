@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from conductor_core.mcp.mcp_client import MCPConnection, MCPTransportConfig
 
 from app.config import settings
-from app.models.onboarding_models import (
+from app.models.mcp_onboarding_models import (
     CapabilityOnboardingDoc,
     DiscoveredTool,
     ServerConnectionConfig,

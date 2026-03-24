@@ -10,7 +10,8 @@ from app.config import settings
 from app.logging_conf import setup_logging
 from app.middleware import add_cors, install_request_logging
 from app.routers.health_router import router as health_router
-from app.routers.onboarding_router import router as onboarding_router
+from app.routers.llm_onboarding_router import router as llm_onboarding_router
+from app.routers.mcp_onboarding_router import router as mcp_onboarding_router
 
 logger = logging.getLogger("app")
 
@@ -25,7 +26,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    description="Backend for the MCP capability onboarding wizard.",
+    description="Backend for the MCP and LLM capability onboarding wizards.",
     lifespan=lifespan,
 )
 
@@ -33,7 +34,8 @@ add_cors(app)
 install_request_logging(app)
 
 app.include_router(health_router)
-app.include_router(onboarding_router)
+app.include_router(mcp_onboarding_router)
+app.include_router(llm_onboarding_router)
 
 
 @app.get("/")

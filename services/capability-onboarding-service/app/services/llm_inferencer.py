@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from polyllm import LLMClient, RemoteConfigLoader
 
 from app.config import settings
-from app.models.onboarding_models import DiscoveredTool, InferredArtifactKind, InferredCapabilityMeta
+from app.models.mcp_onboarding_models import DiscoveredTool, InferredArtifactKind, InferredCapabilityMeta
 
 logger = logging.getLogger("app.services.llm_inferencer")
 
