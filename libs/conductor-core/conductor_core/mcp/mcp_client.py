@@ -47,6 +47,10 @@ class MCPConnection:
     def __init__(self) -> None:
         self._client: Optional[MultiServerMCPClient] = None
         self._tools: Dict[str, BaseTool] = {}
+        # Stored for list_tools_raw() — raw MCP session needs the resolved URL + headers
+        self._server_url: str = ""
+        self._server_headers: Dict[str, str] = {}
+        self._use_transport: str = "streamable_http"
 
     @classmethod
     async def connect(cls, cfg: MCPTransportConfig) -> "MCPConnection":
@@ -88,6 +92,9 @@ class MCPConnection:
                 }
             }
         )
+        conn._server_url = url
+        conn._server_headers = cfg.headers or {}
+        conn._use_transport = use_transport
         return conn
 
     async def aclose(self) -> None:
@@ -114,13 +121,16 @@ class MCPConnection:
         for t in tools:
             schema: Dict[str, Any] = {}
             try:
-                if hasattr(t, "args_schema") and t.args_schema is not None:
-                    schema = (
-                        t.args_schema.schema()
-                        if hasattr(t.args_schema, "schema")
-                        else t.args_schema.model_json_schema()  # type: ignore[attr-defined]
-                    )
-                elif hasattr(t, "args") and isinstance(t.args, dict):
+                raw = getattr(t, "args_schema", None)
+                if isinstance(raw, dict):
+                    # langchain-mcp-adapters 0.2+ passes inputSchema dict directly
+                    schema = raw
+                elif raw is not None:
+                    if hasattr(raw, "model_json_schema"):
+                        schema = raw.model_json_schema()  # Pydantic v2 class
+                    elif hasattr(raw, "schema"):
+                        schema = raw.schema()  # Pydantic v1 class
+                if not schema and hasattr(t, "args") and isinstance(t.args, dict):
                     schema = t.args
             except Exception:
                 schema = {}
@@ -128,8 +138,52 @@ class MCPConnection:
 
         # Small preview of first few schemas for debugging
         preview = [{ "name": n, "args_schema_keys": list((s or {}).get("properties", {}).keys())[:6] } for n, s in out[:5]]
-        logger.debug("[MCP] Tool schema preview (first 5): %s", _safe_preview(preview, 600))
+        logger.info("[MCP] Tool schema preview (first 5): %s", _safe_preview(preview, 600))
 
+        return out
+
+    async def list_tools_raw(self) -> List[Tuple[str, Dict[str, Any], Optional[Dict[str, Any]]]]:
+        """
+        Returns (tool_name, input_schema, output_schema) triples via a raw MCP session.
+        output_schema is None if the server does not declare one for that tool.
+        Unlike list_tools(), this method uses the raw MCP SDK (not langchain-mcp-adapters)
+        so it captures outputSchema from the tools/list response.
+        Intended for use by the onboarding service — not used in the execution path.
+        """
+        out: List[Tuple[str, Dict[str, Any], Optional[Dict[str, Any]]]] = []
+        try:
+            if self._use_transport == "streamable_http":
+                from mcp.client.streamable_http import streamablehttp_client
+                cm = streamablehttp_client(self._server_url, headers=self._server_headers)
+            else:
+                from mcp.client.sse import sse_client
+                cm = sse_client(self._server_url, headers=self._server_headers)
+
+            from mcp import ClientSession
+            async with cm as transport:
+                read, write = transport[0], transport[1]
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    result = await session.list_tools()
+                    for tool in result.tools:
+                        in_schema: Dict[str, Any] = {}
+                        raw_in = tool.inputSchema
+                        if isinstance(raw_in, dict):
+                            in_schema = raw_in
+                        elif hasattr(raw_in, "model_dump"):
+                            in_schema = raw_in.model_dump()
+
+                        out_schema: Optional[Dict[str, Any]] = None
+                        raw_out = getattr(tool, "outputSchema", None)
+                        if raw_out:
+                            if isinstance(raw_out, dict):
+                                out_schema = raw_out
+                            elif hasattr(raw_out, "model_dump"):
+                                out_schema = raw_out.model_dump()
+
+                        out.append((tool.name, in_schema, out_schema))
+        except Exception:
+            logger.warning("[MCP] list_tools_raw() failed; returning empty list", exc_info=True)
         return out
 
     async def invoke_tool(self, name: str, args: Dict[str, Any]) -> Any:

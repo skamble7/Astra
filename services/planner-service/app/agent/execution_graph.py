@@ -71,6 +71,9 @@ class ExecutionState(TypedDict, total=False):
     last_narrative_summary: Annotated[Dict[str, Any], lambda left, right: right]
     last_narrative_error: Annotated[Optional[str], lambda left, right: right]
     persist_summary: Dict[str, Any]
+    # Cache for MCP tool schemas discovered via tools/list.
+    # Key: capability_id → value: {tool_name: json_schema_dict}.
+    discovered_tools: Annotated[Dict[str, Dict[str, Any]], lambda left, right: {**left, **right}]
     # Planner-specific
     session_id: Optional[str]
     run_inputs: Dict[str, Any]
@@ -141,6 +144,7 @@ def plan_init_node(*, session_repo: SessionRepository, run_repo: RunRepository, 
                     "verify_tls": False,
                     "timeout_sec": settings.diagram_mcp_timeout_sec,
                 },
+                "tool_name": "diagram.mermaid.generate",
             },
         }
         agent_caps = [mermaid_cap]
@@ -264,6 +268,7 @@ def plan_init_node(*, session_repo: SessionRepository, run_repo: RunRepository, 
             "last_narrative_summary": {},
             "last_narrative_error": None,
             "persist_summary": {},
+            "discovered_tools": {},
         }
 
     return _node

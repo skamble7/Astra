@@ -90,99 +90,11 @@ def _mcp_cap_microservices_guidance() -> GlobalCapabilityCreate:
                 "transport": {
                     "kind": "http",
                     "base_url": "http://host.docker.internal:8002",
-                    "headers": {},
-                    "auth": {
-                        "method": "none",
-                        "alias_token": None,
-                        "alias_user": None,
-                        "alias_password": None,
-                        "alias_key": None,
-                    },
                     "timeout_sec": 180,
                     "verify_tls": False,
-                    "retry": {"max_attempts": 2, "backoff_ms": 250, "jitter_ms": 50},
-                    "health_path": "/health",
                     "protocol_path": "/mcp",
                 },
-                "tool_calls": [
-                    {
-                        "tool": "generate.workspace.document",
-                        "args_schema": {
-                            "type": "object",
-                            "additionalProperties": False,
-                            "required": ["workspace_id"],
-                            "properties": {
-                                "workspace_id": {
-                                    "type": "string",
-                                    "minLength": 1,
-                                    "description": "Workspace identifier whose discovered artifacts ground the guidance document.",
-                                },
-                                "kind_id": {
-                                    "type": "string",
-                                    "const": "cam.governance.microservices_arch_guidance",
-                                    "description": "Driver kind for the document generation.",
-                                },
-                            },
-                        },
-                        "output_kinds": ["cam.governance.microservices_arch_guidance"],
-                        "result_schema": None,
-                        "timeout_sec": 3600,
-                        "retries": 1,
-                        "expects_stream": False,
-                        "cancellable": True,
-                    }
-                ],
-                "discovery": {
-                    "validate_tools": True,
-                    "validate_resources": False,
-                    "validate_prompts": False,
-                    "fail_fast": True,
-                },
-                "connection": {"singleton": True, "share_across_steps": True},
-                "io": {
-                    "input_contract": {
-                        "json_schema": {
-                            "type": "object",
-                            "additionalProperties": False,
-                            "required": ["workspace_id"],
-                            "properties": {
-                                "workspace_id": {
-                                    "type": "string",
-                                    "minLength": 1,
-                                    "description": (
-                                        "Workspace identifier whose artifacts will be used to ground the microservices "
-                                        "architecture guidance document."
-                                    ),
-                                    "examples": ["0084b4c5-b11b-44d3-8ec3-d616dfa3e873"],
-                                },
-                                "kind_id": {
-                                    "type": "string",
-                                    "const": "cam.governance.microservices_arch_guidance",
-                                    "description": "Fixed to the microservices architecture guidance document kind.",
-                                },
-                            },
-                        },
-                        "schema_guide": (
-                            "Call the MCP server to generate a single Markdown microservices architecture guidance "
-                            "document grounded on the workspace's discovered artifacts and RUN INPUTS.\n"
-                            "- **workspace_id** (required): The workspace to analyze.\n"
-                            "- **kind_id** (fixed): `cam.governance.microservices_arch_guidance`."
-                        ),
-                    },
-                    "output_contract": {
-                        "artifact_type": "cam",
-                        "kinds": ["cam.governance.microservices_arch_guidance"],
-                        "result_schema": None,
-                        "schema_guide": (
-                            "The MCP server returns one artifact of kind `cam.governance.microservices_arch_guidance` "
-                            "with file metadata and links:\n"
-                            "- `storage_uri` and `download_url` (may be pre-signed).\n"
-                            "- If pre-signed, `download_expires_at` may be present.\n"
-                            "- Other fields include `filename`, `path`, `size_bytes`, `mime_type`, etc."
-                        ),
-                        "extra_schema": {"type": "object", "additionalProperties": True},
-                    },
-                },
+                "tool_name": "generate.workspace.document",
             },
         }
     )

@@ -119,41 +119,16 @@ def make_planner_tools(cache: ManifestCache, state_ref: Dict[str, Any]) -> list:
             for kind in produces:
                 lines.append(f"- `{kind}`")
 
-        # Input contract
-        io = exec_cfg.get("io") or {} if isinstance(exec_cfg, dict) else {}
-        if isinstance(io, dict):
-            input_contract = io.get("input_contract") or {}
-            if input_contract:
-                lines.append(f"\n### Required inputs")
-                if isinstance(input_contract, dict):
-                    props = input_contract.get("properties") or input_contract
-                    for field_name, field_def in props.items():
-                        if isinstance(field_def, dict):
-                            field_type = field_def.get("type", "string")
-                            field_desc = field_def.get("description") or field_def.get("title") or ""
-                            required_mark = ""
-                            required_list = input_contract.get("required") or []
-                            if field_name in required_list:
-                                required_mark = " *(required)*"
-                            lines.append(f"- **{field_name}** ({field_type}){required_mark}: {field_desc}")
-
-            output_contract = io.get("output_contract") or {}
-            if output_contract and isinstance(output_contract, dict):
-                lines.append(f"\n### Output contract")
-                out_kind = output_contract.get("kind") or output_contract.get("type") or ""
-                if out_kind:
-                    lines.append(f"- Kind: `{out_kind}`")
-
-        # MCP tool calls
-        tool_calls = exec_cfg.get("tool_calls") or [] if isinstance(exec_cfg, dict) else []
-        if tool_calls:
-            lines.append(f"\n### MCP tool calls")
-            for tc in tool_calls:
-                if isinstance(tc, dict):
-                    tc_name = tc.get("tool", "")
-                    tc_kinds = tc.get("output_kinds") or []
-                    kinds_str = ", ".join(f"`{k}`" for k in tc_kinds) if tc_kinds else "—"
-                    lines.append(f"- `{tc_name}` → {kinds_str}")
+        # MCP tool name (slim model — schema discovered live at execution time via tools/list)
+        if isinstance(exec_cfg, dict) and mode == "mcp":
+            tool_name = exec_cfg.get("tool_name") or ""
+            transport = exec_cfg.get("transport") or {}
+            base_url = transport.get("base_url", "") if isinstance(transport, dict) else ""
+            if tool_name:
+                lines.append(f"\n### MCP tool")
+                lines.append(f"- Tool: `{tool_name}`")
+                if base_url:
+                    lines.append(f"- Server: `{base_url}`")
 
         return "\n".join(lines)
 

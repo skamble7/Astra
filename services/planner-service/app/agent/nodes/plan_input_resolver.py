@@ -23,9 +23,7 @@ from conductor_core.llm.base import AgentLLM
 from conductor_core.protocols.repositories import RunRepositoryProtocol as RunRepository
 from conductor_core.models.run_models import StepAudit
 from conductor_core.nodes.mcp_input_resolver import (
-    _choose_tool_name,
-    _cap_io_input_json_schema,
-    _cap_io_input_schema_guide,
+    _get_tool_name,
     _collect_relevant_artifacts_for_later_step,
     _build_prompt_later_step,
     _postprocess_args_with_heuristics,
@@ -48,7 +46,7 @@ def plan_input_resolver_node(*, runs_repo: RunRepository, llm: AgentLLM):
         step_id = step.get("id") or "<unknown-step>"
         cap_id = capability.get("id") or "<unknown-cap>"
 
-        tool_name = _choose_tool_name(capability)
+        tool_name = _get_tool_name(capability)
         if not tool_name:
             err = f"No MCP tools configured for capability '{cap_id}'."
             logger.error("[plan_input_resolver] %s", err)
@@ -77,10 +75,12 @@ def plan_input_resolver_node(*, runs_repo: RunRepository, llm: AgentLLM):
             )
         else:
             # ADR-006: steps 1+ resolve inputs from staged artifacts via LLM
-            exec_input_json_schema = _cap_io_input_json_schema(capability) or {
+            # Schema is discovered live at execution time via tools/list (no stored io contract).
+            # Use an open schema here; the conductor's mcp_input_resolver does live validation.
+            exec_input_json_schema: Dict[str, Any] = {
                 "type": "object", "properties": {}, "additionalProperties": True,
             }
-            exec_input_schema_guide = _cap_io_input_schema_guide(capability)
+            exec_input_schema_guide = ""
             artifacts = _collect_relevant_artifacts_for_later_step(state=state, capability=capability)
             artifact_kinds = state.get("artifact_kinds") or {}
 
@@ -92,11 +92,7 @@ def plan_input_resolver_node(*, runs_repo: RunRepository, llm: AgentLLM):
                 artifacts=artifacts,
                 artifact_kinds=artifact_kinds,
             )
-            schema_for_args = {
-                "name": "mcp_tool_args",
-                "schema": {"type": "object", "properties": {}, "additionalProperties": True},
-            }
-            resp = await llm.acomplete_json(prompt, schema=schema_for_args)
+            resp = await llm.acomplete_json(prompt, schema=exec_input_json_schema)
             try:
                 candidate = json.loads(resp.text or "{}")
             except Exception:
@@ -130,7 +126,7 @@ def plan_input_resolver_node(*, runs_repo: RunRepository, llm: AgentLLM):
                 )
                 repair_resp = await llm.acomplete_json(
                     repair_prompt,
-                    schema={"name": "mcp_tool_args_repair", "schema": {"type": "object", "properties": {}, "additionalProperties": True}},
+                    schema=exec_input_json_schema,
                 )
                 try:
                     repaired = json.loads(repair_resp.text or "{}")

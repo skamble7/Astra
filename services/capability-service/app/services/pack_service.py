@@ -135,11 +135,11 @@ class PackService:
                 if cap:
                     mode = getattr(cap.execution, "mode", "llm")
                     produces = cap.produces_kinds or []
-                    tool_calls = getattr(cap.execution, "tool_calls", None) if mode == "mcp" else None
+                    tool_name = getattr(cap.execution, "tool_name", None) if mode == "mcp" else None
                 else:
                     mode = "llm"
                     produces = []
-                    tool_calls = None
+                    tool_name = None
 
                 steps.append(
                     ResolvedPlaybookStep(
@@ -149,7 +149,7 @@ class PackService:
                         execution_mode=mode,        # "mcp" | "llm"
                         produces_kinds=produces,
                         required_kinds=[],          # reserved for learning-service
-                        tool_calls=tool_calls,
+                        tool_name=tool_name,
                     )
                 )
 

@@ -161,3 +161,27 @@ services:
       - astra-artifact-service
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  astra-capability-onboarding-service:
+    build:
+      context: ..
+      dockerfile: services/capability-onboarding-service/Dockerfile
+    container_name: astra-capability-onboarding-service
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: capability-onboarding-service
+      CAPABILITY_SVC_BASE_URL: ${CAPABILITY_SVC_BASE_URL:-http://astra-capability-service:9021}
+      ARTIFACT_SVC_BASE_URL: ${ARTIFACT_SVC_BASE_URL:-http://astra-artifact-service:9020}
+      HTTP_CLIENT_TIMEOUT_SECONDS: ${HTTP_CLIENT_TIMEOUT_SECONDS:-30}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CONFIG_FORGE_URL: ${CONFIG_FORGE_URL:-http://host.docker.internal:8040}
+      ONBOARDING_LLM_CONFIG_REF: ${ONBOARDING_LLM_CONFIG_REF:-dev.llm.openai.fast}
+      # Rewrite 'localhost' in user-supplied MCP URLs to reach the Docker host
+      MCP_LOCALHOST_ALIAS: host.docker.internal
+    ports:
+      - "9026:9026"
+    depends_on:
+      - astra-capability-service
+      - astra-artifact-service
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

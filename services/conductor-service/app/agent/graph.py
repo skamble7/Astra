@@ -59,6 +59,10 @@ class GraphState(TypedDict, total=False):
     last_narrative_summary: Annotated[Dict[str, Any], lambda left, right: right]
     last_narrative_error: Annotated[Optional[str], lambda left, right: right]
     persist_summary: Dict[str, Any]
+    # Cache for MCP tool schemas discovered via tools/list.
+    # Key: capability_id → value: {tool_name: json_schema_dict}.
+    # Merged across steps so each cap_id is only fetched once per run.
+    discovered_tools: Annotated[Dict[str, Dict[str, Any]], lambda left, right: {**left, **right}]
 
 
 def canonical_json(obj: Any) -> str:
@@ -232,6 +236,7 @@ async def run_input_bootstrap(
         "last_narrative_summary": {},
         "last_narrative_error": None,
         "persist_summary": {},
+        "discovered_tools": {},
     }
 
     # >>> CHANGE: raise recursion limit to handle long playbooks w/ enrichment passes
