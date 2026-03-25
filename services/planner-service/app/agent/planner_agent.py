@@ -14,10 +14,12 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, List
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
 from langchain_core.messages import (
     AIMessage,
+    AIMessageChunk,
     HumanMessage,
     SystemMessage,
     ToolMessage,
@@ -25,11 +27,24 @@ from langchain_core.messages import (
 
 from app.cache.manifest_cache import ManifestCache
 from app.agent.planner_tools import make_planner_tools
+from app.events.stream import publish_to_session
 from app.llm.planner_llm import get_planner_chat_model
 
 logger = logging.getLogger("app.agent.planner_agent")
 
 MAX_ITERATIONS = 8  # max tool-call rounds per turn
+
+
+def _extract_text(content: Any) -> str:
+    """Normalize AIMessageChunk.content to a plain string."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            b.get("text", "") if isinstance(b, dict) else str(b) for b in content
+        )
+    return ""
+
 
 _SYSTEM_PROMPT = """\
 You are the ASTRA Planner — a conversational AI that helps users assemble and refine \
@@ -131,13 +146,29 @@ def planner_agent_node(*, cache: ManifestCache):
         # Agentic loop
         final_response_text = ""
         for iteration in range(MAX_ITERATIONS):
+            accumulated: Optional[AIMessageChunk] = None
             try:
-                response: AIMessage = await model.ainvoke(agent_messages)
+                async for chunk in model.astream(agent_messages):
+                    accumulated = chunk if accumulated is None else accumulated + chunk
+                    # Publish text tokens live; tool-call chunks have non-empty tool_call_chunks
+                    if not getattr(chunk, "tool_call_chunks", None):
+                        token = _extract_text(chunk.content)
+                        if token:
+                            publish_to_session(session_id, {
+                                "type": "planner.token",
+                                "session_id": session_id,
+                                "token": token,
+                                "at": datetime.now(timezone.utc).isoformat(),
+                            })
             except Exception as e:
                 logger.exception("[planner_agent] LLM call failed session=%s iter=%d: %s", session_id, iteration, e)
                 final_response_text = f"I encountered an error while processing your request: {e}"
                 break
 
+            if accumulated is None:
+                break
+
+            response = accumulated
             agent_messages.append(response)
 
             if not response.tool_calls:
