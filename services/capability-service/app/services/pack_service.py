@@ -1,7 +1,7 @@
 # services/capability-service/app/services/pack_service.py
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from app.dal.capability_dal import CapabilityDAL
 from app.dal.pack_dal import PackDAL
@@ -15,20 +15,13 @@ from app.models import (
     ResolvedPlaybookStep,
     GlobalCapability,
 )
-from app.services.validation import ensure_pack_capabilities_exist, ensure_playbook_inputs_valid
-
-# resolve registered pack input definitions
-try:
-    from app.dal.pack_input_dal import PackInputDAL
-except Exception:  # pragma: no cover
-    PackInputDAL = None  # type: ignore
+from app.services.validation import ensure_pack_capabilities_exist
 
 
 class PackService:
     def __init__(self) -> None:
         self.packs = PackDAL()
         self.caps = CapabilityDAL()
-        self.inputs = PackInputDAL() if PackInputDAL is not None else None
 
     # ─────────────────────────────────────────────────────────────
     # CRUD
@@ -99,10 +92,9 @@ class PackService:
         if not pack:
             return None
 
-        # Validate referenced capabilities and playbook input membership
+        # Validate referenced capabilities exist
         all_ids = await self.caps.list_all_ids()
         ensure_pack_capabilities_exist(pack, all_ids)
-        ensure_playbook_inputs_valid(pack)
 
         # Step-bound capability docs (ordered)
         capability_ids: List[str] = pack.capability_ids or []
@@ -111,18 +103,6 @@ class PackService:
         # Agent-scoped capability docs (ordered)
         agent_capability_ids: List[str] = getattr(pack, "agent_capability_ids", None) or []
         agent_capabilities: List[GlobalCapability] = await self.caps.get_many(agent_capability_ids) if agent_capability_ids else []
-
-        # Optional: resolve the registered pack input definitions (plural)
-        pack_inputs = []
-        if getattr(pack, "pack_input_ids", None) and self.inputs is not None:
-            for pid in pack.pack_input_ids:
-                try:
-                    pi = await self.inputs.get(pid)
-                    if pi:
-                        pack_inputs.append(pi)
-                except Exception:
-                    # ignore missing individual inputs to keep view resilient
-                    pass
 
         # Fast lookup for step projection
         by_id: Dict[str, GlobalCapability] = {c.id: c for c in capabilities}
@@ -158,7 +138,6 @@ class PackService:
                     id=pb.id,
                     name=pb.name,
                     description=pb.description,
-                    input_id=getattr(pb, "input_id", None),
                     steps=steps,
                 )
             )
@@ -169,8 +148,6 @@ class PackService:
             version=pack.version,
             title=pack.title,
             description=pack.description,
-            pack_input_ids=list(getattr(pack, "pack_input_ids", []) or []),
-            pack_inputs=pack_inputs,
             capability_ids=capability_ids,
             agent_capability_ids=agent_capability_ids,
             capabilities=capabilities,

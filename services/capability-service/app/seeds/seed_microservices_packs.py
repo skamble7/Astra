@@ -71,11 +71,6 @@ async def seed_microservices_packs() -> None:
             "maps interactions, selects integration patterns, defines security/observability/deployment topology, "
             "ranks the tech stack, synthesizes the final architecture, and produces a phased migration plan."
         ),
-        pack_input_ids=[
-            "input.raina.user-stories-url",
-            # ✅ NEW: guidance-only input (expects workspace_id)
-            "input.microservices.architecture-guide",
-        ],
         capability_ids=[
             "cap.asset.fetch_raina_input",
             "cap.domain.discover_ubiquitous_language",
@@ -107,7 +102,6 @@ async def seed_microservices_packs() -> None:
                     "APIs/events/data ownership → interactions → integration patterns → security → observability → "
                     "deployment topology → tech stack ranking → assemble architecture → migration plan."
                 ),
-                "input_id": "input.raina.user-stories-url",
                 "steps": [
                     {
                         "id": "fetch-1",
@@ -210,7 +204,6 @@ async def seed_microservices_packs() -> None:
                     "artifacts produced by the discovery flow (services, APIs/events, interactions, security, observability, "
                     "topology, tech stack rankings, final architecture, migration plan, etc.)."
                 ),
-                "input_id": "input.microservices.architecture-guide",
                 "steps": [
                     {
                         "id": "guide-1",

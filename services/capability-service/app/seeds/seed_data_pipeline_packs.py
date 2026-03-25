@@ -69,11 +69,6 @@ async def seed_data_pipeline_packs() -> None:
             "orchestration, topology, tech stack ranking, data products, a concrete deployment plan, and an optional "
             "architecture guidance document grounded in discovered artifacts."
         ),
-        # v1.0 used the generic discovery input id
-        pack_input_ids=[
-            "input.astra.discovery.avc-fss-pss",
-            "input.data-eng.architecture-guide",
-        ],
         capability_ids=[
             "cap.catalog.inventory_sources",
             "cap.workflow.discover_business_flows",
@@ -110,7 +105,6 @@ async def seed_data_pipeline_packs() -> None:
                     "lineage → governance & security → SLAs/observability → topology → stack ranking → data products → "
                     "assembly → deployment plan."
                 ),
-                "input_id": "input.astra.discovery.avc-fss-pss",
                 "steps": [
                     {"id": "src-1", "name": "Inventory Sources & Sinks", "capability_id": "cap.catalog.inventory_sources"},
                     {"id": "flow-1", "name": "Discover Business Flows", "capability_id": "cap.workflow.discover_business_flows"},
@@ -141,7 +135,6 @@ async def seed_data_pipeline_packs() -> None:
                     "Generate a comprehensive, prose-style architecture guidance document grounded in the artifacts "
                     "produced by the discovery flow (patterns, datasets, lineage, SLAs, topology, etc.)."
                 ),
-                "input_id": "input.data-eng.architecture-guide",
                 "steps": [
                     {
                         "id": "guide-1",
@@ -170,11 +163,6 @@ async def seed_data_pipeline_packs() -> None:
             "orchestration, topology, tech stack ranking, data products, a concrete deployment plan, and an optional "
             "architecture guidance document grounded in discovered artifacts. This version fetches the Raina input via MCP as the first step."
         ),
-        # v1.1 uses the explicit URL-based Raina input contract
-        pack_input_ids=[
-            "input.raina.user-stories-url",
-            "input.data-eng.architecture-guide",
-        ],
         capability_ids=[
             "cap.asset.fetch_raina_input",  # NEW
             "cap.catalog.inventory_sources",
@@ -211,7 +199,6 @@ async def seed_data_pipeline_packs() -> None:
                     "→ contracts → transforms → jobs → orchestration → lineage → governance & security → SLAs/observability "
                     "→ topology → stack ranking → data products → assembly → deployment plan."
                 ),
-                "input_id": "input.raina.user-stories-url",
                 "steps": [
                     {
                         "id": "fetch-1",
@@ -248,7 +235,6 @@ async def seed_data_pipeline_packs() -> None:
                     "Generate a comprehensive, prose-style architecture guidance document grounded in the artifacts "
                     "produced by the discovery flow (patterns, datasets, lineage, SLAs, topology, etc.)."
                 ),
-                "input_id": "input.data-eng.architecture-guide",
                 "steps": [
                     {
                         "id": "guide-1",

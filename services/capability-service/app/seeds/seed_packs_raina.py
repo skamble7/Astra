@@ -80,7 +80,6 @@ async def seed_packs_raina() -> None:
 
     pack_key = "svc-micro"
     pack_version = "v1.4"
-    pack_input_id = "input.astra.discovery.avc-fss-pss"  # per request
 
     # Remove any existing pack@version to ensure clean replace
     await _delete_pack_if_exists(svc, pack_key, pack_version)
@@ -90,7 +89,6 @@ async def seed_packs_raina() -> None:
         id="pb.micro.plus",
         name="Microservices Discovery (Lean v1.4)",
         description="Essentials-only flow using validated CAM kinds.",
-        input_id=pack_input_id,  # NEW: must be a member of pack_input_ids
         steps=[
             PlaybookStep(
                 id="ctx-1",
@@ -191,7 +189,6 @@ async def seed_packs_raina() -> None:
             "Focused microservices discovery using only validated CAM kinds: "
             "context → services → interactions → contracts → data → deployment → inventories."
         ),
-        pack_input_ids=[pack_input_id],  # CHANGED: collection form
         capability_ids=capability_ids,
         # No agent-only capabilities specified for this pack; add later if needed
         agent_capability_ids=["cap.diagram.mermaid"],
