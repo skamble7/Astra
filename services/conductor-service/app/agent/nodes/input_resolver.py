@@ -14,6 +14,7 @@ from app.clients.artifact_service import ArtifactServiceClient
 from app.clients.capability_service import CapabilityServiceClient
 from app.db.run_repository import RunRepository
 from conductor_core.models.run_models import StepState, StepStatus
+from conductor_core.mcp.mcp_client import MCPConnection, MCPTransportConfig
 from app.events.rabbit import get_bus, EventPublisher  # NEW
 
 logger = logging.getLogger("app.agent.nodes.input_resolver")
@@ -85,43 +86,6 @@ async def _resolve_agent_capabilities(
 
     return resolved
 
-
-async def _resolve_input_contract(
-    cap_client: CapabilityServiceClient,
-    *,
-    pack: Dict[str, Any],
-    input_id: Optional[str],
-) -> Optional[Dict[str, Any]]:
-    """
-    Find the concrete input contract document for the playbook.
-    Resolution order:
-      1) If pack already carries a resolved list under 'pack_inputs', pick by id.
-      2) If client exposes a getter, fetch by id.
-      3) Best-effort: return None (validation will be soft if schema missing).
-    """
-    if not input_id:
-        return None
-
-    # 1) Look inside the resolved pack (if present)
-    pack_inputs = pack.get("pack_inputs")
-    if isinstance(pack_inputs, list) and pack_inputs:
-        for it in pack_inputs:
-            if isinstance(it, dict) and it.get("id") == input_id:
-                return it
-
-    # 2) Try client methods (be liberal in method names)
-    candidates = [
-        getattr(cap_client, "get_pack_input", None),
-        getattr(cap_client, "get_input_contract", None),
-        getattr(cap_client, "get_run_input_contract", None),
-        getattr(cap_client, "get_form_by_id", None),
-    ]
-    for m in candidates:
-        doc = await _try_call(m, input_id)
-        if isinstance(doc, dict) and doc.get("id") == input_id:
-            return doc
-
-    return None
 
 
 def input_resolver_node(
@@ -267,10 +231,6 @@ def input_resolver_node(
             if isinstance(cid, str) and cid and cid not in agent_caps_map:
                 agent_caps_map[cid] = c
 
-        # --- Pack & playbook input wiring (new model) ------------------------
-        pack_input_ids = list(pack.get("pack_input_ids") or [])
-        playbook_input_id: Optional[str] = pb.get("input_id")
-
         try:
             pack_preview = {
                 "pack_id": pack.get("pack_id") or pack_id,
@@ -280,19 +240,10 @@ def input_resolver_node(
                 "capabilities_count": len(pack.get("capabilities") or []),
                 "agent_capabilities_count": len(pack.get("agent_capabilities") or []),
                 "playbooks_count": len(pack.get("playbooks") or []),
-                "pack_input_ids_count": len(pack_input_ids),
-                "playbook_input_id": playbook_input_id,
             }
             logger.info("[input_resolver] pack_resolved %s", json.dumps(pack_preview, ensure_ascii=False))
         except Exception:
             logger.exception("[input_resolver] pack_resolved summary logging failed")
-
-        # Validate playbook.input_id against pack.pack_input_ids
-        if playbook_input_id and pack_input_ids and playbook_input_id not in pack_input_ids:
-            validations.append({
-                "severity": "high",
-                "message": f"Playbook input_id '{playbook_input_id}' is not listed in pack.pack_input_ids."
-            })
 
         # --- Artifact kind specs (union from pack capabilities) --------------
         caps: List[Dict[str, Any]] = pack.get("capabilities", []) or []
@@ -327,19 +278,49 @@ def input_resolver_node(
         if failures:
             validations.append({"severity": "high", "message": f"Failed to load {failures} artifact kind spec(s)"})
 
-        # --- Input validation against the selected input contract ------------
+        # --- Input validation against MCP tool input schema -----------------
         errors: List[str] = []
         inputs_valid = True
 
-        input_contract = await _resolve_input_contract(cap_client, pack=pack, input_id=playbook_input_id)
-        if not input_contract:
-            validations.append({
-                "severity": "low",
-                "message": "Input contract not found/resolved; skipping strict validation."
-            })
-            json_schema = {}
+        # Resolve input schema live from MCP server (first playbook step's capability)
+        json_schema: Dict[str, Any] = {}
+        steps = pb.get("steps", [])
+        first_cap_id = steps[0].get("capability_id") if steps else None
+        caps_list = pack.get("capabilities", []) or []
+        first_cap = next((c for c in caps_list if c.get("id") == first_cap_id), None)
+
+        if first_cap and first_cap.get("execution", {}).get("mode") == "mcp":
+            exec_cfg = first_cap.get("execution") or {}
+            t = exec_cfg.get("transport") or {}
+            transport_cfg = MCPTransportConfig(
+                kind=t.get("kind", "http"),
+                base_url=t.get("base_url"),
+                headers=t.get("headers") or {},
+                protocol_path=t.get("protocol_path", "/mcp"),
+                timeout_sec=t.get("timeout_sec", 30),
+            )
+            conn: Optional[MCPConnection] = None
+            try:
+                conn = await MCPConnection.connect(transport_cfg)
+                tool_name: str = exec_cfg.get("tool_name") or ""
+                tools = await conn.list_tools()  # List[Tuple[str, Dict]]
+                target_schema = next((s for n, s in tools if n == tool_name), None)
+                if target_schema is None and tools:
+                    target_schema = tools[0][1]
+                if target_schema:
+                    json_schema = target_schema
+                logger.info(
+                    "[input_resolver] mcp schema resolved cap=%s tool=%s props=%s",
+                    first_cap_id, tool_name, list((json_schema.get("properties") or {}).keys()),
+                )
+            except Exception as exc:
+                logger.warning("[input_resolver] mcp schema resolution failed cap=%s: %s", first_cap_id, exc)
+                validations.append({"severity": "low", "message": "MCP schema resolution failed; skipping strict validation."})
+            finally:
+                if conn is not None:
+                    await conn.aclose()
         else:
-            json_schema = (input_contract.get("json_schema") or {})
+            validations.append({"severity": "low", "message": "Input schema not available; skipping strict validation."})
 
         if json_schema:
             try:
@@ -373,11 +354,9 @@ def input_resolver_node(
         if steps_for_db:
             await runs_repo.init_steps(run_id, steps_for_db)
 
-        # Persist run input metadata (store the concrete playbook-level input_id)
         await runs_repo._col.update_one(  # using DAL's collection per current design
             {"run_id": str(run_id)},
             {"$set": {
-                "pack_input_id": playbook_input_id,  # keep name for backward-compat; value now sourced from playbook.input_id
                 "inputs": inputs,
                 "input_fingerprint": fingerprint
             }},
@@ -403,9 +382,6 @@ def input_resolver_node(
                 "errors": errors,
                 "validations": validations,
                 "input_fingerprint": fingerprint,
-                # optional visibility:
-                "pack_input_ids": pack_input_ids,
-                "playbook_input_id": playbook_input_id,
             },
             workspace_id=workspace_id,
             playbook_id=playbook_id,
@@ -440,7 +416,6 @@ def input_resolver_node(
                 "artifact_kinds_count": len(kinds_map),
                 "inputs_keys": sorted(list(inputs.keys())),
                 "inputs_valid": inputs_valid,
-                "playbook_input_id": playbook_input_id,
             }
             logger.info("[input_resolver] handoff %s", json.dumps(summary, ensure_ascii=False))
         except Exception:
