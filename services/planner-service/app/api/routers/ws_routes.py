@@ -43,7 +43,7 @@ async def session_websocket(websocket: WebSocket, session_id: str) -> None:
     except (asyncio.TimeoutError, Exception):
         pass  # no resume message; start from beginning or given cursor
 
-    queue = stream.subscribe(cursor=cursor)
+    queue = stream.subscribe(cursor=cursor, max_queue=1024)
     try:
         while True:
             # Wait for next event or client message (poll with timeout)
