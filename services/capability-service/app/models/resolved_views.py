@@ -5,15 +5,14 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-from .capability_models import ToolCallSpec, GlobalCapability
-from .pack_input_models import PackInput  # registered input definition (id, name, json_schema, ...)
+from .capability_models import GlobalCapability
 
 ExecutionMode = Literal["mcp", "llm"]
 
 
 class ResolvedPlaybookStep(BaseModel):
     """
-    A step annotated with execution mode, produced kinds, and (for MCP) tool_calls.
+    A step annotated with execution mode, produced kinds, and (for MCP) the tool name.
     """
     id: str
     name: str
@@ -22,15 +21,13 @@ class ResolvedPlaybookStep(BaseModel):
     execution_mode: ExecutionMode
     produces_kinds: List[str] = Field(default_factory=list)
     required_kinds: List[str] = Field(default_factory=list)  # reserved for learning-service enrichment
-    tool_calls: Optional[List[ToolCallSpec]] = None          # only for MCP
+    tool_name: Optional[str] = None  # only for MCP
 
 
 class ResolvedPlaybook(BaseModel):
     id: str
     name: str
     description: Optional[str] = None
-    # Mirrors Playbook.input_id
-    input_id: Optional[str] = None
     steps: List[ResolvedPlaybookStep] = Field(default_factory=list)
 
 
@@ -38,8 +35,6 @@ class ResolvedPackView(BaseModel):
     """
     Full resolved view for executors/UI:
       - pack header
-      - pack_input_ids (declare which registered input shapes can trigger this pack)
-      - pack_inputs (full PackInput definitions; optional if not found)
       - capability_ids (as stored on the pack; used by playbook steps)
       - agent_capability_ids (ids of capabilities the agent may use outside steps)
       - capabilities: full GlobalCapability documents for capability_ids (ordered)
@@ -51,9 +46,6 @@ class ResolvedPackView(BaseModel):
     version: str
     title: str
     description: str
-
-    pack_input_ids: List[str] = Field(default_factory=list)
-    pack_inputs: List[PackInput] = Field(default_factory=list)
 
     capability_ids: List[str] = Field(default_factory=list)
     agent_capability_ids: List[str] = Field(default_factory=list)

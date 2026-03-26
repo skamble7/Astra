@@ -5,7 +5,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, TypedDict
+from typing import Any, Dict, Optional, TypedDict, Annotated
 
 from langgraph.graph import StateGraph
 from langgraph.graph.state import END
@@ -13,17 +13,20 @@ from langgraph.graph.state import END
 from app.clients.artifact_service import ArtifactServiceClient
 from app.clients.capability_service import CapabilityServiceClient
 from app.db.run_repository import RunRepository
-from app.models.run_models import PlaybookRun
+from conductor_core.models.run_models import PlaybookRun
 
 from app.agent.nodes.input_resolver import input_resolver_node
-from app.agent.nodes.capability_executor import capability_executor_node
-from app.agent.nodes.mcp_input_resolver import mcp_input_resolver_node
-from app.agent.nodes.mcp_execution import mcp_execution_node
-from app.agent.nodes.llm_execution import llm_execution_node
-from app.agent.nodes.persist_run import persist_run_node
-from app.agent.nodes.diagram_enrichment import diagram_enrichment_node  # NEW
+from conductor_core.nodes.capability_executor import capability_executor_node
+from conductor_core.nodes.mcp_input_resolver import mcp_input_resolver_node
+from conductor_core.nodes.mcp_execution import mcp_execution_node
+from conductor_core.nodes.llm_execution import llm_execution_node
+from conductor_core.nodes.persist_run import persist_run_node
+from conductor_core.nodes.diagram_enrichment import diagram_enrichment_node
+from conductor_core.nodes.narrative_enrichment import narrative_enrichment_node
 
-from app.llm.factory import get_agent_llm
+from conductor_core.llm.factory import get_agent_llm
+from app.events.rabbit import get_bus, EventPublisher
+from app.config import settings
 
 
 class GraphState(TypedDict, total=False):
@@ -40,18 +43,26 @@ class GraphState(TypedDict, total=False):
     input_fingerprint: Optional[str]
     step_idx: int
     current_step_id: Optional[str]
-    phase: str  # "discover" | "enrich"
-    dispatch: Dict[str, Any]
+    phase: str  # "discover" | "enrich" | "narrative_enrich"
+    # Use Annotated with reducer to allow multiple writes per step (capability_executor -> mcp_input_resolver)
+    dispatch: Annotated[Dict[str, Any], lambda left, right: right]
     logs: list[str]
     validations: list[Dict[str, Any]]
     started_at: str
     completed_at: Optional[str]
     staged_artifacts: list[Dict[str, Any]]
-    last_mcp_summary: Dict[str, Any]
-    last_mcp_error: Optional[str]
-    last_enrichment_summary: Dict[str, Any]
-    last_enrichment_error: Optional[str]
+    # These fields can be written by multiple nodes in the same step, use Annotated to take latest value
+    last_mcp_summary: Annotated[Dict[str, Any], lambda left, right: right]
+    last_mcp_error: Annotated[Optional[str], lambda left, right: right]
+    last_enrichment_summary: Annotated[Dict[str, Any], lambda left, right: right]
+    last_enrichment_error: Annotated[Optional[str], lambda left, right: right]
+    last_narrative_summary: Annotated[Dict[str, Any], lambda left, right: right]
+    last_narrative_error: Annotated[Optional[str], lambda left, right: right]
     persist_summary: Dict[str, Any]
+    # Cache for MCP tool schemas discovered via tools/list.
+    # Key: capability_id → value: {tool_name: json_schema_dict}.
+    # Merged across steps so each cap_id is only fetched once per run.
+    discovered_tools: Annotated[Dict[str, Dict[str, Any]], lambda left, right: {**left, **right}]
 
 
 def canonical_json(obj: Any) -> str:
@@ -67,10 +78,14 @@ class ConductorGraph:
     cap_client: CapabilityServiceClient
     art_client: ArtifactServiceClient
 
-    def build(self):
+    async def build(self, llm_config_ref: Optional[str] = None):
+        """
+        Build the conductor graph with optional per-request LLM config ref override.
+        """
         graph = StateGraph(GraphState)
 
-        agent_llm = get_agent_llm()
+        # Build agent LLM via ConfigForge
+        agent_llm = await get_agent_llm(llm_config_ref)
 
         graph.add_node(
             "input_resolver",
@@ -85,6 +100,9 @@ class ConductorGraph:
             "capability_executor",
             capability_executor_node(
                 runs_repo=self.runs_repo,
+                publisher=EventPublisher(bus=get_bus()),
+                skip_diagram=settings.skip_diagram,
+                skip_narrative=settings.skip_narrative,
             ),
         )
 
@@ -118,10 +136,19 @@ class ConductorGraph:
         )
 
         graph.add_node(
+            "narrative_enrichment",
+            narrative_enrichment_node(
+                runs_repo=self.runs_repo,
+                llm=agent_llm,
+            ),
+        )
+
+        graph.add_node(
             "persist_run",
             persist_run_node(
                 runs_repo=self.runs_repo,
-                art_client=self.art_client,   # <<< NEW: required for baseline promotion
+                art_client=self.art_client,
+                publisher=EventPublisher(bus=get_bus()),
             ),
         )
 
@@ -137,6 +164,9 @@ class ConductorGraph:
 
             if phase == "enrich" and state.get("current_step_id"):
                 return "diagram_enrichment"
+
+            if phase == "narrative_enrich" and state.get("current_step_id"):
+                return "narrative_enrichment"
 
             if cap and step:
                 mode = (cap.get("execution") or {}).get("mode")
@@ -155,6 +185,7 @@ class ConductorGraph:
         graph.add_edge("mcp_execution", "capability_executor")
         graph.add_edge("llm_execution", "capability_executor")
         graph.add_edge("diagram_enrichment", "capability_executor")
+        graph.add_edge("narrative_enrichment", "capability_executor")
 
         return graph.compile()
 
@@ -167,11 +198,15 @@ async def run_input_bootstrap(
     start_request: Dict[str, Any],
     run_doc: PlaybookRun,
 ) -> Dict[str, Any]:
-    compiled = ConductorGraph(
+    # Extract optional per-request LLM config ref
+    llm_config = start_request.get("llm_config") or {}
+    llm_config_ref = llm_config.get("llm_config_ref") if isinstance(llm_config, dict) else None
+
+    compiled = await ConductorGraph(
         runs_repo=runs_repo,
         cap_client=cap_client,
         art_client=art_client,
-    ).build()
+    ).build(llm_config_ref=llm_config_ref)
 
     now = datetime.now(timezone.utc).isoformat()
 
@@ -198,7 +233,10 @@ async def run_input_bootstrap(
         "last_mcp_error": None,
         "last_enrichment_summary": {},
         "last_enrichment_error": None,
+        "last_narrative_summary": {},
+        "last_narrative_error": None,
         "persist_summary": {},
+        "discovered_tools": {},
     }
 
     # >>> CHANGE: raise recursion limit to handle long playbooks w/ enrichment passes

@@ -8,25 +8,59 @@ from app.dal.category_dal import ensure_indexes
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 CATEGORY_KEYS: List[str] = [
-    # Generic CAM categories
-    "diagram","contract","catalog","workflow","data","ops","asset",
-    # astra-specific
-    "domain","code","mapping","cobol","jcl",
+    # ── Cross-cutting (all use cases) ──────────────────────────────────────
+    "diagram",      # Visual diagram artifacts (context, class, sequence, component, …)
+    "contract",     # API, event, service, dataset contracts
+    "catalog",      # Service catalogs, tech stack rankings, data product catalogs
+    "workflow",     # Process flows, pipelines, orchestration specs, state machines
+    "data",         # Data models, dictionaries, lineage, ownership, governance policies
+    "ops",          # Runbooks, playbooks, postmortems, on-call rosters
+    "asset",        # Source repo snapshots, source index, inventories, raina inputs
+    "domain",       # Domain models, bounded contexts, ubiquitous language
+    "governance",   # ADRs, standards, compliance matrices, stakeholder maps, RTMs
+    "qa",           # Test plans, test cases, coverage matrices, quality SLAs
+    "risk",         # Risk registers, matrices, mitigation plans
+    "performance",  # Benchmark reports, capacity plans, load profiles
+    "finops",       # Cost models, budgets, usage reports, chargeback policies
+    # ── Architecture Discovery (RAINA) ─────────────────────────────────────
+    "architecture",   # Architecture overviews, service interactions, integration patterns
+    "security",       # Security architecture, policies, access control, data masking
+    "deployment",     # Deployment topologies, migration and rollout plans
+    "observability",  # Observability specs, SLOs, dashboards, alerting policies
+    "infra",          # Infrastructure topology, K8s manifests, network/scaling policies
+    # ── Agile Artifact Authoring (SABA) ────────────────────────────────────
+    "agile",   # Epics, features, user stories, tasks, sprint plans, MoSCoW
+    # ── Legacy Code Modernization (Neozeta) ────────────────────────────────
+    "cobol",  # COBOL programs, copybooks, AST/ASG parse results
+    "jcl",    # JCL jobs, steps
+    "cics",   # CICS transactions and programs
+    "db2",    # DB2 schema and catalog artifacts
 ]
 
 ICONS: Dict[str, str] = {
-    "diagram": '<svg ...>...</svg>',  # same as Raina’s simple VS Code–friendly icons
-    "contract": '<svg ...>...</svg>',
-    "catalog": '<svg ...>...</svg>',
-    "workflow": '<svg ...>...</svg>',
-    "data": '<svg ...>...</svg>',
-    "ops": '<svg ...>...</svg>',
-    "asset": '<svg ...>...</svg>',
-    "domain": '<svg ...>...</svg>',
-    "code": '<svg ...>...</svg>',
-    "mapping": '<svg ...>...</svg>',
-    "cobol": '<svg ...>...</svg>',
-    "jcl": '<svg ...>...</svg>',
+    "diagram":      '<svg ...>...</svg>',
+    "contract":     '<svg ...>...</svg>',
+    "catalog":      '<svg ...>...</svg>',
+    "workflow":     '<svg ...>...</svg>',
+    "data":         '<svg ...>...</svg>',
+    "ops":          '<svg ...>...</svg>',
+    "asset":        '<svg ...>...</svg>',
+    "domain":       '<svg ...>...</svg>',
+    "governance":   '<svg ...>...</svg>',
+    "qa":           '<svg ...>...</svg>',
+    "risk":         '<svg ...>...</svg>',
+    "performance":  '<svg ...>...</svg>',
+    "finops":       '<svg ...>...</svg>',
+    "architecture": '<svg ...>...</svg>',
+    "security":     '<svg ...>...</svg>',
+    "deployment":   '<svg ...>...</svg>',
+    "observability": '<svg ...>...</svg>',
+    "infra":        '<svg ...>...</svg>',
+    "agile":        '<svg ...>...</svg>',
+    "cobol":        '<svg ...>...</svg>',
+    "jcl":          '<svg ...>...</svg>',
+    "cics":         '<svg ...>...</svg>',
+    "db2":          '<svg ...>...</svg>',
 }
 
 def _build_doc(key: str, name: str, description: str, icon_svg: str) -> dict:

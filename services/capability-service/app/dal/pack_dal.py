@@ -43,8 +43,6 @@ class PackDAL:
             "version": payload.version,
             "title": payload.title,
             "description": payload.description,
-            # CHANGED: plural inputs
-            "pack_input_ids": getattr(payload, "pack_input_ids", None) or [],
             "capability_ids": payload.capability_ids or [],
             # NEW: persist agent-scoped capability ids
             "agent_capability_ids": getattr(payload, "agent_capability_ids", None) or [],
@@ -75,7 +73,7 @@ class PackDAL:
         update_dict = _strip_none(patch.model_dump())
         if updated_by is not None:
             update_dict["updated_by"] = updated_by
-        update_doc = {"$set": {**update_dict, "updated_at": _utcnow()}}
+        update_doc = {"$set": {**update_dict, "updated_at": _utcnow()}, "$unset": {"pack_input_ids": ""}}
         doc = await self.col.find_one_and_update(
             {"_id": pack_id},
             update_doc,
@@ -96,7 +94,8 @@ class PackDAL:
                 "status": PackStatus.published.value,
                 "published_at": _utcnow(),
                 "updated_at": _utcnow(),
-            }
+            },
+            "$unset": {"pack_input_ids": ""},
         }
         doc = await self.col.find_one_and_update(
             {"_id": pack_id},

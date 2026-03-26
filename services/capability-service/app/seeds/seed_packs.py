@@ -59,10 +59,6 @@ async def seed_packs() -> None:
     publish_on_seed = os.getenv("PACK_SEED_PUBLISH", "1") in ("1", "true", "True")
     svc = PackService()
 
-    # Pack input contracts
-    renova_input_id = "input.renova.repo"
-    summary_input_id = "input.renova.workspace_summary"  # NEW
-
     pack_key = "cobol-mainframe"
     full_version = "v1.0.1"
     mini_version = "v1.0.2"
@@ -77,7 +73,6 @@ async def seed_packs() -> None:
         id="pb.main",
         name="Main COBOL Learning Flow",
         description="Topologically ordered steps to parse, index, enrich, and render the enterprise flow.",
-        input_id=renova_input_id,   # must be in pack_input_ids
         steps=[
             PlaybookStep(
                 id="s1.clone",
@@ -153,7 +148,6 @@ async def seed_packs() -> None:
         version=full_version,
         title="COBOL Mainframe Modernization",
         description="Deterministic MCP parsing + LLM enrichment to discover inventories, data lineage, and workflows from COBOL/JCL estates.",
-        pack_input_ids=[renova_input_id],
         capability_ids=[
             "cap.repo.clone",
             "cap.cobol.parse",
@@ -182,7 +176,6 @@ async def seed_packs() -> None:
         id="pb.core",
         name="Core Clone + Parse",
         description="Minimal flow to clone a repo and parse COBOL sources.",
-        input_id=renova_input_id,
         steps=[
             PlaybookStep(
                 id="s1.clone",
@@ -199,12 +192,10 @@ async def seed_packs() -> None:
         ],
     )
 
-    # NEW: single-step playbook for workspace summary doc
     pb_summary = Playbook(
         id="pb.summary",
         name="Generate COBOL Workspace Summary",
         description="Generate a Markdown document summarizing COBOL artifacts for the workspace.",
-        input_id=summary_input_id,  # must be present in pack_input_ids
         steps=[
             PlaybookStep(
                 id="s1.workspace_doc",
@@ -220,7 +211,6 @@ async def seed_packs() -> None:
         version=mini_version,
         title="COBOL Mainframe Modernization (Core)",
         description="Derived minimal pack with a two-step playbook (clone + parse) and an optional workspace summary generator.",
-        pack_input_ids=[renova_input_id, summary_input_id],
         capability_ids=[
             "cap.repo.clone",
             "cap.cobol.parse",
@@ -241,7 +231,6 @@ async def seed_packs() -> None:
         id="pb.core",
         name="Core Clone + COBOL + JCL + Entities",
         description="Clone a repository, parse COBOL then JCL sources, then lift entities and a domain dictionary.",
-        input_id=renova_input_id,
         steps=[
             PlaybookStep(
                 id="s1.clone",
@@ -275,7 +264,6 @@ async def seed_packs() -> None:
         version=mini_v103,
         title="COBOL Mainframe Modernization (Core)",
         description="Minimal pack that clones, parses COBOL then JCL, then detects entities and domain terms.",
-        pack_input_ids=[renova_input_id],
         capability_ids=[
             "cap.repo.clone",
             "cap.cobol.parse",  # second step
