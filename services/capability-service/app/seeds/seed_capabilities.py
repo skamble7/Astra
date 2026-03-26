@@ -250,12 +250,12 @@ async def seed_capabilities() -> None:
                 mode="mcp",
                 transport=HTTPTransport(
                     kind="http",
-                    base_url="http://host.docker.internal:8002",
+                    base_url="http://host.docker.internal:8004",
                     timeout_sec=LONG_TIMEOUT,
                     verify_tls=False,
                     protocol_path="/mcp",
                 ),
-                tool_name="generate.workspace.document",
+                tool_name="generate_data_pipeline_arch_guidance",
             ),
         ),
 

@@ -89,12 +89,12 @@ def _mcp_cap_microservices_guidance() -> GlobalCapabilityCreate:
                 "mode": "mcp",
                 "transport": {
                     "kind": "http",
-                    "base_url": "http://host.docker.internal:8002",
+                    "base_url": "http://host.docker.internal:8004",
                     "timeout_sec": 180,
                     "verify_tls": False,
                     "protocol_path": "/mcp",
                 },
-                "tool_name": "generate.workspace.document",
+                "tool_name": "generate_microservices_arch_guidance",
             },
         }
     )
