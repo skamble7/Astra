@@ -13,6 +13,7 @@ from uuid import UUID
 from conductor_core.protocols.repositories import (
     RunRepositoryProtocol as RunRepository,
     ArtifactServiceClientProtocol as ArtifactServiceClient,
+    WorkspaceManagerClientProtocol as WorkspaceManagerClient,
     EventPublisherProtocol as EventPublisher,
 )
 from conductor_core.models.run_models import (
@@ -326,7 +327,7 @@ async def _filter_known_kinds(client: ArtifactServiceClient, kinds: List[str], c
 # ─────────────────────────────────────────────────────────────
 # Node
 # ─────────────────────────────────────────────────────────────
-def persist_run_node(*, runs_repo: RunRepository, art_client: ArtifactServiceClient, publisher: EventPublisher):
+def persist_run_node(*, runs_repo: RunRepository, art_client: ArtifactServiceClient, workspace_client: WorkspaceManagerClient, publisher: EventPublisher):
     async def _node(state: Dict[str, Any]) -> Dict[str, Any]:
         run_doc: Dict[str, Any] = state["run"]
         run_id = UUID(run_doc["run_id"])
@@ -492,7 +493,7 @@ def persist_run_node(*, runs_repo: RunRepository, art_client: ArtifactServiceCli
 
             for chunk in _chunked(items, 200):
                 try:
-                    resp = await art_client.upsert_batch(
+                    resp = await workspace_client.upsert_batch(
                         workspace_id=workspace_id,
                         items=chunk,
                         run_id=str(run_id),

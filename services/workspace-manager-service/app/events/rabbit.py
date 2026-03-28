@@ -1,4 +1,4 @@
-# services/artifact-service/app/events/rabbit.py
+# services/workspace-manager-service/app/events/rabbit.py
 import logging
 import orjson
 import pika
@@ -7,9 +7,8 @@ import time
 from typing import Optional, Dict
 
 from ..config import settings
-from libs.astra_common.events import EXCHANGE, rk, Service, Version  # ← astra lib
+from libs.astra_common.events import EXCHANGE, rk, Service, Version
 
-# Optional: pull correlation/request IDs from middleware if present
 try:
     from ..middleware.correlation import request_id_var, correlation_id_var  # type: ignore
 except Exception:  # pragma: no cover
@@ -23,12 +22,10 @@ _channel: Optional[pika.adapters.blocking_connection.BlockingChannel] = None
 
 
 def _exchange_name() -> str:
-    """Prefer service config; fallback to lib default."""
-    return getattr(settings, "rabbitmq_exchange", None) or getattr(settings, "RABBITMQ_EXCHANGE", EXCHANGE) or EXCHANGE
+    return getattr(settings, "rabbitmq_exchange", None) or EXCHANGE
 
 
 def _amqp_url() -> str:
-    """Support both snake_case and UPPERCASE settings."""
     return getattr(settings, "rabbitmq_uri", None) or getattr(settings, "RABBITMQ_URI")
 
 
@@ -80,11 +77,6 @@ def publish_event_v1(
     headers: Optional[Dict[str, str]] = None,
     version: str = Version.V1.value,
 ) -> bool:
-    """
-    Publish a versioned event to the canonical exchange using the routing key:
-        <org>.<service>.<event>.<version>
-    Returns True on success (caller should not crash on False).
-    """
     hdrs = dict(headers or {})
     try:
         if request_id_var:
@@ -123,7 +115,3 @@ def publish_event_v1(
             _close_dead()
             time.sleep(0.1)
     return False
-
-
-def publish_event(*args, **kwargs):  # pragma: no cover
-    raise RuntimeError("publish_event is removed. Use publish_event_v1(org, service, event, payload).")

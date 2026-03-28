@@ -363,19 +363,31 @@ ASTRA is composed of micro‑services that communicate over HTTP and RabbitMQ.  
 
 ### Artifact Service
 
-The artifact service manages persistent storage of artifacts, diagrams and narratives.  It exposes a REST API with the following features:
+The artifact service is a pure **kind-registry and schema service** (port **9020**). It exposes a REST API with the following features:
 
-- **Create/upsert artifacts:** The `/artifact/{workspace_id}` endpoint builds an envelope from the incoming payload, computing the canonical kind id, natural key and fingerprint.  It passes through diagrams and narratives, then calls the data access layer to insert or update the artifact【956177183913673†L45-L74】.  When a new artifact is inserted or updated, the service publishes corresponding events for downstream consumers.
+- **Kind registry:** List, retrieve, adapt and validate artifact kinds, fetch prompt contracts, and perform admin operations such as upsert/patch/delete of kinds. A category API allows creating, updating and deleting high‑level categories (domain, data, code, etc.).
+
+- **Build envelope** (`POST /registry/build-envelope`): Validates an incoming artifact payload, runs schema migration and adaptation, and returns a fully computed envelope with `natural_key`, `fingerprint`, `schema_version`, and `category`. Called by the workspace-manager-service before persisting any artifact.
+
+- **Seeded at startup** with built-in kind definitions for all registered domains.
+
+- **No RabbitMQ dependency** — the artifact service no longer consumes workspace lifecycle events. All messaging and runtime artifact storage concerns live in the workspace-manager-service.
+
+### Workspace Manager Service
+
+The workspace-manager-service (port **9027**) owns all runtime workspace artifact storage and workspace lifecycle management.  It exposes a REST API with the following features:
+
+- **Create/upsert artifacts:** The `/artifact/{workspace_id}` endpoint delegates envelope computation (natural key, fingerprint, schema validation) to the artifact-service via `POST /registry/build-envelope`, then calls the data access layer to insert or update the artifact. When a new artifact is inserted or updated, the service publishes corresponding events for downstream consumers.
 
 - **Batch upsert:** Clients can upsert multiple artifacts in one request; the service returns a summary of inserts, updates and no‑ops along with per‑item results.
 
-- **List and retrieve:** The service lists artifacts with optional filters (kind, name prefix, deletion flag) and pagination【956177183913673†L294-L317】.  A workspace’s parent document (containing all artifacts) can be fetched, and deltas between runs (added, changed, unchanged artifacts) can be computed.
+- **List and retrieve:** The service lists artifacts with optional filters (kind, name prefix, deletion flag) and pagination. A workspace’s parent document (containing all artifacts) can be fetched, and deltas between runs (added, changed, unchanged artifacts) can be computed.
 
-- **Replace and patch:** A PUT request can replace the data/diagrams/narratives of a specific artifact, guarded by an ETag to ensure optimistic concurrency.  PATCH requests use JSON Patch to partially update the `data` field; the service records patch history and emits events.
+- **Replace and patch:** A PUT request can replace the data/diagrams/narratives of a specific artifact, guarded by an ETag to ensure optimistic concurrency. PATCH requests use JSON Patch to partially update the `data` field; the service records patch history and emits events.
 
-- **History and deletion:** Endpoints exist to retrieve the version history of an artifact and to soft‑delete it (marking `deleted_at`).  Deleted artifacts are excluded from normal listings unless explicitly requested.
+- **History and deletion:** Endpoints exist to retrieve the version history of an artifact and to soft‑delete it (marking `deleted_at`). Deleted artifacts are excluded from normal listings unless explicitly requested.
 
-- **Registry and categories:** The artifact service also provides a **kind registry** API: list, retrieve, adapt and validate artifact kinds, fetch prompt contracts, and perform admin operations such as upsert/patch/delete of kinds【157525849080598†L0-L172】.  A category API allows creating, updating and deleting high‑level categories (domain, data, code, etc.).
+- **Workspace lifecycle:** Consumes `platform.workspace.created`, `platform.workspace.updated`, and `platform.workspace.deleted` events from RabbitMQ to maintain the workspace parent document in MongoDB.
 
 ### Capability Service
 
@@ -405,7 +417,7 @@ The library is structured into four top-level packages:
 
 - **`conductor_core.mcp`** — MCP transport client (`MCPConnection`, `MCPTransportConfig`) and JSON utilities.
 
-- **`conductor_core.protocols`** — structural `Protocol` definitions for `RunRepositoryProtocol`, `ArtifactServiceClientProtocol`, and `EventPublisherProtocol`.  Any object whose async methods structurally match these protocols can be injected into a node factory — this is what allows both conductor-service and planner-service to supply their own repository and client implementations without inheriting from a base class.
+- **`conductor_core.protocols`** — structural `Protocol` definitions for `RunRepositoryProtocol`, `ArtifactServiceClientProtocol` (registry reads: `get_kind`, `get_kind_schema`), `WorkspaceManagerClientProtocol` (artifact writes: `upsert_batch`), and `EventPublisherProtocol`.  Any object whose async methods structurally match these protocols can be injected into a node factory — this is what allows both conductor-service and planner-service to supply their own implementations without inheriting from a base class.
 
 - **`conductor_core.artifacts`** — `ArtifactAdapter` utilities for normalising staged artifacts into `ArtifactEnvelope` instances before persistence.
 
@@ -421,7 +433,7 @@ All six nodes follow the same pattern: a factory function accepts dependencies (
 | `llm_execution_node` | Executes LLM-based capabilities.  Resolves `llm_config_ref` from ConfigForge per capability, builds a prompt from the kind schema + prompt contract + upstream artifacts, calls the LLM, validates JSON output against the artifact kind schema, stages the result. |
 | `diagram_enrichment_node` | Post-processing: connects to the diagram MCP server, calls `diagram.mermaid.generate` for each artifact produced in the current step, attaches the resulting Mermaid diagrams.  Reads transport config from `agent_capabilities_map["cap.diagram.mermaid"]`.  Failures are non-fatal. |
 | `narrative_enrichment_node` | Post-processing: for each artifact produced in the current step, reads the kind’s `narratives_spec` and calls the agent LLM to generate a Markdown narrative (`id: "auto:overview"`, `audience: "developer"`).  Failures are non-fatal. |
-| `persist_run_node` | Finalises the run.  Normalises `staged_artifacts` into `ArtifactEnvelope`s, calls `artifact-service /artifact/{workspace_id}/upsert-batch` (baseline strategy) or stores in `run_artifacts` (delta strategy), records run summary and final status. |
+| `persist_run_node` | Finalises the run.  Normalises `staged_artifacts` into `ArtifactEnvelope`s, calls `workspace-manager-service /artifact/{workspace_id}/upsert-batch` (baseline strategy) or stores in `run_artifacts` (delta strategy), records run summary and final status. |
 
 #### Three-Phase Step Execution
 
@@ -439,7 +451,7 @@ Enrichment failures in either phase are non-fatal — the run continues.  A disc
 
 #### Protocol-Based Dependency Injection
 
-Nodes depend on `RunRepositoryProtocol`, `ArtifactServiceClientProtocol`, and `EventPublisherProtocol` rather than concrete classes.  The conductor-service and planner-service each supply their own implementations.  This means conductor-core has no import-time dependency on either service’s codebase.
+Nodes depend on `RunRepositoryProtocol`, `ArtifactServiceClientProtocol`, `WorkspaceManagerClientProtocol`, and `EventPublisherProtocol` rather than concrete classes.  The conductor-service and planner-service each supply their own implementations.  `persist_run_node` requires both `art_client` (registry reads) and `workspace_client` (artifact writes) as separate required parameters — there is no fallback.  This means conductor-core has no import-time dependency on either service’s codebase.
 
 ---
 
@@ -451,7 +463,7 @@ The conductor service orchestrates **runs** of a capability pack’s playbook.  
 
 - **Run repository:** Abstracts database operations for runs and step states.  It updates step statuses (pending, running, completed, failed) and persists audits, logs and summaries.  Implements `RunRepositoryProtocol` so it can be injected directly into conductor-core nodes.
 
-- **Clients:** The conductor uses clients for the capability and artifact services to fetch packs and store produced artifacts.  The artifact client implements `ArtifactServiceClientProtocol`.
+- **Clients:** The conductor maintains three service clients: `CapabilityServiceClient` (fetches resolved packs and capabilities), `ArtifactServiceClient` (kind registry reads — implements `ArtifactServiceClientProtocol`), and `WorkspaceManagerClient` (artifact storage writes — implements `WorkspaceManagerClientProtocol`). The split ensures registry queries go to artifact-service (port 9020) and artifact persistence goes to workspace-manager-service (port 9027).
 
 - **LLM Architecture:** The conductor uses **polyllm** — a unified LLM abstraction layer from `conductor_core.llm` — to decouple the runtime from any specific LLM provider. All LLM configuration is stored externally in **ConfigForge** and referenced by a canonical string (e.g., `"dev.llm.bedrock.explicit-creds"`). The conductor maintains two distinct LLM roles:
 

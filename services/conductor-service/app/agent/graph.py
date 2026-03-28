@@ -12,6 +12,7 @@ from langgraph.graph.state import END
 
 from app.clients.artifact_service import ArtifactServiceClient
 from app.clients.capability_service import CapabilityServiceClient
+from app.clients.workspace_manager import WorkspaceManagerClient
 from app.db.run_repository import RunRepository
 from conductor_core.models.run_models import PlaybookRun
 
@@ -77,6 +78,7 @@ class ConductorGraph:
     runs_repo: RunRepository
     cap_client: CapabilityServiceClient
     art_client: ArtifactServiceClient
+    workspace_client: WorkspaceManagerClient
 
     async def build(self, llm_config_ref: Optional[str] = None):
         """
@@ -148,6 +150,7 @@ class ConductorGraph:
             persist_run_node(
                 runs_repo=self.runs_repo,
                 art_client=self.art_client,
+                workspace_client=self.workspace_client,
                 publisher=EventPublisher(bus=get_bus()),
             ),
         )
@@ -195,6 +198,7 @@ async def run_input_bootstrap(
     runs_repo: RunRepository,
     cap_client: CapabilityServiceClient,
     art_client: ArtifactServiceClient,
+    workspace_client: WorkspaceManagerClient,
     start_request: Dict[str, Any],
     run_doc: PlaybookRun,
 ) -> Dict[str, Any]:
@@ -206,6 +210,7 @@ async def run_input_bootstrap(
         runs_repo=runs_repo,
         cap_client=cap_client,
         art_client=art_client,
+        workspace_client=workspace_client,
     ).build(llm_config_ref=llm_config_ref)
 
     now = datetime.now(timezone.utc).isoformat()

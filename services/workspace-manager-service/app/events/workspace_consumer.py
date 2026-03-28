@@ -7,11 +7,10 @@ import aio_pika
 from ..config import settings
 from ..dal import artifact_dal as dal
 from ..models.artifact import WorkspaceSnapshot
-from libs.astra_common.events import rk  # ✅ use only rk, not Service
+from libs.astra_common.events import rk
 
 log = logging.getLogger("app.events.workspace_consumer")
 
-# Use raw string for service segment since enum has no WORKSPACE
 _SERVICE_SEGMENT = "workspace"
 
 _RK_CREATED = rk(settings.platform_events_org, _SERVICE_SEGMENT, "created")
@@ -20,13 +19,6 @@ _RK_DELETED = rk(settings.platform_events_org, _SERVICE_SEGMENT, "deleted")
 
 
 def _normalize(payload: dict) -> dict:
-    """
-    Accepts:
-      - {"workspace": {...}}
-      - {"data": {...}, "meta": {...}}
-      - flat {...}
-    Ensures '_id' is present (backfills from 'id' when needed).
-    """
     data = payload.get("workspace") or payload.get("data") or payload or {}
     wid = data.get("_id") or data.get("id")
     if not wid:
@@ -39,7 +31,6 @@ def _normalize(payload: dict) -> dict:
 async def _handle_message_created(db: AsyncIOMotorDatabase, payload: dict) -> None:
     data = _normalize(payload)
     ws = WorkspaceSnapshot.model_validate(data)
-    # idempotent
     if await dal.get_parent_doc(db, ws.id):
         log.info("Parent already exists for workspace_id=%s", ws.id)
         return
@@ -93,7 +84,7 @@ async def run_workspace_created_consumer(db: AsyncIOMotorDatabase, shutdown_even
                         async with message.process(requeue=False):
                             try:
                                 payload = json.loads(message.body.decode("utf-8"))
-                                _ = _normalize(payload)  # validate early
+                                _ = _normalize(payload)
                             except Exception:
                                 log.exception("Invalid workspace message; dropping")
                                 continue

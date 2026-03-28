@@ -35,6 +35,9 @@ class ArtifactServiceClientProtocol(Protocol):
     async def get_kind_schema(
         self, kind_id: str, version: str, *, correlation_id: Optional[str] = None
     ) -> Any: ...
+
+
+class WorkspaceManagerClientProtocol(Protocol):
     async def upsert_batch(self, *, workspace_id: Any, items: Any, run_id: str) -> Any: ...
 
 
