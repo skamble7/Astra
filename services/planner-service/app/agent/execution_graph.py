@@ -38,6 +38,7 @@ from app.db.run_repository import RunRepository
 from app.cache.manifest_cache import get_manifest_cache
 from app.events.rabbit import get_bus, EventPublisher
 from app.clients.artifact_service import ArtifactServiceClient
+from app.clients.workspace_manager import WorkspaceManagerClient
 from app.events.stream import publish_to_session
 
 logger = logging.getLogger("app.agent.execution_graph")
@@ -281,6 +282,7 @@ async def _build_execution_graph(
     session_repo: SessionRepository,
     run_repo: RunRepository,
     art_client: ArtifactServiceClient,
+    workspace_client: WorkspaceManagerClient,
 ):
     llm = await get_agent_llm(settings.planner_llm_config_ref or None)
     publisher = EventPublisher(bus=get_bus())
@@ -294,7 +296,7 @@ async def _build_execution_graph(
     graph.add_node("llm_execution", llm_execution_node(runs_repo=run_repo))
     graph.add_node("diagram_enrichment", diagram_enrichment_node(runs_repo=run_repo))
     graph.add_node("narrative_enrichment", narrative_enrichment_node(runs_repo=run_repo, llm=llm))
-    graph.add_node("persist_run", persist_run_node(runs_repo=run_repo, art_client=art_client, publisher=publisher))
+    graph.add_node("persist_run", persist_run_node(runs_repo=run_repo, art_client=art_client, workspace_client=workspace_client, publisher=publisher))
 
     graph.set_entry_point("plan_init")
     graph.add_edge("plan_init", "capability_executor")
@@ -319,10 +321,12 @@ async def run_execution_plan(
     Returns the run_id of the created run.
     """
     art_client = ArtifactServiceClient()
+    workspace_client = WorkspaceManagerClient()
     compiled = await _build_execution_graph(
         session_repo=session_repo,
         run_repo=run_repo,
         art_client=art_client,
+        workspace_client=workspace_client,
     )
 
     initial_state: Dict[str, Any] = {

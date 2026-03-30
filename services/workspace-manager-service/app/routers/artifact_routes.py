@@ -1,4 +1,4 @@
-# services/artifact-service/app/routers/artifact_routes.py
+# services/workspace-manager-service/app/routers/artifact_routes.py
 from __future__ import annotations
 
 from copy import deepcopy
@@ -20,9 +20,8 @@ from ..models.artifact import (
     ArtifactItemPatchIn,
     WorkspaceArtifactsDoc,
 )
-# astra common events (same API shape as Raina)
 from libs.astra_common.events import Service
-from ..services.registry_service import KindRegistryService, SchemaValidationError
+from ..services.registry_proxy import RegistryProxy, SchemaValidationError
 
 logger = logging.getLogger("app.routes.artifact")
 
@@ -32,11 +31,14 @@ router = APIRouter(
     default_response_class=ORJSONResponse,
 )
 
+
 def _set_event_header(response: Response, published: bool) -> None:
     response.headers["X-Event-Published"] = "true" if published else "false"
 
+
 def _org() -> str:
-    return settings.events_org  # default should be "astra"
+    return settings.events_org
+
 
 # ─────────────────────────────────────────────────────────────
 # Create/Upsert single artifact (versioned + lineage)
@@ -49,7 +51,7 @@ async def upsert_artifact(
     run_id: Optional[str] = Header(default=None, alias="X-Run-Id"),
 ):
     db = await get_db()
-    svc = KindRegistryService(db)
+    svc = RegistryProxy(settings.artifact_svc_base_url)
 
     try:
         env = await svc.build_envelope(
@@ -62,8 +64,8 @@ async def upsert_artifact(
             kind=env["kind"],
             name=env["name"],
             data=env["data"],
-            diagrams=body.diagrams,               # pass through
-            narratives=body.narratives,           # NEW: pass through
+            diagrams=body.diagrams,
+            narratives=body.narratives,
             natural_key=env["natural_key"],
             fingerprint=env["fingerprint"],
             provenance=body.provenance,
@@ -103,6 +105,7 @@ async def upsert_artifact(
 class BatchItems(BaseModel):
     items: List[ArtifactItemCreate]
 
+
 @router.post("/{workspace_id}/upsert-batch")
 async def upsert_batch(
     workspace_id: str,
@@ -111,7 +114,7 @@ async def upsert_batch(
     run_id: Optional[str] = Header(default=None, alias="X-Run-Id"),
 ):
     db = await get_db()
-    svc = KindRegistryService(db)
+    svc = RegistryProxy(settings.artifact_svc_base_url)
 
     results: List[Dict[str, Any]] = []
     counts = {"insert": 0, "update": 0, "noop": 0, "failed": 0}
@@ -128,8 +131,8 @@ async def upsert_batch(
                 kind=env["kind"],
                 name=env["name"],
                 data=env["data"],
-                diagrams=item.diagrams,             # pass through
-                narratives=item.narratives,         # NEW
+                diagrams=item.diagrams,
+                narratives=item.narratives,
                 natural_key=env["natural_key"],
                 fingerprint=env["fingerprint"],
                 provenance=item.provenance,
@@ -178,10 +181,12 @@ class InputsBaselineIn(BaseModel):
     fss: Dict[str, Any]
     pss: Dict[str, Any]
 
+
 class InputsBaselinePatch(BaseModel):
     avc: Optional[Dict[str, Any]] = None
     pss: Optional[Dict[str, Any]] = None
     fss_stories_upsert: Optional[List[Dict[str, Any]]] = None
+
 
 @router.post("/{workspace_id}/baseline-inputs")
 async def set_baseline_inputs(
@@ -318,7 +323,7 @@ async def get_workspace_with_artifacts(
 @router.get("/{workspace_id}/deltas")
 async def run_deltas(
     workspace_id: str,
-    run_id: str = Query(..., description="Relearning run id to compute deltas for"),
+    run_id: str = Query(..., description="Run id to compute deltas for"),
     include_ids: bool = Query(default=False, description="Include grouped artifact ids"),
 ):
     db = await get_db()
@@ -339,6 +344,7 @@ async def get_artifact(workspace_id: str, artifact_id: str, response: Response):
     response.headers["ETag"] = str(art.version)
     return art
 
+
 @router.head("/{workspace_id}/{artifact_id}")
 async def head_artifact(workspace_id: str, artifact_id: str, response: Response):
     db = await get_db()
@@ -357,12 +363,14 @@ def _parse_if_match(value: Optional[str]) -> Optional[int]:
     except ValueError:
         raise HTTPException(status_code=400, detail="If-Match must be an integer version")
 
+
 def _guard_if_match(expected: Optional[int], actual: int) -> None:
     if expected is not None and expected != actual:
         raise HTTPException(
             status_code=412,
             detail=f"Precondition Failed: expected version {expected}, actual {actual}",
         )
+
 
 @router.put("/{workspace_id}/{artifact_id}")
 async def replace_artifact(
@@ -380,7 +388,6 @@ async def replace_artifact(
     expected = _parse_if_match(if_match)
     _guard_if_match(expected, art.version)
 
-    # Allow replacing data, diagrams, and/or narratives
     updated = await dal.replace_artifact(
         db,
         workspace_id,
@@ -388,13 +395,14 @@ async def replace_artifact(
         new_data=body.data,
         prov=body.provenance,
         new_diagrams=body.diagrams,
-        new_narratives=body.narratives,          # NEW
+        new_narratives=body.narratives,
     )
 
     published = publish_event_v1(org=_org(), service=Service.ARTIFACT, event="updated", payload=updated.model_dump())
     response.headers["ETag"] = str(updated.version)
     _set_event_header(response, published)
     return updated
+
 
 @router.post("/{workspace_id}/{artifact_id}/patch")
 async def patch_artifact(
@@ -424,7 +432,6 @@ async def patch_artifact(
         artifact_id,
         new_data=new_data,
         prov=body.provenance,
-        # diagrams/narratives not patched here
     )
     await dal.record_patch(
         db,
@@ -442,13 +449,14 @@ async def patch_artifact(
             "artifact": updated.model_dump(),
             "from_version": from_version,
             "to_version": updated.version,
-            "patch": body.patch
+            "patch": body.patch,
         }
     )
 
     response.headers["ETag"] = str(updated.version)
     _set_event_header(response, published)
     return updated
+
 
 @router.get("/{workspace_id}/{artifact_id}/history")
 async def history(workspace_id: str, artifact_id: str):
@@ -457,6 +465,7 @@ async def history(workspace_id: str, artifact_id: str):
     if not art:
         raise HTTPException(status_code=404, detail="Not found")
     return await dal.list_patches(db, workspace_id, artifact_id)
+
 
 @router.delete("/{workspace_id}/{artifact_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_artifact(workspace_id: str, artifact_id: str, response: Response):

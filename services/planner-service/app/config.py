@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     capability_svc_base_url: str = os.getenv("CAPABILITY_SVC_BASE_URL", "http://astra-capability-service:9021")
     conductor_svc_base_url: str = os.getenv("CONDUCTOR_SVC_BASE_URL", "http://astra-conductor-service:9022")
     artifact_svc_base_url: str = os.getenv("ARTIFACT_SVC_BASE_URL", "http://astra-artifact-service:9020")
+    workspace_mgr_base_url: str = os.getenv("WORKSPACE_MGR_BASE_URL", "http://astra-workspace-manager-service:9027")
 
     # HTTP client
     http_client_timeout_seconds: float = float(os.getenv("HTTP_CLIENT_TIMEOUT_SECONDS", "30"))

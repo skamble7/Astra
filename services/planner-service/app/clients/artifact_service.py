@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import httpx
 
@@ -38,12 +38,3 @@ class ArtifactServiceClient:
             resp.raise_for_status()
             return resp.json()
 
-    async def upsert_batch(self, *, workspace_id: str, items: List[Dict[str, Any]], run_id: str) -> Dict[str, Any]:
-        async with httpx.AsyncClient(timeout=max(self._timeout, 120.0)) as client:
-            resp = await client.post(
-                f"{self._base}/artifact/{workspace_id}/upsert-batch",
-                headers={"X-Run-Id": run_id},
-                json={"items": items},
-            )
-            resp.raise_for_status()
-            return resp.json()

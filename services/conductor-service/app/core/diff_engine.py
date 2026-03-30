@@ -4,7 +4,7 @@ from __future__ import annotations
 import copy
 from typing import Any, Dict, List, Tuple
 
-from app.clients.artifact_service import ArtifactServiceClient
+from app.clients.workspace_manager import WorkspaceManagerClient
 from conductor_core.models.run_models import ArtifactEnvelope, ArtifactsDiffBuckets, RunDeltas
 
 
@@ -26,7 +26,7 @@ async def compute_diffs(
       - fetch baseline parent
       - group by kind + natural identity (best-effort: identity dict as a key)
     """
-    svc = ArtifactServiceClient()
+    svc = WorkspaceManagerClient()
     baseline_map: Dict[Tuple[str, str], Dict[str, Any]] = {}
     try:
         parent = await svc.get_workspace_parent(workspace_id)

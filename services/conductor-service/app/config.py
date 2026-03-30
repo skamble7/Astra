@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     artifact_svc_base_url: str = os.getenv(
         "ARTIFACT_SVC_BASE_URL", "http://astra-artifact-service:9020"
     )
+    workspace_mgr_base_url: str = os.getenv(
+        "WORKSPACE_MGR_BASE_URL", "http://astra-workspace-manager-service:9027"
+    )
 
     # HTTP client
     http_client_timeout_seconds: float = float(

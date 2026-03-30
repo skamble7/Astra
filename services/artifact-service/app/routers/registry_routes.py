@@ -11,6 +11,7 @@ from app.dal.kind_registry_dal import (
     ensure_registry_indexes,
     list_kinds,
     get_kind,
+    get_schema_version_entry,
     upsert_kind,
     patch_kind,
     remove_kind,
@@ -107,6 +108,47 @@ async def api_validate(
         raise HTTPException(status_code=422, detail=str(e))
 
     return {"ok": True, "kind": kind, "version": version or "latest"}
+
+
+@router.get("/kinds/{kind_id}/schema/{version}")
+async def api_get_schema_version(
+    kind_id: str,
+    version: str,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    entry = await get_schema_version_entry(db, kind_id, version=version)
+    if not entry:
+        raise HTTPException(status_code=404, detail=f"Schema version '{version}' not found for kind '{kind_id}'")
+    return entry
+
+
+@router.post("/build-envelope")
+async def api_build_envelope(
+    body: Dict[str, Any],
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    kind = body.get("kind")
+    name = body.get("name")
+    data = body.get("data")
+    schema_version = body.get("schema_version")
+
+    if not kind or not name or not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail="Missing or invalid 'kind', 'name', or 'data'")
+
+    svc = KindRegistryService(db)
+    try:
+        envelope = await svc.build_envelope(
+            kind_or_alias=kind,
+            name=name,
+            data=data,
+            supplied_schema_version=schema_version,
+        )
+    except SchemaValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    return envelope
 
 
 @router.get("/meta")

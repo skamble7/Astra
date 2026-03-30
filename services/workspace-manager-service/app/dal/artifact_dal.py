@@ -1,4 +1,4 @@
-# services/artifact-service/app/dal/artifact_dal.py
+# services/workspace-manager-service/app/dal/artifact_dal.py
 from __future__ import annotations
 
 import json
@@ -14,7 +14,6 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from pymongo import ASCENDING, DESCENDING, ReturnDocument
 
 try:
-    # Optional: available in typical Mongo stacks
     from bson import ObjectId  # type: ignore
 except Exception:  # pragma: no cover
     ObjectId = ()  # type: ignore
@@ -29,7 +28,7 @@ from ..models.artifact import (
     Provenance,
     Lineage,
     DiagramInstance,
-    NarrativeInstance,  # NEW
+    NarrativeInstance,
 )
 
 WORKSPACE_ARTIFACTS = "workspace_artifacts"
@@ -40,16 +39,6 @@ PATCHES = "artifact_patches"
 # Helpers
 # ─────────────────────────────────────────────────────────────
 def _canonical(data: Any) -> str:
-    """
-    Stable JSON for hashing/compare. Tolerates non-JSON-native types to avoid
-    crashes during fingerprinting. Important mappings:
-      - datetime/date -> ISO 8601 string
-      - UUID/ObjectId -> str
-      - bytes/bytearray -> base64 ascii string
-      - Decimal -> str (exact)
-      - set/tuple -> list
-      - fallback -> str(o)
-    """
     def _json_default(o: Any):
         if isinstance(o, (datetime, date)):
             return o.isoformat()
@@ -60,21 +49,16 @@ def _canonical(data: Any) -> str:
         if isinstance(o, (bytes, bytearray)):
             return base64.b64encode(bytes(o)).decode("ascii")
         if isinstance(o, Decimal):
-            return str(o)  # preserve exact representation
+            return str(o)
         if isinstance(o, (set, tuple)):
-            # Convert to list for JSON; order of a set is undefined, but this is
-            # still better than raising. If a stable order matters, upstream
-            # should provide a list.
             return list(o)
-        # Last resort: never raise from canonicalization
         return str(o)
 
     return json.dumps(
         data,
         sort_keys=True,
         separators=(",", ":"),
-        default=_json_default,   # <-- hardening
-        # keep default ensure_ascii=True to avoid changing existing hashes
+        default=_json_default,
     )
 
 
@@ -83,12 +67,10 @@ def _sha256(s: str) -> str:
 
 
 def _fallback_natural_key(kind: str, name: str) -> str:
-    """If caller didn't compute per-kind natural key, fall back to kind+name."""
     return f"{kind}:{name}".lower().strip()
 
 
 def _normalize_diagrams(diagrams: Optional[List[DiagramInstance]]) -> List[Dict[str, Any]]:
-    """Convert Pydantic models to dicts and normalize missing → []."""
     if not diagrams:
         return []
     out: List[Dict[str, Any]] = []
@@ -96,13 +78,11 @@ def _normalize_diagrams(diagrams: Optional[List[DiagramInstance]]) -> List[Dict[
         if isinstance(d, DiagramInstance):
             out.append(d.model_dump())
         else:
-            # Accept raw dicts too (defensive)
             out.append(d)
     return out
 
 
 def _normalize_narratives(narratives: Optional[List[NarrativeInstance]]) -> List[Dict[str, Any]]:
-    """NEW: Convert Pydantic models to dicts and normalize missing → []."""
     if not narratives:
         return []
     out: List[Dict[str, Any]] = []
@@ -120,24 +100,18 @@ def _normalize_narratives(narratives: Optional[List[NarrativeInstance]]) -> List
 async def ensure_indexes(db: AsyncIOMotorDatabase):
     col = db[WORKSPACE_ARTIFACTS]
 
-    # One parent doc per workspace
     await col.create_index([("workspace_id", ASCENDING)], unique=True)
-
-    # Artifacts lookup / merging
     await col.create_index([("artifacts.artifact_id", ASCENDING)])
     await col.create_index([("artifacts.natural_key", ASCENDING)])
     await col.create_index([("artifacts.fingerprint", ASCENDING)])
     await col.create_index([("artifacts.diagram_fingerprint", ASCENDING)])
-    await col.create_index([("artifacts.narrative_fingerprint", ASCENDING)])  # NEW
+    await col.create_index([("artifacts.narrative_fingerprint", ASCENDING)])
     await col.create_index([("artifacts.kind", ASCENDING), ("artifacts.name", ASCENDING)])
     await col.create_index([("artifacts.deleted_at", ASCENDING)])
-
-    # Baseline inputs and metadata (useful filters)
     await col.create_index([("inputs_baseline_version", DESCENDING)])
     await col.create_index([("inputs_baseline_fingerprint", ASCENDING)])
     await col.create_index([("last_promoted_run_id", ASCENDING)])
 
-    # Patch history
     await db[PATCHES].create_index(
         [("artifact_id", ASCENDING), ("workspace_id", ASCENDING), ("to_version", DESCENDING)]
     )
@@ -145,7 +119,6 @@ async def ensure_indexes(db: AsyncIOMotorDatabase):
 
 # ─────────────────────────────────────────────────────────────
 # Parent doc lifecycle
-# (unchanged)
 # ─────────────────────────────────────────────────────────────
 async def create_parent_doc(
     db: AsyncIOMotorDatabase,
@@ -179,7 +152,6 @@ async def get_parent_doc(db: AsyncIOMotorDatabase, workspace_id: str) -> Optiona
 
 
 async def refresh_workspace_snapshot(db, workspace: WorkspaceSnapshot) -> bool:
-    """Update the denormalized workspace snapshot inside the parent doc; create if missing."""
     now = datetime.utcnow()
     res = await db[WORKSPACE_ARTIFACTS].update_one(
         {"workspace_id": workspace.id},
@@ -202,7 +174,7 @@ async def delete_parent_doc(db, workspace_id: str) -> bool:
 
 
 # ─────────────────────────────────────────────────────────────
-# Baseline inputs (unchanged)
+# Baseline inputs
 # ─────────────────────────────────────────────────────────────
 def _upsert_fss_stories(existing_stories: List[Dict[str, Any]], to_upsert: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     index = {s.get("key"): i for i, s in enumerate(existing_stories) if isinstance(s, dict) and s.get("key")}
@@ -212,9 +184,9 @@ def _upsert_fss_stories(existing_stories: List[Dict[str, Any]], to_upsert: Itera
         if not k:
             continue
         if k in index:
-            result[index[k]] = s  # replace whole story by key
+            result[index[k]] = s
         else:
-            result.append(s)      # append new
+            result.append(s)
     return result
 
 
@@ -226,10 +198,6 @@ async def set_inputs_baseline(
     if_absent_only: bool = False,
     expected_version: Optional[int] = None,
 ) -> Tuple[WorkspaceArtifactsDoc, str]:
-    """
-    Set/replace the entire inputs_baseline.
-    Returns: (updated_parent_doc, op) where op ∈ {"insert","replace","noop"}
-    """
     now = datetime.utcnow()
     parent = await get_parent_doc(db, workspace_id)
     if not parent:
@@ -271,13 +239,6 @@ async def merge_inputs_baseline(
     fss_stories_upsert: Optional[List[Dict[str, Any]]] = None,
     expected_version: Optional[int] = None,
 ) -> WorkspaceArtifactsDoc:
-    """
-    Partial baseline merge:
-      - avc: replace whole AVC if provided
-      - pss: replace whole PSS if provided
-      - fss_stories_upsert: upsert by story.key into baseline.fss.stories
-    Always bumps inputs_baseline_version by 1 when any change is applied.
-    """
     now = datetime.utcnow()
     parent = await get_parent_doc(db, workspace_id)
     if not parent:
@@ -308,7 +269,7 @@ async def merge_inputs_baseline(
             changed = True
 
     if not changed:
-        return parent  # no-op
+        return parent
 
     fp = _sha256(_canonical(base))
 
@@ -329,7 +290,6 @@ async def merge_inputs_baseline(
 
 # ─────────────────────────────────────────────────────────────
 # Artifact queries
-# (unchanged)
 # ─────────────────────────────────────────────────────────────
 async def _find_artifact_by_natural_key(
     db: AsyncIOMotorDatabase, workspace_id: str, natural_key: str
@@ -419,45 +379,35 @@ async def upsert_artifact(
     *,
     run_id: Optional[str] = None,
 ) -> Tuple[ArtifactItem, str]:
-    """
-    Versioned, idempotent upsert by natural_key + data/diagram/narrative fingerprints.
-
-    Returns: (artifact, op) where op ∈ {"insert","update","noop"}
-    """
     now = datetime.utcnow()
 
-    # Ensure parent exists
     parent = await get_parent_doc(db, workspace_id)
     if not parent:
         raise ValueError(f"Workspace parent not found for {workspace_id}")
 
-    # Compute identity if caller didn't provide
     natural_key = payload.natural_key or _fallback_natural_key(payload.kind, payload.name)
 
-    # Fingerprints
     data_fp = payload.fingerprint or _sha256(_canonical(payload.data))
     diagrams_norm = _normalize_diagrams(payload.diagrams)
     diagrams_fp = _sha256(_canonical(diagrams_norm)) if diagrams_norm else None
 
-    narratives_norm = _normalize_narratives(payload.narratives)  # NEW
-    narratives_fp = _sha256(_canonical(narratives_norm)) if narratives_norm else None  # NEW
+    narratives_norm = _normalize_narratives(payload.narratives)
+    narratives_fp = _sha256(_canonical(narratives_norm)) if narratives_norm else None
 
-    # Lookup by NK
     existing = await _find_artifact_by_natural_key(db, workspace_id, natural_key)
 
     if existing is None:
-        # Insert new artifact
         item = ArtifactItem(
             artifact_id=str(uuid.uuid4()),
             kind=payload.kind,
             name=payload.name,
             data=payload.data,
             diagrams=diagrams_norm,
-            narratives=narratives_norm,                    # NEW
+            narratives=narratives_norm,
             natural_key=natural_key,
             fingerprint=data_fp,
             diagram_fingerprint=diagrams_fp,
-            narrative_fingerprint=narratives_fp,          # NEW
+            narrative_fingerprint=narratives_fp,
             version=1,
             lineage=Lineage(
                 first_seen_run_id=run_id, last_seen_run_id=run_id, supersedes=[], superseded_by=None
@@ -474,19 +424,17 @@ async def upsert_artifact(
             raise ValueError(f"Workspace parent not found for {workspace_id}")
         return item, "insert"
 
-    # Compare existing content
     existing_data_fp = existing.fingerprint
     existing_diag_fp = getattr(existing, "diagram_fingerprint", None)
-    existing_narr_fp = getattr(existing, "narrative_fingerprint", None)  # NEW
+    existing_narr_fp = getattr(existing, "narrative_fingerprint", None)
 
     data_changed = (existing_data_fp != data_fp)
     diagrams_changed = (diagrams_fp is not None and diagrams_fp != existing_diag_fp) or \
                        (diagrams_fp is None and existing_diag_fp is not None and diagrams_norm == [])
     narratives_changed = (narratives_fp is not None and narratives_fp != existing_narr_fp) or \
-                         (narratives_fp is None and existing_narr_fp is not None and narratives_norm == [])  # NEW
+                         (narratives_fp is None and existing_narr_fp is not None and narratives_norm == [])
 
     if not data_changed and not diagrams_changed and not narratives_changed:
-        # No changes → just touch lineage/updated_at
         res = await db[WORKSPACE_ARTIFACTS].find_one_and_update(
             {
                 "workspace_id": workspace_id,
@@ -506,7 +454,6 @@ async def upsert_artifact(
         a = next((x for x in res["artifacts"] if x.get("natural_key") == natural_key), None)
         return ArtifactItem(**a), "noop"
 
-    # Prepare update
     set_fields: Dict[str, Any] = {
         "artifacts.$.lineage.last_seen_run_id": run_id,
         "artifacts.$.updated_at": now,
@@ -518,7 +465,7 @@ async def upsert_artifact(
     if diagrams_changed:
         set_fields["artifacts.$.diagrams"] = diagrams_norm
         set_fields["artifacts.$.diagram_fingerprint"] = diagrams_fp
-    if narratives_changed:  # NEW
+    if narratives_changed:
         set_fields["artifacts.$.narratives"] = narratives_norm
         set_fields["artifacts.$.narrative_fingerprint"] = narratives_fp
 
@@ -549,11 +496,10 @@ async def replace_artifact(
     new_data: Optional[Dict[str, Any]],
     prov: Optional[Provenance],
     new_diagrams: Optional[List[DiagramInstance]] = None,
-    new_narratives: Optional[List[NarrativeInstance]] = None,  # NEW
+    new_narratives: Optional[List[NarrativeInstance]] = None,
 ) -> ArtifactItem:
     now = datetime.utcnow()
 
-    # Compute new fingerprints
     set_fields: Dict[str, Any] = {
         "artifacts.$[a].updated_at": now,
         "updated_at": now,
@@ -566,7 +512,7 @@ async def replace_artifact(
         diagrams_norm = _normalize_diagrams(new_diagrams)
         set_fields["artifacts.$[a].diagrams"] = diagrams_norm
         set_fields["artifacts.$[a].diagram_fingerprint"] = _sha256(_canonical(diagrams_norm)) if diagrams_norm else None
-    if new_narratives is not None:  # NEW
+    if new_narratives is not None:
         narratives_norm = _normalize_narratives(new_narratives)
         set_fields["artifacts.$[a].narratives"] = narratives_norm
         set_fields["artifacts.$[a].narrative_fingerprint"] = _sha256(_canonical(narratives_norm)) if narratives_norm else None
@@ -615,7 +561,7 @@ async def soft_delete_artifact(
 
 
 # ─────────────────────────────────────────────────────────────
-# Patch history (unchanged)
+# Patch history
 # ─────────────────────────────────────────────────────────────
 async def record_patch(
     db: AsyncIOMotorDatabase,
@@ -647,7 +593,7 @@ async def list_patches(
 
 
 # ─────────────────────────────────────────────────────────────
-# Run delta computation (unchanged)
+# Run delta computation
 # ─────────────────────────────────────────────────────────────
 def _prov_run_id(prov: Optional[Provenance | Dict[str, Any]]) -> Optional[str]:
     if prov is None:

@@ -21,6 +21,31 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  astra-workspace-manager-service:
+    build:
+      context: ..
+      dockerfile: services/workspace-manager-service/Dockerfile
+    container_name: astra-workspace-manager-service
+    restart: unless-stopped
+    env_file:
+      - ../services/workspace-manager-service/.env.example
+    environment:
+      MONGO_URI: ${MONGO_URI:-mongodb://host.docker.internal:27017/}
+      MONGO_DB: ${MONGO_DB:-astra}
+      RABBITMQ_URI: ${RABBITMQ_URI:-amqp://raina:raina@host.docker.internal:5672/}
+      RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-raina.events}
+      EVENTS_ORG: ${EVENTS_ORG:-astra}
+      PLATFORM_EVENTS_ORG: ${PLATFORM_EVENTS_ORG:-platform}
+      CONSUMER_QUEUE_WORKSPACE: ${CONSUMER_QUEUE_WORKSPACE:-platform.workspace.v1}
+      ARTIFACT_SVC_BASE_URL: ${ARTIFACT_SVC_BASE_URL:-http://astra-artifact-service:9020}
+      SERVICE_NAME: workspace-manager-service
+    ports:
+      - "9027:9027"
+    depends_on:
+      - astra-artifact-service
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   astra-capability-service:
     build:
       context: ..
@@ -60,6 +85,7 @@ services:
       PLATFORM_EVENTS_ORG: ${PLATFORM_EVENTS_ORG:-platform}
       CAPABILITY_SVC_BASE_URL: ${CAPABILITY_SVC_BASE_URL:-http://astra-capability-service:9021}
       ARTIFACT_SVC_BASE_URL: ${ARTIFACT_SVC_BASE_URL:-http://astra-artifact-service:9020}
+      WORKSPACE_MGR_BASE_URL: ${WORKSPACE_MGR_BASE_URL:-http://astra-workspace-manager-service:9027}
       HTTP_CLIENT_TIMEOUT_SECONDS: ${HTTP_CLIENT_TIMEOUT_SECONDS:-30}
       SERVICE_NAME: conductor-service
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
@@ -150,6 +176,7 @@ services:
       CAPABILITY_SVC_BASE_URL: ${CAPABILITY_SVC_BASE_URL:-http://astra-capability-service:9021}
       CONDUCTOR_SVC_BASE_URL: ${CONDUCTOR_SVC_BASE_URL:-http://astra-conductor-service:9022}
       ARTIFACT_SVC_BASE_URL: ${ARTIFACT_SVC_BASE_URL:-http://astra-artifact-service:9020}
+      WORKSPACE_MGR_BASE_URL: ${WORKSPACE_MGR_BASE_URL:-http://astra-workspace-manager-service:9027}
       SERVICE_NAME: planner-service
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
@@ -159,6 +186,7 @@ services:
       - astra-capability-service
       - astra-conductor-service
       - astra-artifact-service
+      - astra-workspace-manager-service
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
