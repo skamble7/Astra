@@ -12,6 +12,7 @@ description = "Astra Conductor Service – LangGraph agent + MCP host"
 readme = "README.md"
 
 dependencies = [
+  # conductor-core: installed separately (see Dockerfile / dev setup)
   "fastapi>=0.115",
   "uvicorn[standard]>=0.30",
   "pydantic>=2.8",
@@ -23,7 +24,13 @@ dependencies = [
   "jsonschema>=4.22",
   "fastjsonschema>=2.20.0",        # required by adapter; compatible with Python 3.12
   "tenacity>=9.0",
-  "openai>=1.35",
+  # polyllm: provider-agnostic LLM client (replaces hand-written provider adapters)
+  # Use the base package only; langchain provider SDKs are listed explicitly below
+  # to avoid pulling in heavy optional extras (e.g. langchain-aws / boto3).
+  "polyllm @ git+https://github.com/skamble7/platform-libraries.git@polyllm-v0.1.10#subdirectory=libs/polyllm",
+  "langchain-openai>=0.2",
+  "langchain-google-genai>=2.0",
+  "langchain-aws>=0.2",
   "langgraph>=0.2",
 
   # MCP client (official)

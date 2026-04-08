@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     artifact_svc_base_url: str = os.getenv(
         "ARTIFACT_SVC_BASE_URL", "http://astra-artifact-service:9020"
     )
+    workspace_mgr_base_url: str = os.getenv(
+        "WORKSPACE_MGR_BASE_URL", "http://astra-workspace-manager-service:9027"
+    )
 
     # HTTP client
     http_client_timeout_seconds: float = float(
@@ -33,23 +36,19 @@ class Settings(BaseSettings):
     # Identity
     service_name: str = os.getenv("SERVICE_NAME", "conductor-service")
 
-    # LLM (Agent driver)
-    llm_provider: str = os.getenv("LLM_PROVIDER", "openai")
-    openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
-    llm_model: str = os.getenv("LLM_MODEL", "gpt-4o-mini")
-    llm_temperature: float = float(os.getenv("LLM_TEMPERATURE", "0.1"))
-    llm_max_tokens: int = int(os.getenv("LLM_MAX_TOKENS", "4000"))
-    llm_strict_json: bool = bool(int(os.getenv("LLM_STRICT_JSON", "1")))
+    # ConfigForge: canonical ref for the conductor's agent LLM.
+    # Also used as the fallback when OVERRIDE_CAPABILITY_LLM=1.
+    # CONFIG_FORGE_URL is read directly from env by polyllm's RemoteConfigLoader.
+    conductor_llm_config_ref: str = os.getenv("CONDUCTOR_LLM_CONFIG_REF", "")
+
+    # LLM Override: When true, all capabilities use conductor_llm_config_ref
+    override_capability_llm: bool = bool(int(os.getenv("OVERRIDE_CAPABILITY_LLM", "0")))
+
+    # Skip enrichment nodes (saves time and cost during testing)
+    skip_diagram: bool = bool(int(os.getenv("SKIP_DIAGRAM", "0")))
+    skip_narrative: bool = bool(int(os.getenv("SKIP_NARRATION", "0")))
 
     model_config = SettingsConfigDict(env_file=None, extra="ignore")
-
-    # Secret resolution
-    secret_backend: str = os.getenv("SECRET_BACKEND", "env")  # "env" | "vault" | "kms" | ...
-    secret_alias_prefix: str = os.getenv("SECRET_ALIAS_PREFIX", "ASTRA_SECRET_")
-
-    # Optional: future Vault/KMS configuration placeholders
-    vault_addr: str = os.getenv("VAULT_ADDR", "")
-    vault_token_env: str = os.getenv("VAULT_TOKEN_ENV", "VAULT_TOKEN")
 
 
 settings = Settings()

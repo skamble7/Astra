@@ -23,8 +23,6 @@ class Playbook(BaseModel):
     id: str
     name: str
     description: Optional[str] = None
-    # NEW: input_id per playbook (must be in pack_input_ids)
-    input_id: Optional[str] = None
     steps: List[PlaybookStep] = Field(default_factory=list)
 
 
@@ -44,12 +42,6 @@ class CapabilityPack(BaseModel):
     version: str
     title: str
     description: str
-
-    # CHANGED: Reference to registered pack input contracts (plural)
-    pack_input_ids: List[str] = Field(
-        default_factory=list,
-        description="Ids of PackInputs in the registry. Declare the input contracts allowed to trigger this pack."
-    )
 
     # Capabilities referenced by playbooks (used within steps)
     capability_ids: List[str] = Field(default_factory=list)
@@ -80,9 +72,6 @@ class CapabilityPackCreate(BaseModel):
     title: str
     description: str
 
-    # CHANGED: plural inputs at creation time
-    pack_input_ids: List[str] = Field(default_factory=list)
-
     capability_ids: List[str] = Field(default_factory=list)
 
     # include agent-scoped capability ids at creation time
@@ -97,9 +86,6 @@ class CapabilityPackCreate(BaseModel):
 class CapabilityPackUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
-
-    # CHANGED: plural inputs at update time
-    pack_input_ids: Optional[List[str]] = None
 
     capability_ids: Optional[List[str]] = None
     agent_capability_ids: Optional[List[str]] = None

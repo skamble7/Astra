@@ -1,16 +1,12 @@
 # services/capability-service/app/models/__init__.py
 from .capability_models import (
-    RetryPolicy,
-    DiscoveryPolicy,
     AuthAlias,
     HTTPTransport,
     StdioTransport,
     Transport,
-    ToolCallSpec,
-    LlmParameters,
     McpExecution,
     LlmExecution,
-    ExecutionInput,          # ← added
+    ExecutionInput,
     ExecutionIO,
     ExecutionOutputContract,
     ExecutionUnion,
@@ -35,25 +31,15 @@ from .resolved_views import (
     ResolvedPackView,
 )
 
-from .pack_input_models import (
-    PackInput,
-    PackInputCreate,
-    PackInputUpdate,
-)
-
 __all__ = [
     # capability_models
-    "RetryPolicy",
-    "DiscoveryPolicy",
     "AuthAlias",
     "HTTPTransport",
     "StdioTransport",
     "Transport",
-    "ToolCallSpec",
-    "LlmParameters",
     "McpExecution",
     "LlmExecution",
-    "ExecutionInput",          # ← added
+    "ExecutionInput",
     "ExecutionIO",
     "ExecutionOutputContract",
     "ExecutionUnion",
@@ -72,8 +58,4 @@ __all__ = [
     "ResolvedPlaybookStep",
     "ResolvedPlaybook",
     "ResolvedPackView",
-    # pack_input_models
-    "PackInput",
-    "PackInputCreate",
-    "PackInputUpdate",
 ]

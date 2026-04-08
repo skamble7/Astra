@@ -13,6 +13,7 @@ WORKDIR /app
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       ca-certificates \
+      git \
     && rm -rf /var/lib/apt/lists/*
 
 # --- Prepare a writable workspace path (bind-mounted by docker-compose) -----
@@ -24,6 +25,10 @@ RUN mkdir -p /workspace && chmod 777 /workspace
 COPY libs/pyproject.toml /tmp/libs/pyproject.toml
 COPY libs /tmp/libs/libs
 RUN pip install -e /tmp/libs
+
+# --- Install conductor-core --------------------------------------------------
+COPY libs/conductor-core /tmp/conductor-core
+RUN pip install /tmp/conductor-core
 
 # Optional sanity check for shared libs
 RUN python - <<'PY'

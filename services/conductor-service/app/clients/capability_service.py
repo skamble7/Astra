@@ -44,19 +44,6 @@ class CapabilityServiceClient:
         _raise_for_status(self.service_name, resp)
         return resp.json()
 
-    # --------- Pack Inputs --------- #
-
-    @retryable_get
-    async def get_pack_input(self, pack_input_id: str) -> Dict[str, Any]:
-        """
-        GET /capability/pack-inputs/{pack_input_id}
-        """
-        client = await get_http_client(self.base_url)
-        url = f"/capability/pack-inputs/{pack_input_id}"
-        resp = await client.get(url)
-        _raise_for_status(self.service_name, resp)
-        return resp.json()
-
     # --------- Capabilities --------- #
 
     async def get_capability(self, capability_id: str) -> Dict[str, Any]:

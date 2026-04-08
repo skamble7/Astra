@@ -175,15 +175,17 @@ diagram_docs.append(make_kind_doc(
 # Canonical list from RainaV2 (non-diagram only)
 # ---------------------------------------------------------------------------
 KINDS = [
-    # 2.2 PAT
-    "cam.pat.moscow_prioritization","cam.pat.requirements_traceability_matrix","cam.pat.stakeholder_map",
-    "cam.pat.assumptions_log","cam.pat.constraints_log","cam.pat.value_stream_map",
+    # 2.2 Agile planning (formerly PAT)
+    "cam.agile.moscow_prioritization","cam.agile.value_stream_map",
+    # 2.2b Governance (formerly PAT)
+    "cam.governance.requirements_traceability_matrix","cam.governance.stakeholder_map",
+    "cam.governance.assumptions_log","cam.governance.constraints_log",
     # 2.3 DAM
     "cam.dam.raci","cam.dam.crud","cam.dam.dependency_matrix","cam.dam.coupling_matrix","cam.dam.quality_attribute_scenarios",
     # 2.4 Contracts
     "cam.contract.api","cam.contract.event","cam.contract.schema","cam.contract.service",
-    # 2.5 Capability & Domain Models
-    "cam.model.capability","cam.model.domain","cam.catalog.service",
+    # 2.5 Domain Models (formerly model.*)
+    "cam.domain.capability_model","cam.domain.model","cam.catalog.service",
     # 2.6 Workflows & Orchestration
     "cam.workflow.process","cam.workflow.state_machine","cam.workflow.saga","cam.workflow.batch_job","cam.workflow.pipeline",
     # 2.7 Security & Compliance
@@ -193,11 +195,11 @@ KINDS = [
     # 2.9 Infrastructure & Deployment
     "cam.infra.topology","cam.infra.environment","cam.infra.k8s_manifest","cam.infra.network_policy",
     "cam.infra.scaling_policy","cam.infra.backup_restore",
-    # 2.10 Observability & SLOs
-    "cam.obs.metrics_catalog","cam.obs.logging_plan","cam.obs.tracing_map","cam.obs.dashboard",
-    "cam.obs.slo_objectives","cam.obs.alerting_policy",
-    # 2.11 Governance & Decisions
-    "cam.gov.adr.index","cam.gov.adr.record","cam.gov.standards","cam.gov.compliance_matrix",
+    # 2.10 Observability & SLOs (formerly obs.*)
+    "cam.observability.metrics_catalog","cam.observability.logging_plan","cam.observability.tracing_map","cam.observability.dashboard",
+    "cam.observability.slo_objectives","cam.observability.alerting_policy",
+    # 2.11 Governance & Decisions (formerly gov.*)
+    "cam.governance.adr_index","cam.governance.adr_record","cam.governance.standards","cam.governance.compliance_matrix",
     # 2.12 Risk Management
     "cam.risk.register","cam.risk.matrix","cam.risk.mitigation_plan",
     # 2.13 Operations & Runbooks
@@ -206,8 +208,8 @@ KINDS = [
     "cam.finops.cost_model","cam.finops.budget","cam.finops.usage_report","cam.finops.chargeback_policy",
     # 2.15 QA / Testing
     "cam.qa.test_plan","cam.qa.test_cases","cam.qa.coverage_matrix","cam.qa.defect_density_matrix","cam.qa.performance_report",
-    # 2.16 Performance & Capacity
-    "cam.perf.benchmark_report","cam.perf.capacity_plan","cam.perf.load_profile","cam.perf.tuning_guidelines",
+    # 2.16 Performance & Capacity (formerly perf.*)
+    "cam.performance.benchmark_report","cam.performance.capacity_plan","cam.performance.load_profile","cam.performance.tuning_guidelines",
     # 2.17 Asset & Inventory (CMDB-lite)
     "cam.asset.service_inventory","cam.asset.dependency_inventory","cam.asset.api_inventory",
 ]
@@ -215,6 +217,29 @@ KINDS = [
 ALIASES = {
     "cam.contract.api": ["ext.legacy.openapi_doc"],
     # NOTE: class diagram alias handled above on the diagram doc itself
+    # Reclassified aliases (old ID → new ID)
+    "cam.agile.moscow_prioritization": ["cam.pat.moscow_prioritization"],
+    "cam.agile.value_stream_map": ["cam.pat.value_stream_map"],
+    "cam.governance.requirements_traceability_matrix": ["cam.pat.requirements_traceability_matrix"],
+    "cam.governance.stakeholder_map": ["cam.pat.stakeholder_map"],
+    "cam.governance.assumptions_log": ["cam.pat.assumptions_log"],
+    "cam.governance.constraints_log": ["cam.pat.constraints_log"],
+    "cam.domain.capability_model": ["cam.model.capability"],
+    "cam.domain.model": ["cam.model.domain"],
+    "cam.observability.metrics_catalog": ["cam.obs.metrics_catalog"],
+    "cam.observability.logging_plan": ["cam.obs.logging_plan"],
+    "cam.observability.tracing_map": ["cam.obs.tracing_map"],
+    "cam.observability.dashboard": ["cam.obs.dashboard"],
+    "cam.observability.slo_objectives": ["cam.obs.slo_objectives"],
+    "cam.observability.alerting_policy": ["cam.obs.alerting_policy"],
+    "cam.governance.adr_index": ["cam.gov.adr.index"],
+    "cam.governance.adr_record": ["cam.gov.adr.record"],
+    "cam.governance.standards": ["cam.gov.standards"],
+    "cam.governance.compliance_matrix": ["cam.gov.compliance_matrix"],
+    "cam.performance.benchmark_report": ["cam.perf.benchmark_report"],
+    "cam.performance.capacity_plan": ["cam.perf.capacity_plan"],
+    "cam.performance.load_profile": ["cam.perf.load_profile"],
+    "cam.performance.tuning_guidelines": ["cam.perf.tuning_guidelines"],
 }
 
 # ---------------------------------------------------------------------------
@@ -226,9 +251,9 @@ docs.extend(diagram_docs)  # ← add the new diagram kinds first
 # ---- PAT -------------------------------------------------------------------
 # moscow_prioritization
 docs.append(make_kind_doc(
-    _id="cam.pat.moscow_prioritization",
+    _id="cam.agile.moscow_prioritization",
     title="MoSCoW Prioritization",
-    category="pat",
+    category="agile",
     json_schema=obj({
         "items": arr(obj({
             "id": {"type": "string"},
@@ -267,9 +292,9 @@ docs.append(make_kind_doc(
 ))
 # requirements_traceability_matrix
 docs.append(make_kind_doc(
-    _id="cam.pat.requirements_traceability_matrix",
+    _id="cam.governance.requirements_traceability_matrix",
     title="Requirements Traceability Matrix",
-    category="pat",
+    category="governance",
     json_schema=obj({
         "rows": arr(obj({
             "requirement_id": {"type": "string"},
@@ -282,9 +307,9 @@ docs.append(make_kind_doc(
 ))
 # stakeholder_map
 docs.append(make_kind_doc(
-    _id="cam.pat.stakeholder_map",
+    _id="cam.governance.stakeholder_map",
     title="Stakeholder Map",
-    category="pat",
+    category="governance",
     json_schema=obj({
         "stakeholders": arr(obj({
             "name": {"type": "string"},
@@ -321,9 +346,9 @@ docs.append(make_kind_doc(
 ))
 # assumptions_log
 docs.append(make_kind_doc(
-    _id="cam.pat.assumptions_log",
+    _id="cam.governance.assumptions_log",
     title="Assumptions Log",
-    category="pat",
+    category="governance",
     json_schema=obj({
         "entries": arr(obj({
             "id": {"type": "string"},
@@ -336,9 +361,9 @@ docs.append(make_kind_doc(
 ))
 # constraints_log
 docs.append(make_kind_doc(
-    _id="cam.pat.constraints_log",
+    _id="cam.governance.constraints_log",
     title="Constraints Log",
-    category="pat",
+    category="governance",
     json_schema=obj({
         "entries": arr(obj({
             "id": {"type": "string"},
@@ -351,9 +376,9 @@ docs.append(make_kind_doc(
 ))
 # value_stream_map
 docs.append(make_kind_doc(
-    _id="cam.pat.value_stream_map",
+    _id="cam.agile.value_stream_map",
     title="Value Stream Map",
-    category="pat",
+    category="agile",
     json_schema=obj({
         "steps": arr(obj({
             "name": {"type": "string"},
@@ -488,9 +513,9 @@ docs.append(make_kind_doc(
 
 # ---- Models / Catalog ------------------------------------------------------
 docs.append(make_kind_doc(
-    _id="cam.model.capability",
+    _id="cam.domain.capability_model",
     title="Capability Model",
-    category="model",
+    category="domain",
     json_schema=obj({
         "capabilities": arr(obj({
             "id": {"type": ["string","null"]},
@@ -517,9 +542,9 @@ docs.append(make_kind_doc(
 ))
 
 docs.append(make_kind_doc(
-    _id="cam.model.domain",
+    _id="cam.domain.model",
     title="Domain Model (Glossary)",
-    category="model",
+    category="domain",
     json_schema=obj({
         "glossary": arr(obj({
             "term": {"type": "string"},
@@ -871,9 +896,9 @@ docs.append(make_kind_doc(
 
 # ---- Observability ---------------------------------------------------------
 docs.append(make_kind_doc(
-    _id="cam.obs.metrics_catalog",
+    _id="cam.observability.metrics_catalog",
     title="Metrics Catalog",
-    category="obs",
+    category="observability",
     json_schema=obj({
         "metrics": arr(obj({"name":{"type":"string"}, "owner":{"type":["string","null"]}, "sli":{"type":["string","null"]}, "unit":{"type":["string","null"]}}))
     }),
@@ -881,9 +906,9 @@ docs.append(make_kind_doc(
 ))
 
 docs.append(make_kind_doc(
-    _id="cam.obs.logging_plan",
+    _id="cam.observability.logging_plan",
     title="Logging Plan",
-    category="obs",
+    category="observability",
     json_schema=obj({
         "events": arr(obj({"name":{"type":"string"}, "level": str_enum(["debug","info","warn","error"]), "retention_days":{"type":["integer","number","null"]}, "redact":{"type":["boolean","null"]}}))
     }),
@@ -891,9 +916,9 @@ docs.append(make_kind_doc(
 ))
 
 docs.append(make_kind_doc(
-    _id="cam.obs.tracing_map",
+    _id="cam.observability.tracing_map",
     title="Tracing Map",
-    category="obs",
+    category="observability",
     json_schema=obj({
         "spans": arr(obj({"name":{"type":"string"}, "service":{"type":"string"}, "critical_path":{"type":["boolean","null"]}}))
     }),
@@ -901,9 +926,9 @@ docs.append(make_kind_doc(
 ))
 
 docs.append(make_kind_doc(
-    _id="cam.obs.dashboard",
+    _id="cam.observability.dashboard",
     title="Dashboards",
-    category="obs",
+    category="observability",
     json_schema=obj({
         "dashboards": arr(obj({"name":{"type":"string"}, "panels": arr({"type":"string"}), "owner":{"type":["string","null"]}}))
     }),
@@ -911,9 +936,9 @@ docs.append(make_kind_doc(
 ))
 
 docs.append(make_kind_doc(
-    _id="cam.obs.slo_objectives",
+    _id="cam.observability.slo_objectives",
     title="SLO Objectives",
-    category="obs",
+    category="observability",
     json_schema=obj({
         "slos": arr(obj({"service":{"type":"string"}, "sli":{"type":"string"}, "target":{"type":["number","string"]}, "window":{"type":["string","null"]}}))
     }),
@@ -921,9 +946,9 @@ docs.append(make_kind_doc(
 ))
 
 docs.append(make_kind_doc(
-    _id="cam.obs.alerting_policy",
+    _id="cam.observability.alerting_policy",
     title="Alerting Policy",
-    category="obs",
+    category="observability",
     json_schema=obj({
         "alerts": arr(obj({"name":{"type":"string"}, "condition":{"type":"string"}, "threshold":{"type":["number","string","null"]}, "runbook":{"type":["string","null"]}}))
     }),
@@ -932,9 +957,9 @@ docs.append(make_kind_doc(
 
 # ---- Governance ------------------------------------------------------------
 docs.append(make_kind_doc(
-    _id="cam.gov.adr.index",
+    _id="cam.governance.adr_index",
     title="ADR Index",
-    category="gov",
+    category="governance",
     json_schema=obj({
         "entries": arr(obj({"id":{"type":"string"}, "title":{"type":"string"}, "status": str_enum(["proposed","accepted","rejected","superseded"])}))
     }),
@@ -954,9 +979,9 @@ docs.append(make_kind_doc(
 ))
 
 docs.append(make_kind_doc(
-    _id="cam.gov.adr.record",
+    _id="cam.governance.adr_record",
     title="ADR Record",
-    category="gov",
+    category="governance",
     json_schema=obj({
         "record": obj({
             "id":{"type":"string"},
@@ -970,9 +995,9 @@ docs.append(make_kind_doc(
 ))
 
 docs.append(make_kind_doc(
-    _id="cam.gov.standards",
+    _id="cam.governance.standards",
     title="Standards",
-    category="gov",
+    category="governance",
     json_schema=obj({
         "standards": arr(obj({"name":{"type":"string"}, "category":{"type":["string","null"]}, "status": str_enum(["approved","deprecated","experimental"])}))
     }),
@@ -980,9 +1005,9 @@ docs.append(make_kind_doc(
 ))
 
 docs.append(make_kind_doc(
-    _id="cam.gov.compliance_matrix",
+    _id="cam.governance.compliance_matrix",
     title="Compliance Matrix",
-    category="gov",
+    category="governance",
     json_schema=obj({
         "rows": arr(obj({"control":{"type":"string"}, "evidence":{"type":["string","null"]}, "owner":{"type":["string","null"]}, "status": str_enum(["na","planned","in_progress","complete"])}))
     }),
@@ -1200,9 +1225,9 @@ docs.append(make_kind_doc(
 
 # ---- Performance -----------------------------------------------------------
 docs.append(make_kind_doc(
-    _id="cam.perf.benchmark_report",
+    _id="cam.performance.benchmark_report",
     title="Benchmark Report",
-    category="perf",
+    category="performance",
     json_schema=obj({
         "runs": arr(obj({"name":{"type":"string"}, "scenario":{"type":["string","null"]}, "results": obj({}, addl=True)}))
     }),
@@ -1210,9 +1235,9 @@ docs.append(make_kind_doc(
 ))
 
 docs.append(make_kind_doc(
-    _id="cam.perf.capacity_plan",
+    _id="cam.performance.capacity_plan",
     title="Capacity Plan",
-    category="perf",
+    category="performance",
     json_schema=obj({
         "entries": arr(obj({"resource":{"type":"string"}, "current":{"type":["number","string","null"]}, "forecast":{"type":["number","string","null"]}}))
     }),
@@ -1220,9 +1245,9 @@ docs.append(make_kind_doc(
 ))
 
 docs.append(make_kind_doc(
-    _id="cam.perf.load_profile",
+    _id="cam.performance.load_profile",
     title="Load Profile",
-    category="perf",
+    category="performance",
     json_schema=obj({
         "series": arr(obj({"timestamp":{"type":"string"}, "load":{"type":["number","string"]}}))
     }),
@@ -1230,9 +1255,9 @@ docs.append(make_kind_doc(
 ))
 
 docs.append(make_kind_doc(
-    _id="cam.perf.tuning_guidelines",
+    _id="cam.performance.tuning_guidelines",
     title="Tuning Guidelines",
-    category="perf",
+    category="performance",
     json_schema=obj({
         "guidelines": arr(obj({"area":{"type":"string"}, "recommendation":{"type":"string"}}))
     }),

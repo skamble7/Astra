@@ -15,7 +15,7 @@ class Settings(BaseModel):
     mongo_db: str = os.getenv("MONGO_DB", "astra")
 
     # RabbitMQ
-    rabbitmq_uri: str = os.getenv("RABBITMQ_URI", "amqp://guest:guest@localhost:5672/")
+    rabbitmq_uri: str = os.getenv("RABBITMQ_URI", "amqp://raina:raina@localhost:5672/")
     # We default to the canonical exchange used across astra per your common events lib.
     rabbitmq_exchange: str = os.getenv("RABBITMQ_EXCHANGE", "raina.events")
 

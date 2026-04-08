@@ -13,7 +13,7 @@ from pydantic import UUID4
 from app.config import settings
 from app.db.mongodb import get_client
 from app.db.run_repository import RunRepository
-from app.models.run_models import (
+from conductor_core.models.run_models import (
     PlaybookRun,
     RunStatus,
     StartRunRequest,
@@ -22,6 +22,7 @@ from app.models.run_models import (
 )
 from app.clients.capability_service import CapabilityServiceClient
 from app.clients.artifact_service import ArtifactServiceClient
+from app.clients.workspace_manager import WorkspaceManagerClient
 from app.agent.graph import run_input_bootstrap
 
 router = APIRouter(prefix="/runs", tags=["runs"])
@@ -40,6 +41,7 @@ async def _execute_run(run: PlaybookRun, start_request: Dict[str, Any]) -> None:
     runs_repo = _repo()
     cap_client = CapabilityServiceClient()
     art_client = ArtifactServiceClient()
+    workspace_client = WorkspaceManagerClient()
 
     # Mark started (server-side timestamp)
     try:
@@ -54,6 +56,7 @@ async def _execute_run(run: PlaybookRun, start_request: Dict[str, Any]) -> None:
             runs_repo=runs_repo,
             cap_client=cap_client,
             art_client=art_client,
+            workspace_client=workspace_client,
             start_request=start_request,
             run_doc=run,
         )

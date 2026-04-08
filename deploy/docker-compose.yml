@@ -8,7 +8,7 @@ services:
     env_file:
       - ../services/artifact-service/.env.example
     environment:
-      MONGO_URI: ${MONGO_URI:-mongodb+srv://sandeepk:sandeep@cluster0.tnbpi.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0}
+      MONGO_URI: ${MONGO_URI:-mongodb://host.docker.internal:27017/}
       MONGO_DB: ${MONGO_DB:-astra}
       RABBITMQ_URI: ${RABBITMQ_URI:-amqp://raina:raina@host.docker.internal:5672/}
       RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-raina.events}
@@ -21,6 +21,31 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
+  astra-workspace-manager-service:
+    build:
+      context: ..
+      dockerfile: services/workspace-manager-service/Dockerfile
+    container_name: astra-workspace-manager-service
+    restart: unless-stopped
+    env_file:
+      - ../services/workspace-manager-service/.env.example
+    environment:
+      MONGO_URI: ${MONGO_URI:-mongodb://host.docker.internal:27017/}
+      MONGO_DB: ${MONGO_DB:-astra}
+      RABBITMQ_URI: ${RABBITMQ_URI:-amqp://raina:raina@host.docker.internal:5672/}
+      RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-raina.events}
+      EVENTS_ORG: ${EVENTS_ORG:-astra}
+      PLATFORM_EVENTS_ORG: ${PLATFORM_EVENTS_ORG:-platform}
+      CONSUMER_QUEUE_WORKSPACE: ${CONSUMER_QUEUE_WORKSPACE:-platform.workspace.v1}
+      ARTIFACT_SVC_BASE_URL: ${ARTIFACT_SVC_BASE_URL:-http://astra-artifact-service:9020}
+      SERVICE_NAME: workspace-manager-service
+    ports:
+      - "9027:9027"
+    depends_on:
+      - astra-artifact-service
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
   astra-capability-service:
     build:
       context: ..
@@ -30,7 +55,7 @@ services:
     env_file:
       - ../services/capability-service/.env.example
     environment:
-      MONGO_URI: ${MONGO_URI:-mongodb+srv://sandeepk:sandeep@cluster0.tnbpi.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0}
+      MONGO_URI: ${MONGO_URI:-mongodb://host.docker.internal:27017/}
       MONGO_DB: ${MONGO_DB:-astra}
       RABBITMQ_URI: ${RABBITMQ_URI:-amqp://raina:raina@host.docker.internal:5672/}
       RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-raina.events}
@@ -52,7 +77,7 @@ services:
     env_file:
       - ../services/conductor-service/.env.example
     environment:
-      MONGO_URI: ${MONGO_URI:-mongodb+srv://sandeepk:sandeep@cluster0.tnbpi.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0}
+      MONGO_URI: ${MONGO_URI:-mongodb://host.docker.internal:27017/}
       MONGO_DB: ${MONGO_DB:-astra}
       RABBITMQ_URI: ${RABBITMQ_URI:-amqp://raina:raina@host.docker.internal:5672/}
       RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-raina.events}
@@ -60,10 +85,12 @@ services:
       PLATFORM_EVENTS_ORG: ${PLATFORM_EVENTS_ORG:-platform}
       CAPABILITY_SVC_BASE_URL: ${CAPABILITY_SVC_BASE_URL:-http://astra-capability-service:9021}
       ARTIFACT_SVC_BASE_URL: ${ARTIFACT_SVC_BASE_URL:-http://astra-artifact-service:9020}
+      WORKSPACE_MGR_BASE_URL: ${WORKSPACE_MGR_BASE_URL:-http://astra-workspace-manager-service:9027}
       HTTP_CLIENT_TIMEOUT_SECONDS: ${HTTP_CLIENT_TIMEOUT_SECONDS:-30}
       SERVICE_NAME: conductor-service
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
 
+      # NOTE: LLM config (ConfigForge) loaded from ../services/conductor-service/.env.example
       # NEW: make the workspace path explicit (optional but handy)
       WORKSPACE_FOLDER: /workspace
       WORKSPACE_MOUNT: /workspace
@@ -85,8 +112,15 @@ services:
     environment:
       SERVICE_NAME: raina-input-service
       APP_PORT: ${APP_PORT:-9023}
-      # Optional CORS origins (comma-separated). "*" by default.
       CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-*}
+
+      # NEW: Mongo config (align with other services)
+      MONGO_URI: ${MONGO_URI:-mongodb://host.docker.internal:27017/}
+      MONGO_DB: ${MONGO_DB:-raina_inputs_db}
+      MONGO_COLLECTION: ${MONGO_COLLECTION:-projects}
+
+      # Optional: default project name for first-time seed
+      DEFAULT_PROJECT_NAME: ${DEFAULT_PROJECT_NAME:-Rail Freight Billing Demo}
     ports:
       - "9023:9023"
     extra_hosts:
@@ -105,7 +139,7 @@ services:
         APP_PORT: ${ASTRAUI_RESOLVER_PORT:-9024}
         LOG_LEVEL: ${LOG_LEVEL:-INFO}
         # Share the same Mongo defaults as other services
-        MONGO_URI: ${MONGO_URI:-mongodb+srv://sandeepk:sandeep@cluster0.tnbpi.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0}
+        MONGO_URI: ${MONGO_URI:-mongodb://host.docker.internal:27017/}
         MONGO_DB: ${MONGO_DB:-astra}
         # Optional CORS
         CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-*}
@@ -113,3 +147,69 @@ services:
         - "9024:9024"
       extra_hosts:
         - "host.docker.internal:host-gateway"
+
+  astra-redis:
+    image: redis:7-alpine
+    container_name: astra-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --save "" --appendonly no
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  astra-planner-service:
+    build:
+      context: ..
+      dockerfile: services/planner-service/Dockerfile
+    container_name: astra-planner-service
+    restart: unless-stopped
+    env_file:
+      - ../services/planner-service/.env.example
+    environment:
+      MONGO_URI: ${MONGO_URI:-mongodb://host.docker.internal:27017/}
+      MONGO_DB: ${MONGO_DB:-astra}
+      RABBITMQ_URI: ${RABBITMQ_URI:-amqp://raina:raina@host.docker.internal:5672/}
+      RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-raina.events}
+      EVENTS_ORG: ${EVENTS_ORG:-astra}
+      REDIS_URL: ${REDIS_URL:-redis://astra-redis:6379/0}
+      CAPABILITY_SVC_BASE_URL: ${CAPABILITY_SVC_BASE_URL:-http://astra-capability-service:9021}
+      CONDUCTOR_SVC_BASE_URL: ${CONDUCTOR_SVC_BASE_URL:-http://astra-conductor-service:9022}
+      ARTIFACT_SVC_BASE_URL: ${ARTIFACT_SVC_BASE_URL:-http://astra-artifact-service:9020}
+      WORKSPACE_MGR_BASE_URL: ${WORKSPACE_MGR_BASE_URL:-http://astra-workspace-manager-service:9027}
+      SERVICE_NAME: planner-service
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    ports:
+      - "9025:9025"
+    depends_on:
+      - astra-redis
+      - astra-capability-service
+      - astra-conductor-service
+      - astra-artifact-service
+      - astra-workspace-manager-service
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  astra-capability-onboarding-service:
+    build:
+      context: ..
+      dockerfile: services/capability-onboarding-service/Dockerfile
+    container_name: astra-capability-onboarding-service
+    restart: unless-stopped
+    environment:
+      SERVICE_NAME: capability-onboarding-service
+      CAPABILITY_SVC_BASE_URL: ${CAPABILITY_SVC_BASE_URL:-http://astra-capability-service:9021}
+      ARTIFACT_SVC_BASE_URL: ${ARTIFACT_SVC_BASE_URL:-http://astra-artifact-service:9020}
+      HTTP_CLIENT_TIMEOUT_SECONDS: ${HTTP_CLIENT_TIMEOUT_SECONDS:-30}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CONFIG_FORGE_URL: ${CONFIG_FORGE_URL:-http://host.docker.internal:8040}
+      ONBOARDING_LLM_CONFIG_REF: ${ONBOARDING_LLM_CONFIG_REF:-dev.llm.openai.fast}
+      # Rewrite 'localhost' in user-supplied MCP URLs to reach the Docker host
+      MCP_LOCALHOST_ALIAS: host.docker.internal
+    ports:
+      - "9026:9026"
+    depends_on:
+      - astra-capability-service
+      - astra-artifact-service
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

@@ -9,6 +9,7 @@ dependencies = [
   "motor>=3.5",
   "orjson>=3.10",
   "aio-pika>=9.4",
+  "mcp>=1.15,<2",
 ]
 
 [tool.pytest.ini_options]

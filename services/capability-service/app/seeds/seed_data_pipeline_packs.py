@@ -49,7 +49,7 @@ async def seed_data_pipeline_packs() -> None:
     Seeds Data Engineering Architecture Discovery capability packs.
 
     Maintains v1.0 (no MCP fetch step) and adds v1.1 where the first step fetches
-    the Raina input JSON via the new MCP capability `cap.raina.fetch_input`.
+    the Raina input JSON via the new MCP capability `cap.asset.fetch_raina_input`.
     """
     svc = PackService()  # ✅ fixed class name
 
@@ -69,34 +69,29 @@ async def seed_data_pipeline_packs() -> None:
             "orchestration, topology, tech stack ranking, data products, a concrete deployment plan, and an optional "
             "architecture guidance document grounded in discovered artifacts."
         ),
-        # v1.0 used the generic discovery input id
-        pack_input_ids=[
-            "input.astra.discovery.avc-fss-pss",
-            "input.data-eng.architecture-guide",
-        ],
         capability_ids=[
-            "cap.inventory.sources_sinks",
-            "cap.discover.business_flows",
-            "cap.discover.logical_data_model",
-            "cap.select.pipeline_patterns",
-            "cap.define.dataset_contracts",
-            "cap.spec.transforms",
-            "cap.spec.batch_job",
-            "cap.spec.stream_job",
-            "cap.orchestration.define",
-            "cap.map.lineage",
-            "cap.policy.governance",
-            "cap.policy.access_control",
-            "cap.policy.masking",
-            "cap.sla.quality",
-            "cap.observability.define",
+            "cap.catalog.inventory_sources",
+            "cap.workflow.discover_business_flows",
+            "cap.data.discover_logical_model",
+            "cap.architecture.select_pipeline_patterns",
+            "cap.contract.define_dataset",
+            "cap.data.spec_transforms",
+            "cap.workflow.spec_batch_job",
+            "cap.workflow.spec_stream_job",
+            "cap.workflow.define_orchestration",
+            "cap.data.map_lineage",
+            "cap.governance.derive_policies",
+            "cap.security.define_access_control",
+            "cap.security.define_masking",
+            "cap.qa.define_data_sla",
+            "cap.observability.define_spec",
             "cap.diagram.topology",
-            "cap.rank.tech_stack",
+            "cap.catalog.rank_tech_stack",
             "cap.catalog.data_products",
-            "cap.assemble.pipeline_architecture",
-            "cap.plan.deployment",
+            "cap.architecture.assemble_pipeline",
+            "cap.deployment.plan_pipeline",
             # include guidance capability for guidance playbook
-            "cap.data-eng.generate-arch-diagram",
+            "cap.diagram.generate_arch",
         ],
         agent_capability_ids=[
             "cap.diagram.mermaid",
@@ -110,28 +105,27 @@ async def seed_data_pipeline_packs() -> None:
                     "lineage → governance & security → SLAs/observability → topology → stack ranking → data products → "
                     "assembly → deployment plan."
                 ),
-                "input_id": "input.astra.discovery.avc-fss-pss",
                 "steps": [
-                    {"id": "src-1", "name": "Inventory Sources & Sinks", "capability_id": "cap.inventory.sources_sinks"},
-                    {"id": "flow-1", "name": "Discover Business Flows", "capability_id": "cap.discover.business_flows"},
-                    {"id": "model-1", "name": "Derive Logical Data Model", "capability_id": "cap.discover.logical_data_model"},
-                    {"id": "pat-1", "name": "Select Pipeline Architecture Patterns", "capability_id": "cap.select.pipeline_patterns"},
-                    {"id": "contract-1", "name": "Define Dataset Contracts", "capability_id": "cap.define.dataset_contracts"},
-                    {"id": "tfm-1", "name": "Specify Transformations", "capability_id": "cap.spec.transforms"},
-                    {"id": "batch-1", "name": "Generate Batch Job Spec", "capability_id": "cap.spec.batch_job"},
-                    {"id": "stream-1", "name": "Generate Stream Job Spec", "capability_id": "cap.spec.stream_job"},
-                    {"id": "orc-1", "name": "Define Orchestration", "capability_id": "cap.orchestration.define"},
-                    {"id": "lin-1", "name": "Map Lineage", "capability_id": "cap.map.lineage"},
-                    {"id": "gov-1", "name": "Derive Governance Policies", "capability_id": "cap.policy.governance"},
-                    {"id": "sec-1", "name": "Access Control", "capability_id": "cap.policy.access_control"},
-                    {"id": "sec-2", "name": "Masking & Anonymization", "capability_id": "cap.policy.masking"},
-                    {"id": "sla-1", "name": "Define SLAs & DQ Targets", "capability_id": "cap.sla.quality"},
-                    {"id": "obs-1", "name": "Observability Spec", "capability_id": "cap.observability.define"},
+                    {"id": "src-1", "name": "Inventory Sources & Sinks", "capability_id": "cap.catalog.inventory_sources"},
+                    {"id": "flow-1", "name": "Discover Business Flows", "capability_id": "cap.workflow.discover_business_flows"},
+                    {"id": "model-1", "name": "Derive Logical Data Model", "capability_id": "cap.data.discover_logical_model"},
+                    {"id": "pat-1", "name": "Select Pipeline Architecture Patterns", "capability_id": "cap.architecture.select_pipeline_patterns"},
+                    {"id": "contract-1", "name": "Define Dataset Contracts", "capability_id": "cap.contract.define_dataset"},
+                    {"id": "tfm-1", "name": "Specify Transformations", "capability_id": "cap.data.spec_transforms"},
+                    {"id": "batch-1", "name": "Generate Batch Job Spec", "capability_id": "cap.workflow.spec_batch_job"},
+                    {"id": "stream-1", "name": "Generate Stream Job Spec", "capability_id": "cap.workflow.spec_stream_job"},
+                    {"id": "orc-1", "name": "Define Orchestration", "capability_id": "cap.workflow.define_orchestration"},
+                    {"id": "lin-1", "name": "Map Lineage", "capability_id": "cap.data.map_lineage"},
+                    {"id": "gov-1", "name": "Derive Governance Policies", "capability_id": "cap.governance.derive_policies"},
+                    {"id": "sec-1", "name": "Access Control", "capability_id": "cap.security.define_access_control"},
+                    {"id": "sec-2", "name": "Masking & Anonymization", "capability_id": "cap.security.define_masking"},
+                    {"id": "sla-1", "name": "Define SLAs & DQ Targets", "capability_id": "cap.qa.define_data_sla"},
+                    {"id": "obs-1", "name": "Observability Spec", "capability_id": "cap.observability.define_spec"},
                     {"id": "topo-1", "name": "Platform Topology", "capability_id": "cap.diagram.topology"},
-                    {"id": "rank-1", "name": "Rank Tech Stack", "capability_id": "cap.rank.tech_stack"},
+                    {"id": "rank-1", "name": "Rank Tech Stack", "capability_id": "cap.catalog.rank_tech_stack"},
                     {"id": "dap-1", "name": "Compose Data Products", "capability_id": "cap.catalog.data_products"},
-                    {"id": "asm-1", "name": "Assemble Pipeline Architecture", "capability_id": "cap.assemble.pipeline_architecture"},
-                    {"id": "dep-1", "name": "Deployment Plan", "capability_id": "cap.plan.deployment"},
+                    {"id": "asm-1", "name": "Assemble Pipeline Architecture", "capability_id": "cap.architecture.assemble_pipeline"},
+                    {"id": "dep-1", "name": "Deployment Plan", "capability_id": "cap.deployment.plan_pipeline"},
                 ],
             },
             {
@@ -141,12 +135,11 @@ async def seed_data_pipeline_packs() -> None:
                     "Generate a comprehensive, prose-style architecture guidance document grounded in the artifacts "
                     "produced by the discovery flow (patterns, datasets, lineage, SLAs, topology, etc.)."
                 ),
-                "input_id": "input.data-eng.architecture-guide",
                 "steps": [
                     {
                         "id": "guide-1",
                         "name": "Generate Architecture Guidance Document",
-                        "capability_id": "cap.data-eng.generate-arch-diagram",
+                        "capability_id": "cap.diagram.generate_arch",
                     }
                 ],
             },
@@ -170,34 +163,29 @@ async def seed_data_pipeline_packs() -> None:
             "orchestration, topology, tech stack ranking, data products, a concrete deployment plan, and an optional "
             "architecture guidance document grounded in discovered artifacts. This version fetches the Raina input via MCP as the first step."
         ),
-        # v1.1 uses the explicit URL-based Raina input contract
-        pack_input_ids=[
-            "input.raina.user-stories-url",
-            "input.data-eng.architecture-guide",
-        ],
         capability_ids=[
-            "cap.raina.fetch_input",  # NEW
-            "cap.inventory.sources_sinks",
-            "cap.discover.business_flows",
-            "cap.discover.logical_data_model",
-            "cap.select.pipeline_patterns",
-            "cap.define.dataset_contracts",
-            "cap.spec.transforms",
-            "cap.spec.batch_job",
-            "cap.spec.stream_job",
-            "cap.orchestration.define",
-            "cap.map.lineage",
-            "cap.policy.governance",
-            "cap.policy.access_control",
-            "cap.policy.masking",
-            "cap.sla.quality",
-            "cap.observability.define",
+            "cap.asset.fetch_raina_input",  # NEW
+            "cap.catalog.inventory_sources",
+            "cap.workflow.discover_business_flows",
+            "cap.data.discover_logical_model",
+            "cap.architecture.select_pipeline_patterns",
+            "cap.contract.define_dataset",
+            "cap.data.spec_transforms",
+            "cap.workflow.spec_batch_job",
+            "cap.workflow.spec_stream_job",
+            "cap.workflow.define_orchestration",
+            "cap.data.map_lineage",
+            "cap.governance.derive_policies",
+            "cap.security.define_access_control",
+            "cap.security.define_masking",
+            "cap.qa.define_data_sla",
+            "cap.observability.define_spec",
             "cap.diagram.topology",
-            "cap.rank.tech_stack",
+            "cap.catalog.rank_tech_stack",
             "cap.catalog.data_products",
-            "cap.assemble.pipeline_architecture",
-            "cap.plan.deployment",
-            "cap.data-eng.generate-arch-diagram",
+            "cap.architecture.assemble_pipeline",
+            "cap.deployment.plan_pipeline",
+            "cap.diagram.generate_arch",
         ],
         agent_capability_ids=[
             "cap.diagram.mermaid",
@@ -211,34 +199,33 @@ async def seed_data_pipeline_packs() -> None:
                     "→ contracts → transforms → jobs → orchestration → lineage → governance & security → SLAs/observability "
                     "→ topology → stack ranking → data products → assembly → deployment plan."
                 ),
-                "input_id": "input.raina.user-stories-url",
                 "steps": [
                     {
                         "id": "fetch-1",
                         "name": "Fetch Raina Input (AVC/FSS/PSS)",
-                        "capability_id": "cap.raina.fetch_input",
-                        "description": "Fetch and validate the Raina input JSON (emits cam.inputs.raina)."
+                        "capability_id": "cap.asset.fetch_raina_input",
+                        "description": "Fetch and validate the Raina input JSON (emits cam.asset.raina_input)."
                     },
-                    {"id": "src-1", "name": "Inventory Sources & Sinks", "capability_id": "cap.inventory.sources_sinks"},
-                    {"id": "flow-1", "name": "Discover Business Flows", "capability_id": "cap.discover.business_flows"},
-                    {"id": "model-1", "name": "Derive Logical Data Model", "capability_id": "cap.discover.logical_data_model"},
-                    {"id": "pat-1", "name": "Select Pipeline Architecture Patterns", "capability_id": "cap.select.pipeline_patterns"},
-                    {"id": "contract-1", "name": "Define Dataset Contracts", "capability_id": "cap.define.dataset_contracts"},
-                    {"id": "tfm-1", "name": "Specify Transformations", "capability_id": "cap.spec.transforms"},
-                    {"id": "batch-1", "name": "Generate Batch Job Spec", "capability_id": "cap.spec.batch_job"},
-                    {"id": "stream-1", "name": "Generate Stream Job Spec", "capability_id": "cap.spec.stream_job"},
-                    {"id": "orc-1", "name": "Define Orchestration", "capability_id": "cap.orchestration.define"},
-                    {"id": "lin-1", "name": "Map Lineage", "capability_id": "cap.map.lineage"},
-                    {"id": "gov-1", "name": "Derive Governance Policies", "capability_id": "cap.policy.governance"},
-                    {"id": "sec-1", "name": "Access Control", "capability_id": "cap.policy.access_control"},
-                    {"id": "sec-2", "name": "Masking & Anonymization", "capability_id": "cap.policy.masking"},
-                    {"id": "sla-1", "name": "Define SLAs & DQ Targets", "capability_id": "cap.sla.quality"},
-                    {"id": "obs-1", "name": "Observability Spec", "capability_id": "cap.observability.define"},
+                    {"id": "src-1", "name": "Inventory Sources & Sinks", "capability_id": "cap.catalog.inventory_sources"},
+                    {"id": "flow-1", "name": "Discover Business Flows", "capability_id": "cap.workflow.discover_business_flows"},
+                    {"id": "model-1", "name": "Derive Logical Data Model", "capability_id": "cap.data.discover_logical_model"},
+                    {"id": "pat-1", "name": "Select Pipeline Architecture Patterns", "capability_id": "cap.architecture.select_pipeline_patterns"},
+                    {"id": "contract-1", "name": "Define Dataset Contracts", "capability_id": "cap.contract.define_dataset"},
+                    {"id": "tfm-1", "name": "Specify Transformations", "capability_id": "cap.data.spec_transforms"},
+                    {"id": "batch-1", "name": "Generate Batch Job Spec", "capability_id": "cap.workflow.spec_batch_job"},
+                    {"id": "stream-1", "name": "Generate Stream Job Spec", "capability_id": "cap.workflow.spec_stream_job"},
+                    {"id": "orc-1", "name": "Define Orchestration", "capability_id": "cap.workflow.define_orchestration"},
+                    {"id": "lin-1", "name": "Map Lineage", "capability_id": "cap.data.map_lineage"},
+                    {"id": "gov-1", "name": "Derive Governance Policies", "capability_id": "cap.governance.derive_policies"},
+                    {"id": "sec-1", "name": "Access Control", "capability_id": "cap.security.define_access_control"},
+                    {"id": "sec-2", "name": "Masking & Anonymization", "capability_id": "cap.security.define_masking"},
+                    {"id": "sla-1", "name": "Define SLAs & DQ Targets", "capability_id": "cap.qa.define_data_sla"},
+                    {"id": "obs-1", "name": "Observability Spec", "capability_id": "cap.observability.define_spec"},
                     {"id": "topo-1", "name": "Platform Topology", "capability_id": "cap.diagram.topology"},
-                    {"id": "rank-1", "name": "Rank Tech Stack", "capability_id": "cap.rank.tech_stack"},
+                    {"id": "rank-1", "name": "Rank Tech Stack", "capability_id": "cap.catalog.rank_tech_stack"},
                     {"id": "dap-1", "name": "Compose Data Products", "capability_id": "cap.catalog.data_products"},
-                    {"id": "asm-1", "name": "Assemble Pipeline Architecture", "capability_id": "cap.assemble.pipeline_architecture"},
-                    {"id": "dep-1", "name": "Deployment Plan", "capability_id": "cap.plan.deployment"},
+                    {"id": "asm-1", "name": "Assemble Pipeline Architecture", "capability_id": "cap.architecture.assemble_pipeline"},
+                    {"id": "dep-1", "name": "Deployment Plan", "capability_id": "cap.deployment.plan_pipeline"},
                 ],
             },
             {
@@ -248,12 +235,11 @@ async def seed_data_pipeline_packs() -> None:
                     "Generate a comprehensive, prose-style architecture guidance document grounded in the artifacts "
                     "produced by the discovery flow (patterns, datasets, lineage, SLAs, topology, etc.)."
                 ),
-                "input_id": "input.data-eng.architecture-guide",
                 "steps": [
                     {
                         "id": "guide-1",
                         "name": "Generate Architecture Guidance Document",
-                        "capability_id": "cap.data-eng.generate-arch-diagram",
+                        "capability_id": "cap.diagram.generate_arch",
                     }
                 ],
             },

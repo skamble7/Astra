@@ -80,7 +80,6 @@ async def seed_packs_raina() -> None:
 
     pack_key = "svc-micro"
     pack_version = "v1.4"
-    pack_input_id = "input.astra.discovery.avc-fss-pss"  # per request
 
     # Remove any existing pack@version to ensure clean replace
     await _delete_pack_if_exists(svc, pack_key, pack_version)
@@ -90,12 +89,11 @@ async def seed_packs_raina() -> None:
         id="pb.micro.plus",
         name="Microservices Discovery (Lean v1.4)",
         description="Essentials-only flow using validated CAM kinds.",
-        input_id=pack_input_id,  # NEW: must be a member of pack_input_ids
         steps=[
             PlaybookStep(
                 id="ctx-1",
                 name="Discover Context Map",
-                capability_id="cap.discover.context_map",
+                capability_id="cap.domain.discover_context_map",
                 description=None,
             ),
             PlaybookStep(
@@ -113,7 +111,7 @@ async def seed_packs_raina() -> None:
             PlaybookStep(
                 id="erd-1",
                 name="Generate Class/ER Diagram",
-                capability_id="cap.generate.class_diagram",
+                capability_id="cap.diagram.generate_class",
                 description=None,
             ),
             PlaybookStep(
@@ -125,13 +123,13 @@ async def seed_packs_raina() -> None:
             PlaybookStep(
                 id="evt-1",
                 name="Event Contracts",
-                capability_id="cap.contracts.event",
+                capability_id="cap.contract.define_event",
                 description=None,
             ),
             PlaybookStep(
                 id="api-1",
                 name="API Contracts",
-                capability_id="cap.contracts.api",
+                capability_id="cap.contract.define_api",
                 description=None,
             ),
             PlaybookStep(
@@ -169,13 +167,13 @@ async def seed_packs_raina() -> None:
 
     # Capability IDs for the pack (must align with those seeded from RainaV2)
     capability_ids = [
-        "cap.discover.context_map",
+        "cap.domain.discover_context_map",
         "cap.data.dictionary",
         "cap.catalog.services",
-        "cap.generate.class_diagram",
+        "cap.diagram.generate_class",
         "cap.diagram.activity",
-        "cap.contracts.event",
-        "cap.contracts.api",
+        "cap.contract.define_event",
+        "cap.contract.define_api",
         "cap.data.model",
         "cap.diagram.deployment",
         "cap.asset.service_inventory",
@@ -191,7 +189,6 @@ async def seed_packs_raina() -> None:
             "Focused microservices discovery using only validated CAM kinds: "
             "context → services → interactions → contracts → data → deployment → inventories."
         ),
-        pack_input_ids=[pack_input_id],  # CHANGED: collection form
         capability_ids=capability_ids,
         # No agent-only capabilities specified for this pack; add later if needed
         agent_capability_ids=["cap.diagram.mermaid"],
